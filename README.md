@@ -21,7 +21,8 @@ Example commands:
 ```bash
 cargo run -p seisrefine -- inspect ../sgyx/test-data/small.sgy
 cargo run -p seisrefine -- ingest ../sgyx/test-data/small.sgy ./small.zarr
-cargo run -p seisrefine -- upscale ./small.zarr ./small-2x.zarr
+cargo run -p seisrefine -- upscale ./small.zarr ./small-2x.zarr --method cubic
+cargo run -p seisrefine -- validate ./validation-reports
 cargo run -p seisrefine -- render ./small-2x.zarr ./inline.csv --axis inline --index 0
 ```
 
