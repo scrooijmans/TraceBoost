@@ -19,20 +19,27 @@ The backend now lives as a separate project in the sibling repository:
 
 This repository no longer carries the backend implementation directly. The authoritative backend development flow is:
 
-- `TraceBoost/`: product shell, docs, future Tauri app
+- `TraceBoost/`: product shell, docs, and now the first app-side Rust crate
 - `../seisrefine/`: backend Rust project
 - `../sgyx/`: SEG-Y ingest library
 
 Example commands:
 
 ```bash
+cargo run -p traceboost-app -- backend-info
+cargo run -p traceboost-app -- inspect ../sgyx/test-data/small.sgy
+cargo run -p traceboost-app -- analyze ../sgyx/test-data/small.sgy
+cargo run -p traceboost-app -- ingest ../sgyx/test-data/small.sgy ./target/small.zarr
+cargo run -p traceboost-app -- validate ./target/validation-reports
+
 cd ../seisrefine
-cargo run -- inspect ../sgyx/test-data/small.sgy
-cargo run -- validate ./target/validation-reports
+cargo test
 ```
 
 ## Notes
 
 - the `docs/` directory remains the planning and research baseline
-- the backend is now intentionally developed outside this repo; no Tauri code has been added yet
+- the backend is intentionally developed outside this repo, but TraceBoost now has its own thin Rust app crate that consumes `seisrefine` by path
+- the first app-side workflow is now preflight-first: inspect geometry, then ingest directly or opt into sparse regularization
+- no Tauri code has been added yet
 - learned super-resolution is deferred until the deterministic interpolation path and validation harness are stable
