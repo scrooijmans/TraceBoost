@@ -1,0 +1,11 @@
+[package]
+name = "seis-contracts-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "seisdomain_core"
+
+[dependencies]
+serde.workspace = true

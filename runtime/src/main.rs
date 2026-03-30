@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seisrefine::{
-    IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
-    inspect_segy, preflight_segy, run_validation,
+    IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, SparseSurveyPolicy,
+    UpscaleOptions, ingest_segy, inspect_segy, preflight_segy, render_section_csv,
+    run_validation, upscale_store,
 };
-use serde::Serialize;
 
 #[derive(Debug, Parser)]
-#[command(name = "traceboost-app")]
-#[command(about = "Thin app-side shell for TraceBoost, backed by the standalone seisrefine repo")]
+#[command(name = "seisrefine")]
+#[command(about = "SEG-Y ingest and conservative trace-volume refinement")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -17,7 +17,6 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    BackendInfo,
     Inspect {
         input: PathBuf,
     },
@@ -58,11 +57,41 @@ enum Command {
         #[arg(long, default_value_t = 0.0)]
         fill_value: f32,
     },
+    Upscale {
+        input: PathBuf,
+        output: PathBuf,
+        #[arg(long, default_value_t = 2)]
+        scale: u8,
+        #[arg(long, value_enum, default_value_t = MethodArg::Linear)]
+        method: MethodArg,
+        #[arg(long, value_delimiter = ',', default_values_t = [16_usize, 16, 64])]
+        chunk: Vec<usize>,
+    },
     Validate {
         output: PathBuf,
         #[arg(long = "input")]
         inputs: Vec<PathBuf>,
     },
+    Render {
+        input: PathBuf,
+        output: PathBuf,
+        #[arg(long, value_enum)]
+        axis: AxisArg,
+        #[arg(long)]
+        index: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AxisArg {
+    Inline,
+    Xline,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MethodArg {
+    Linear,
+    Cubic,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -71,30 +100,9 @@ enum HeaderTypeArg {
     I32,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct BackendInfo {
-    backend_repo_hint: &'static str,
-    backend_local_path_hint: &'static str,
-    current_default_method_policy: &'static str,
-    current_geometry_policy: &'static str,
-    current_scope: &'static str,
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
-        Command::BackendInfo => {
-            let info = BackendInfo {
-                backend_repo_hint: "https://github.com/tuna-soup/seisrefine.git",
-                backend_local_path_hint: "../seisrefine",
-                current_default_method_policy:
-                    "keep linear as default unless a stronger method wins on every validation dataset",
-                current_geometry_policy:
-                    "dense surveys ingest directly; sparse regular post-stack surveys require explicit regularization; duplicate-heavy surveys still stop for review",
-                current_scope: "backend-first shell with preflight and ingest routing; Tauri app not started yet",
-            };
-            println!("{}", serde_json::to_string_pretty(&info)?);
-        }
         Command::Inspect { input } => {
             println!("{}", serde_json::to_string_pretty(&inspect_segy(input)?)?);
         }
@@ -156,13 +164,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             println!("{}", serde_json::to_string_pretty(&handle.manifest)?);
         }
+        Command::Upscale {
+            input,
+            output,
+            scale,
+            method,
+            chunk,
+        } => {
+            let handle = upscale_store(
+                input,
+                output,
+                UpscaleOptions {
+                    scale,
+                    method: method.into(),
+                    chunk_shape: parse_chunk_shape(&chunk),
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&handle.manifest)?);
+        }
         Command::Validate { output, inputs } => {
-            let summary = run_validation(ValidationOptions {
+            let summary = run_validation(seisrefine::ValidationOptions {
                 output_dir: output,
                 dataset_paths: inputs,
                 validation_mode: sgyx::ValidationMode::Strict,
             })?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Command::Render {
+            input,
+            output,
+            axis,
+            index,
+        } => {
+            render_section_csv(input, axis.into(), index, output)?;
         }
     }
 
@@ -173,6 +207,24 @@ fn parse_chunk_shape(values: &[usize]) -> [usize; 3] {
     match values {
         [a, b, c] => [*a, *b, *c],
         _ => [16, 16, 64],
+    }
+}
+
+impl From<AxisArg> for SectionAxis {
+    fn from(value: AxisArg) -> Self {
+        match value {
+            AxisArg::Inline => SectionAxis::Inline,
+            AxisArg::Xline => SectionAxis::Xline,
+        }
+    }
+}
+
+impl From<MethodArg> for InterpMethod {
+    fn from(value: MethodArg) -> Self {
+        match value {
+            MethodArg::Linear => InterpMethod::Linear,
+            MethodArg::Cubic => InterpMethod::Cubic,
+        }
     }
 }
 

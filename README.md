@@ -1,45 +1,50 @@
 # TraceBoost
 
-TraceBoost is the product shell for a local-first seismic refinement application.
+TraceBoost is now the monorepo for the backend/product side of the seismic application stack.
 
-The backend now lives as a separate project in the sibling repository:
+## Monorepo Layout
 
-- local path: `../seisrefine`
-- remote: `https://github.com/tuna-soup/seisrefine.git`
+- `contracts/`
+  - shared Rust contracts and IPC-safe schemas
+- `io/`
+  - SEG-Y ingest and geometry extraction
+- `runtime/`
+  - working-store, processing, validation, and runtime-facing APIs
+- `app/`
+  - product-facing application crates
+- `test-data/`
+  - shared seismic fixtures used across `io`, `runtime`, and app integration tests
+- `docs/`
+  - architecture and research notes
+- `scripts/`
+  - repository-level support tooling
 
 ## Current Direction
 
-- `TraceBoost` remains the future Tauri GUI and user-facing desktop application
-- `seisrefine` is the separate backend project that owns SEG-Y ingest, chunked derived storage, interpolation, validation, and export primitives
-- `sgyx` is used as the SEG-Y ingest dependency
-- backend v1 targets regular post-stack cubes and 2x inter-trace densification
-- backend v1 is CPU-first, Rust-native, and correctness/provenance-first
+- CPU-first processing remains the default path
+- the backend keeps a deliberate path open for future GPU compute
+- the canonical working-volume layout remains the current chunked Zarr-backed store in `runtime/`
+- the product app stays separate from the visualization SDK; `geoviz` remains outside this repo
 
-## Repository Layout
+## Workspace
 
-This repository no longer carries the backend implementation directly. The authoritative backend development flow is:
+This repo uses one root Cargo workspace for the Rust/backend side:
 
-- `TraceBoost/`: product shell, docs, and now the first app-side Rust crate
-- `../seisrefine/`: backend Rust project
-- `../sgyx/`: SEG-Y ingest library
+- `seis-contracts-core`
+- `seis-contracts-views`
+- `seis-contracts-interop`
+- `seis-io`
+- `seis-runtime`
+- `traceboost-app`
 
-Example commands:
+Run the full backend/product test suite with:
 
 ```bash
-cargo run -p traceboost-app -- backend-info
-cargo run -p traceboost-app -- inspect ../sgyx/test-data/small.sgy
-cargo run -p traceboost-app -- analyze ../sgyx/test-data/small.sgy
-cargo run -p traceboost-app -- ingest ../sgyx/test-data/small.sgy ./target/small.zarr
-cargo run -p traceboost-app -- validate ./target/validation-reports
-
-cd ../seisrefine
 cargo test
 ```
 
 ## Notes
 
-- the `docs/` directory remains the planning and research baseline
-- the backend is intentionally developed outside this repo, but TraceBoost now has its own thin Rust app crate that consumes `seisrefine` by path
-- the first app-side workflow is now preflight-first: inspect geometry, then ingest directly or opt into sparse regularization
-- no Tauri code has been added yet
-- learned super-resolution is deferred until the deterministic interpolation path and validation harness are stable
+- `geoviz` remains an external visualization SDK and is not vendored into this monorepo
+- `seisview-js` is not part of the production architecture here
+- old standalone repos are being deprecated in favor of this monorepo layout
