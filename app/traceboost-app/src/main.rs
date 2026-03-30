@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use seis_runtime::{
     IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
-    inspect_segy, preflight_segy, run_validation,
+    inspect_segy, open_store, preflight_segy, run_validation,
 };
 use serde::Serialize;
 
@@ -63,12 +63,24 @@ enum Command {
         #[arg(long = "input")]
         inputs: Vec<PathBuf>,
     },
+    ViewSection {
+        store: PathBuf,
+        #[arg(value_enum)]
+        axis: SectionAxisArg,
+        index: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum HeaderTypeArg {
     I16,
     I32,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SectionAxisArg {
+    Inline,
+    Xline,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,9 +176,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }
+        Command::ViewSection { store, axis, index } => {
+            let view = open_store(store)?.section_view(axis.into(), index)?;
+            println!("{}", serde_json::to_string(&view)?);
+        }
     }
 
     Ok(())
+}
+
+impl From<SectionAxisArg> for seis_runtime::SectionAxis {
+    fn from(value: SectionAxisArg) -> Self {
+        match value {
+            SectionAxisArg::Inline => Self::Inline,
+            SectionAxisArg::Xline => Self::Xline,
+        }
+    }
 }
 
 fn parse_chunk_shape(values: &[usize]) -> [usize; 3] {

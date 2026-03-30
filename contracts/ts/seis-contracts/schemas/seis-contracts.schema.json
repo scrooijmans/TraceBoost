@@ -111,18 +111,186 @@
           ],
           "type": "string"
         },
-        "SectionView": {
+        "SectionColorMap": {
+          "enum": [
+            "grayscale",
+            "red_white_blue"
+          ],
+          "type": "string"
+        },
+        "SectionCoordinate": {
           "properties": {
-            "axis": {
-              "$ref": "#/definitions/SectionAxis"
-            },
-            "dataset_id": {
-              "$ref": "#/definitions/DatasetId"
-            },
             "index": {
               "format": "uint",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "index",
+            "value"
+          ],
+          "type": "object"
+        },
+        "SectionDisplayDefaults": {
+          "properties": {
+            "clip_max": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "clip_min": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "colormap": {
+              "$ref": "#/definitions/SectionColorMap"
+            },
+            "gain": {
+              "format": "float",
+              "type": "number"
+            },
+            "polarity": {
+              "$ref": "#/definitions/SectionPolarity"
+            },
+            "render_mode": {
+              "$ref": "#/definitions/SectionRenderMode"
+            }
+          },
+          "required": [
+            "colormap",
+            "gain",
+            "polarity",
+            "render_mode"
+          ],
+          "type": "object"
+        },
+        "SectionMetadata": {
+          "properties": {
+            "derived_from": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "notes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "store_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "notes"
+          ],
+          "type": "object"
+        },
+        "SectionPolarity": {
+          "enum": [
+            "normal",
+            "reversed"
+          ],
+          "type": "string"
+        },
+        "SectionRenderMode": {
+          "enum": [
+            "heatmap",
+            "wiggle"
+          ],
+          "type": "string"
+        },
+        "SectionUnits": {
+          "properties": {
+            "amplitude": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "horizontal": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "SectionView": {
+          "properties": {
+            "amplitudes_f32le": {
+              "items": {
+                "format": "uint8",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "coordinate": {
+              "$ref": "#/definitions/SectionCoordinate"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "display_defaults": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionDisplayDefaults"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "horizontal_axis_f64le": {
+              "items": {
+                "format": "uint8",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "metadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_axis_f32le": {
+              "items": {
+                "format": "uint8",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
             },
             "samples": {
               "format": "uint",
@@ -133,12 +301,25 @@
               "format": "uint",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "units": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionUnits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
+            "amplitudes_f32le",
             "axis",
+            "coordinate",
             "dataset_id",
-            "index",
+            "horizontal_axis_f64le",
+            "sample_axis_f32le",
             "samples",
             "traces"
           ],
@@ -175,18 +356,186 @@
           ],
           "type": "string"
         },
-        "SectionView": {
+        "SectionColorMap": {
+          "enum": [
+            "grayscale",
+            "red_white_blue"
+          ],
+          "type": "string"
+        },
+        "SectionCoordinate": {
           "properties": {
-            "axis": {
-              "$ref": "#/definitions/SectionAxis"
-            },
-            "dataset_id": {
-              "$ref": "#/definitions/DatasetId"
-            },
             "index": {
               "format": "uint",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "index",
+            "value"
+          ],
+          "type": "object"
+        },
+        "SectionDisplayDefaults": {
+          "properties": {
+            "clip_max": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "clip_min": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "colormap": {
+              "$ref": "#/definitions/SectionColorMap"
+            },
+            "gain": {
+              "format": "float",
+              "type": "number"
+            },
+            "polarity": {
+              "$ref": "#/definitions/SectionPolarity"
+            },
+            "render_mode": {
+              "$ref": "#/definitions/SectionRenderMode"
+            }
+          },
+          "required": [
+            "colormap",
+            "gain",
+            "polarity",
+            "render_mode"
+          ],
+          "type": "object"
+        },
+        "SectionMetadata": {
+          "properties": {
+            "derived_from": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "notes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "store_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "notes"
+          ],
+          "type": "object"
+        },
+        "SectionPolarity": {
+          "enum": [
+            "normal",
+            "reversed"
+          ],
+          "type": "string"
+        },
+        "SectionRenderMode": {
+          "enum": [
+            "heatmap",
+            "wiggle"
+          ],
+          "type": "string"
+        },
+        "SectionUnits": {
+          "properties": {
+            "amplitude": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "horizontal": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "SectionView": {
+          "properties": {
+            "amplitudes_f32le": {
+              "items": {
+                "format": "uint8",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "coordinate": {
+              "$ref": "#/definitions/SectionCoordinate"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "display_defaults": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionDisplayDefaults"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "horizontal_axis_f64le": {
+              "items": {
+                "format": "uint8",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "metadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_axis_f32le": {
+              "items": {
+                "format": "uint8",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
             },
             "samples": {
               "format": "uint",
@@ -197,12 +546,25 @@
               "format": "uint",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "units": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionUnits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
+            "amplitudes_f32le",
             "axis",
+            "coordinate",
             "dataset_id",
-            "index",
+            "horizontal_axis_f64le",
+            "sample_axis_f32le",
             "samples",
             "traces"
           ],
@@ -253,6 +615,286 @@
         "xline"
       ],
       "title": "SectionAxis",
+      "type": "string"
+    },
+    "SectionColorMap": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "grayscale",
+        "red_white_blue"
+      ],
+      "title": "SectionColorMap",
+      "type": "string"
+    },
+    "SectionCoordinate": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "index",
+        "value"
+      ],
+      "title": "SectionCoordinate",
+      "type": "object"
+    },
+    "SectionDisplayDefaults": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionColorMap": {
+          "enum": [
+            "grayscale",
+            "red_white_blue"
+          ],
+          "type": "string"
+        },
+        "SectionPolarity": {
+          "enum": [
+            "normal",
+            "reversed"
+          ],
+          "type": "string"
+        },
+        "SectionRenderMode": {
+          "enum": [
+            "heatmap",
+            "wiggle"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "clip_max": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clip_min": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "colormap": {
+          "$ref": "#/definitions/SectionColorMap"
+        },
+        "gain": {
+          "format": "float",
+          "type": "number"
+        },
+        "polarity": {
+          "$ref": "#/definitions/SectionPolarity"
+        },
+        "render_mode": {
+          "$ref": "#/definitions/SectionRenderMode"
+        }
+      },
+      "required": [
+        "colormap",
+        "gain",
+        "polarity",
+        "render_mode"
+      ],
+      "title": "SectionDisplayDefaults",
+      "type": "object"
+    },
+    "SectionInteractionChanged": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionPrimaryMode": {
+          "enum": [
+            "cursor",
+            "pan_zoom"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "chart_id": {
+          "type": "string"
+        },
+        "crosshair_enabled": {
+          "type": "boolean"
+        },
+        "primary_mode": {
+          "$ref": "#/definitions/SectionPrimaryMode"
+        },
+        "view_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chart_id",
+        "crosshair_enabled",
+        "primary_mode",
+        "view_id"
+      ],
+      "title": "SectionInteractionChanged",
+      "type": "object"
+    },
+    "SectionMetadata": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "derived_from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "store_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "notes"
+      ],
+      "title": "SectionMetadata",
+      "type": "object"
+    },
+    "SectionPolarity": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "normal",
+        "reversed"
+      ],
+      "title": "SectionPolarity",
+      "type": "string"
+    },
+    "SectionPrimaryMode": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "cursor",
+        "pan_zoom"
+      ],
+      "title": "SectionPrimaryMode",
+      "type": "string"
+    },
+    "SectionProbe": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "amplitude": {
+          "format": "float",
+          "type": "number"
+        },
+        "sample_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sample_value": {
+          "format": "float",
+          "type": "number"
+        },
+        "trace_coordinate": {
+          "format": "double",
+          "type": "number"
+        },
+        "trace_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "amplitude",
+        "sample_index",
+        "sample_value",
+        "trace_coordinate",
+        "trace_index"
+      ],
+      "title": "SectionProbe",
+      "type": "object"
+    },
+    "SectionProbeChanged": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionProbe": {
+          "properties": {
+            "amplitude": {
+              "format": "float",
+              "type": "number"
+            },
+            "sample_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "sample_value": {
+              "format": "float",
+              "type": "number"
+            },
+            "trace_coordinate": {
+              "format": "double",
+              "type": "number"
+            },
+            "trace_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "amplitude",
+            "sample_index",
+            "sample_value",
+            "trace_coordinate",
+            "trace_index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "chart_id": {
+          "type": "string"
+        },
+        "probe": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SectionProbe"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "view_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chart_id",
+        "view_id"
+      ],
+      "title": "SectionProbeChanged",
+      "type": "object"
+    },
+    "SectionRenderMode": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "heatmap",
+        "wiggle"
+      ],
+      "title": "SectionRenderMode",
       "type": "string"
     },
     "SectionRequest": {
@@ -364,6 +1006,31 @@
       "title": "SectionTileRequest",
       "type": "object"
     },
+    "SectionUnits": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "amplitude": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "horizontal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sample": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "SectionUnits",
+      "type": "object"
+    },
     "SectionView": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
@@ -376,19 +1043,187 @@
             "xline"
           ],
           "type": "string"
+        },
+        "SectionColorMap": {
+          "enum": [
+            "grayscale",
+            "red_white_blue"
+          ],
+          "type": "string"
+        },
+        "SectionCoordinate": {
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "index",
+            "value"
+          ],
+          "type": "object"
+        },
+        "SectionDisplayDefaults": {
+          "properties": {
+            "clip_max": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "clip_min": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "colormap": {
+              "$ref": "#/definitions/SectionColorMap"
+            },
+            "gain": {
+              "format": "float",
+              "type": "number"
+            },
+            "polarity": {
+              "$ref": "#/definitions/SectionPolarity"
+            },
+            "render_mode": {
+              "$ref": "#/definitions/SectionRenderMode"
+            }
+          },
+          "required": [
+            "colormap",
+            "gain",
+            "polarity",
+            "render_mode"
+          ],
+          "type": "object"
+        },
+        "SectionMetadata": {
+          "properties": {
+            "derived_from": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "notes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "store_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "notes"
+          ],
+          "type": "object"
+        },
+        "SectionPolarity": {
+          "enum": [
+            "normal",
+            "reversed"
+          ],
+          "type": "string"
+        },
+        "SectionRenderMode": {
+          "enum": [
+            "heatmap",
+            "wiggle"
+          ],
+          "type": "string"
+        },
+        "SectionUnits": {
+          "properties": {
+            "amplitude": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "horizontal": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
         }
       },
       "properties": {
+        "amplitudes_f32le": {
+          "items": {
+            "format": "uint8",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "axis": {
           "$ref": "#/definitions/SectionAxis"
+        },
+        "coordinate": {
+          "$ref": "#/definitions/SectionCoordinate"
         },
         "dataset_id": {
           "$ref": "#/definitions/DatasetId"
         },
-        "index": {
-          "format": "uint",
-          "minimum": 0.0,
-          "type": "integer"
+        "display_defaults": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SectionDisplayDefaults"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "horizontal_axis_f64le": {
+          "items": {
+            "format": "uint8",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SectionMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_axis_f32le": {
+          "items": {
+            "format": "uint8",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
         },
         "samples": {
           "format": "uint",
@@ -399,16 +1234,116 @@
           "format": "uint",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SectionUnits"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
+        "amplitudes_f32le",
         "axis",
+        "coordinate",
         "dataset_id",
-        "index",
+        "horizontal_axis_f64le",
+        "sample_axis_f32le",
         "samples",
         "traces"
       ],
       "title": "SectionView",
+      "type": "object"
+    },
+    "SectionViewport": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "sample_end": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sample_start": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "trace_end": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "trace_start": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sample_end",
+        "sample_start",
+        "trace_end",
+        "trace_start"
+      ],
+      "title": "SectionViewport",
+      "type": "object"
+    },
+    "SectionViewportChanged": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionViewport": {
+          "properties": {
+            "sample_end": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "sample_start": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "trace_end": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "trace_start": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "sample_end",
+            "sample_start",
+            "trace_end",
+            "trace_start"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "chart_id": {
+          "type": "string"
+        },
+        "view_id": {
+          "type": "string"
+        },
+        "viewport": {
+          "$ref": "#/definitions/SectionViewport"
+        }
+      },
+      "required": [
+        "chart_id",
+        "view_id",
+        "viewport"
+      ],
+      "title": "SectionViewportChanged",
       "type": "object"
     },
     "VolumeDescriptor": {

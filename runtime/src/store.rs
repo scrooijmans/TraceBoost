@@ -2,9 +2,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ndarray::{Array2, Array3, Ix2, Ix3};
+use ndarray::{Array2, Array3, Axis, Ix2, Ix3};
 use seis_contracts_core::{DatasetId, SectionAxis, VolumeDescriptor};
-use seis_contracts_views::SectionView;
+use seis_contracts_views::{
+    SectionColorMap, SectionCoordinate, SectionDisplayDefaults, SectionMetadata, SectionPolarity,
+    SectionRenderMode, SectionUnits, SectionView,
+};
 use serde_json::json;
 use zarrs::array::{Array, ArrayBuilder, data_type};
 use zarrs::filesystem::FilesystemStore;
@@ -54,12 +57,58 @@ impl StoreHandle {
             });
         }
 
+        let volume = load_array(self)?;
+        let amplitudes = match axis {
+            SectionAxis::Inline => volume.index_axis(Axis(0), index).to_owned(),
+            SectionAxis::Xline => volume.index_axis(Axis(1), index).to_owned(),
+        };
+        let amplitude_values = amplitudes.into_raw_vec();
+        let horizontal_axis = match axis {
+            SectionAxis::Inline => self.manifest.axes.xlines.clone(),
+            SectionAxis::Xline => self.manifest.axes.ilines.clone(),
+        };
+        let coordinate_value = match axis {
+            SectionAxis::Inline => self.manifest.axes.ilines[index],
+            SectionAxis::Xline => self.manifest.axes.xlines[index],
+        };
+
         Ok(SectionView {
             dataset_id: self.dataset_id(),
             axis,
-            index,
+            coordinate: SectionCoordinate {
+                index,
+                value: coordinate_value,
+            },
             traces,
             samples: self.manifest.shape[2],
+            horizontal_axis_f64le: f64_vec_to_le_bytes(&horizontal_axis),
+            sample_axis_f32le: f32_vec_to_le_bytes(&self.manifest.axes.sample_axis_ms),
+            amplitudes_f32le: f32_vec_to_le_bytes(&amplitude_values),
+            units: Some(SectionUnits {
+                horizontal: Some(match axis {
+                    SectionAxis::Inline => "xline".to_string(),
+                    SectionAxis::Xline => "inline".to_string(),
+                }),
+                sample: Some("ms".to_string()),
+                amplitude: Some("amplitude".to_string()),
+            }),
+            metadata: Some(SectionMetadata {
+                store_id: Some(self.dataset_id().0),
+                derived_from: self
+                    .manifest
+                    .derived_from
+                    .as_ref()
+                    .map(|derived| derived.parent_store.to_string_lossy().into_owned()),
+                notes: vec![format!("kind:{:?}", self.manifest.kind)],
+            }),
+            display_defaults: Some(SectionDisplayDefaults {
+                gain: 1.0,
+                clip_min: None,
+                clip_max: None,
+                render_mode: SectionRenderMode::Heatmap,
+                colormap: SectionColorMap::Grayscale,
+                polarity: SectionPolarity::Normal,
+            }),
         })
     }
 }
@@ -225,13 +274,33 @@ fn dataset_label(root: &Path) -> String {
         .unwrap_or_else(|| dataset_id_string(root))
 }
 
+fn f64_vec_to_le_bytes(values: &[f64]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(values.len() * std::mem::size_of::<f64>());
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
+fn f32_vec_to_le_bytes(values: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(values.len() * std::mem::size_of::<f32>());
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::metadata::{
         DatasetKind, GeometryProvenance, HeaderFieldSpec, SourceIdentity, StoreManifest,
         VolumeAxes,
     };
+    use ndarray::Array3;
+    use tempfile::tempdir;
 
     fn fixture_handle(root: &Path) -> StoreHandle {
         StoreHandle {
@@ -290,14 +359,28 @@ mod tests {
 
     #[test]
     fn section_view_uses_shared_view_type() {
-        let handle = fixture_handle(Path::new("C:\\data\\survey.zarr"));
+        let temp_dir = tempdir().expect("temp dir");
+        let root = temp_dir.path().join("survey.zarr");
+        let manifest = fixture_handle(Path::new("C:\\data\\survey.zarr")).manifest;
+        let data = Array3::from_shape_fn((3, 4, 6), |(iline, xline, sample)| {
+            iline as f32 * 100.0 + xline as f32 * 10.0 + sample as f32
+        });
+        create_store(&root, manifest, &data, None).expect("store should be created");
+        let handle = open_store(&root).expect("store should open");
         let view = handle
             .section_view(SectionAxis::Inline, 1)
             .expect("inline section should be valid");
 
         assert_eq!(view.dataset_id.0, "survey.zarr");
         assert_eq!(view.axis, SectionAxis::Inline);
+        assert_eq!(view.coordinate.index, 1);
+        assert_eq!(view.coordinate.value, 101.0);
         assert_eq!(view.traces, 4);
         assert_eq!(view.samples, 6);
+        assert_eq!(view.horizontal_axis_f64le.len(), 4 * 8);
+        assert_eq!(view.sample_axis_f32le.len(), 6 * 4);
+        assert_eq!(view.amplitudes_f32le.len(), 4 * 6 * 4);
+
+        fs::remove_dir_all(&root).expect("temp store should be removable");
     }
 }

@@ -12,7 +12,7 @@ TraceBoost is now the monorepo for the backend/product side of the seismic appli
 - `runtime/`
   - working-store, processing, validation, and runtime-facing APIs
 - `app/`
-  - product-facing application crates
+  - product-facing application crates and frontend hosts
 - `test-data/`
   - shared seismic fixtures used across `io`, `runtime`, and app integration tests
 - `docs/`
@@ -42,6 +42,12 @@ This repo uses one root Cargo workspace for the Rust/backend side:
 Frontend-facing generated contract artifact:
 
 - `contracts/ts/seis-contracts`
+
+Current frontend host:
+
+- `app/traceboost-frontend`
+  - Svelte/Vite host that consumes `@traceboost/seis-contracts`
+  - embeds external `@geoviz/svelte`
 
 Run the full backend/product test suite with:
 

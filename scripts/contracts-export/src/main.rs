@@ -8,7 +8,11 @@ use seis_contracts_core::{
     SectionTileRequest, VolumeDescriptor,
 };
 use seis_contracts_interop::{PreviewCommand, PreviewResponse, IPC_SCHEMA_VERSION};
-use seis_contracts_views::{PreviewView, SectionView};
+use seis_contracts_views::{
+    PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults, SectionInteractionChanged,
+    SectionPolarity, SectionPrimaryMode, SectionProbe, SectionProbeChanged, SectionRenderMode,
+    SectionUnits, SectionMetadata, SectionView, SectionViewport, SectionViewportChanged,
+};
 use ts_rs::TS;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -41,8 +45,21 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionTileRequest.ts",
         "ProcessingParameters.ts",
         "InterpretationPoint.ts",
+        "SectionColorMap.ts",
+        "SectionRenderMode.ts",
+        "SectionPolarity.ts",
+        "SectionPrimaryMode.ts",
+        "SectionCoordinate.ts",
+        "SectionUnits.ts",
+        "SectionMetadata.ts",
+        "SectionDisplayDefaults.ts",
         "SectionView.ts",
         "PreviewView.ts",
+        "SectionViewport.ts",
+        "SectionProbe.ts",
+        "SectionProbeChanged.ts",
+        "SectionViewportChanged.ts",
+        "SectionInteractionChanged.ts",
         "PreviewCommand.ts",
         "PreviewResponse.ts",
         "ipc-schema-version.ts",
@@ -58,6 +75,21 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SectionTileRequest::export_all_to(output_dir)?;
     ProcessingParameters::export_all_to(output_dir)?;
     InterpretationPoint::export_all_to(output_dir)?;
+    SectionColorMap::export_all_to(output_dir)?;
+    SectionRenderMode::export_all_to(output_dir)?;
+    SectionPolarity::export_all_to(output_dir)?;
+    SectionPrimaryMode::export_all_to(output_dir)?;
+    SectionCoordinate::export_all_to(output_dir)?;
+    SectionUnits::export_all_to(output_dir)?;
+    SectionMetadata::export_all_to(output_dir)?;
+    SectionDisplayDefaults::export_all_to(output_dir)?;
+    SectionView::export_all_to(output_dir)?;
+    PreviewView::export_all_to(output_dir)?;
+    SectionViewport::export_all_to(output_dir)?;
+    SectionProbe::export_all_to(output_dir)?;
+    SectionProbeChanged::export_all_to(output_dir)?;
+    SectionViewportChanged::export_all_to(output_dir)?;
+    SectionInteractionChanged::export_all_to(output_dir)?;
     PreviewCommand::export_all_to(output_dir)?;
     PreviewResponse::export_all_to(output_dir)?;
 
@@ -80,8 +112,21 @@ export type { SectionRequest } from "./SectionRequest";
 export type { SectionTileRequest } from "./SectionTileRequest";
 export type { ProcessingParameters } from "./ProcessingParameters";
 export type { InterpretationPoint } from "./InterpretationPoint";
+export type { SectionColorMap } from "./SectionColorMap";
+export type { SectionRenderMode } from "./SectionRenderMode";
+export type { SectionPolarity } from "./SectionPolarity";
+export type { SectionPrimaryMode } from "./SectionPrimaryMode";
+export type { SectionCoordinate } from "./SectionCoordinate";
+export type { SectionUnits } from "./SectionUnits";
+export type { SectionMetadata } from "./SectionMetadata";
+export type { SectionDisplayDefaults } from "./SectionDisplayDefaults";
 export type { SectionView } from "./SectionView";
 export type { PreviewView } from "./PreviewView";
+export type { SectionViewport } from "./SectionViewport";
+export type { SectionProbe } from "./SectionProbe";
+export type { SectionProbeChanged } from "./SectionProbeChanged";
+export type { SectionViewportChanged } from "./SectionViewportChanged";
+export type { SectionInteractionChanged } from "./SectionInteractionChanged";
 export type { PreviewCommand } from "./PreviewCommand";
 export type { PreviewResponse } from "./PreviewResponse";
 export { IPC_SCHEMA_VERSION } from "./ipc-schema-version";
@@ -102,8 +147,21 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SectionTileRequest": schema_for!(SectionTileRequest),
             "ProcessingParameters": schema_for!(ProcessingParameters),
             "InterpretationPoint": schema_for!(InterpretationPoint),
+            "SectionColorMap": schema_for!(SectionColorMap),
+            "SectionRenderMode": schema_for!(SectionRenderMode),
+            "SectionPolarity": schema_for!(SectionPolarity),
+            "SectionPrimaryMode": schema_for!(SectionPrimaryMode),
+            "SectionCoordinate": schema_for!(SectionCoordinate),
+            "SectionUnits": schema_for!(SectionUnits),
+            "SectionMetadata": schema_for!(SectionMetadata),
+            "SectionDisplayDefaults": schema_for!(SectionDisplayDefaults),
             "SectionView": schema_for!(SectionView),
             "PreviewView": schema_for!(PreviewView),
+            "SectionViewport": schema_for!(SectionViewport),
+            "SectionProbe": schema_for!(SectionProbe),
+            "SectionProbeChanged": schema_for!(SectionProbeChanged),
+            "SectionViewportChanged": schema_for!(SectionViewportChanged),
+            "SectionInteractionChanged": schema_for!(SectionInteractionChanged),
             "PreviewCommand": schema_for!(PreviewCommand),
             "PreviewResponse": schema_for!(PreviewResponse),
         }

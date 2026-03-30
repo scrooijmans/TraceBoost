@@ -30,7 +30,10 @@ pub fn decode_preview_command(json: &str) -> serde_json::Result<PreviewCommand> 
 mod tests {
     use super::*;
     use seis_contracts_core::{DatasetId, SectionAxis};
-    use seis_contracts_views::SectionView;
+    use seis_contracts_views::{
+        SectionColorMap, SectionCoordinate, SectionDisplayDefaults, SectionPolarity,
+        SectionRenderMode, SectionView,
+    };
 
     #[test]
     fn preview_command_round_trips() {
@@ -56,9 +59,22 @@ mod tests {
                 SectionView {
                     dataset_id: DatasetId("demo".to_string()),
                     axis: SectionAxis::Xline,
-                    index: 9,
+                    coordinate: SectionCoordinate { index: 9, value: 7202.0 },
                     traces: 64,
                     samples: 256,
+                    horizontal_axis_f64le: vec![0; 64 * 8],
+                    sample_axis_f32le: vec![0; 256 * 4],
+                    amplitudes_f32le: vec![0; 64 * 256 * 4],
+                    units: None,
+                    metadata: None,
+                    display_defaults: Some(SectionDisplayDefaults {
+                        gain: 1.0,
+                        clip_min: None,
+                        clip_max: None,
+                        render_mode: SectionRenderMode::Heatmap,
+                        colormap: SectionColorMap::Grayscale,
+                        polarity: SectionPolarity::Normal,
+                    }),
                 },
                 "gain",
             ),

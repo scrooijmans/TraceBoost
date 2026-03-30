@@ -281,8 +281,13 @@ fn section_view_returns_shared_section_view() {
     let view = section_view(&source_root, SectionAxis::Inline, 0).unwrap();
     assert_eq!(view.dataset_id.0, "source.zarr");
     assert_eq!(view.axis, SectionAxis::Inline);
+    assert_eq!(view.coordinate.index, 0);
+    assert_eq!(view.coordinate.value, 1.0);
     assert_eq!(view.traces, 5);
     assert_eq!(view.samples, 50);
+    assert_eq!(view.horizontal_axis_f64le.len(), 5 * 8);
+    assert_eq!(view.sample_axis_f32le.len(), 50 * 4);
+    assert_eq!(view.amplitudes_f32le.len(), 5 * 50 * 4);
 }
 
 #[test]
