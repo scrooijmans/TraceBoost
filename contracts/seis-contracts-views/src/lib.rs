@@ -1,7 +1,9 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use seis_contracts_core::{DatasetId, SectionAxis};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct SectionView {
     pub dataset_id: DatasetId,
     pub axis: SectionAxis,
@@ -10,7 +12,7 @@ pub struct SectionView {
     pub samples: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct PreviewView {
     pub section: SectionView,
     pub processing_label: String,

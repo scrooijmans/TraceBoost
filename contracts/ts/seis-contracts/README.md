@@ -1,0 +1,18 @@
+# @traceboost/seis-contracts
+
+This package is the TypeScript-facing contract artifact generated from the Rust
+`seis-contracts-*` crates in the TraceBoost monorepo.
+
+Contents:
+
+- generated TypeScript type bindings under `src/generated/`
+- a JSON schema bundle under `schemas/seis-contracts.schema.json`
+
+Regenerate from the repo root with:
+
+```powershell
+.\scripts\generate-ts-contracts.ps1
+```
+
+Consumers such as `geoviz` should treat this package as the frontend contract
+surface for app/runtime IPC payloads and shared dataset/view models.

@@ -17,3 +17,7 @@ This area does not own:
 - viewer contracts
 
 Shared seismic fixtures now live at the monorepo root in `test-data/`.
+
+`SGYX_DESIGN.md` is retained as historical predecessor design material from the
+standalone `sgyx` repo, not as the canonical architecture document for the
+monorepo.

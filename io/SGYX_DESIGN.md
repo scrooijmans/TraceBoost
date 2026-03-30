@@ -1,5 +1,9 @@
 # SGYX Design
 
+Historical note: this file was imported from the predecessor `sgyx` repo during
+the TraceBoost monorepo consolidation. It is retained as background design
+context for the I/O layer, not as the canonical monorepo architecture document.
+
 ## Purpose
 
 `sgyx` is a Rust library for high-throughput SEG-Y ingest. It is not trying to

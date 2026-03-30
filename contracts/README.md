@@ -16,6 +16,16 @@ Current crates:
 - `seis-contracts-views`
 - `seis-contracts-interop`
 
+Frontend-facing generated artifact:
+
+- `ts/seis-contracts`
+
+Regenerate it from the repo root with:
+
+```powershell
+.\scripts\generate-ts-contracts.ps1
+```
+
 This layer must not own:
 
 - SEG-Y parsing

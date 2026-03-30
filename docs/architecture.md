@@ -8,6 +8,7 @@ The active backend/product architecture is:
 
 - `contracts/`
   - shared contracts and IPC-safe schemas
+  - generated frontend artifact at `contracts/ts/seis-contracts/`
 - `io/`
   - SEG-Y inspection, header loading, geometry analysis, and ingest-oriented reads
 - `runtime/`
@@ -45,9 +46,16 @@ The active backend/product architecture is:
 ## Testing And CI
 
 - package-level CI exists for contracts, I/O, runtime, and app
+- generated TypeScript contracts are regenerated and checked in CI
 - one full workspace integration run validates the monorepo as a whole
 - local verification entrypoint remains:
 
 ```bash
 cargo test
+```
+
+TypeScript contract regeneration entrypoint:
+
+```powershell
+.\scripts\generate-ts-contracts.ps1
 ```

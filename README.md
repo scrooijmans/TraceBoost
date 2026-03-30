@@ -6,6 +6,7 @@ TraceBoost is now the monorepo for the backend/product side of the seismic appli
 
 - `contracts/`
   - shared Rust contracts and IPC-safe schemas
+  - generated TypeScript contract artifact under `contracts/ts/seis-contracts/`
 - `io/`
   - SEG-Y ingest and geometry extraction
 - `runtime/`
@@ -15,7 +16,7 @@ TraceBoost is now the monorepo for the backend/product side of the seismic appli
 - `test-data/`
   - shared seismic fixtures used across `io`, `runtime`, and app integration tests
 - `docs/`
-  - architecture and research notes
+  - current architecture notes plus explicitly archived legacy imports
 - `scripts/`
   - repository-level support tooling
 
@@ -36,11 +37,22 @@ This repo uses one root Cargo workspace for the Rust/backend side:
 - `seis-io`
 - `seis-runtime`
 - `traceboost-app`
+- `contracts-export`
+
+Frontend-facing generated contract artifact:
+
+- `contracts/ts/seis-contracts`
 
 Run the full backend/product test suite with:
 
 ```bash
 cargo test
+```
+
+Regenerate the TypeScript contract artifact with:
+
+```powershell
+.\scripts\generate-ts-contracts.ps1
 ```
 
 Layered CI now treats this repo as the only active backend/product source of truth:
@@ -56,3 +68,4 @@ Layered CI now treats this repo as the only active backend/product source of tru
 - `geoviz` remains an external visualization SDK and is not vendored into this monorepo
 - `seisview-js` is not part of the production architecture here
 - old standalone repos are being deprecated in favor of this monorepo layout
+- legacy imported docs now live under `docs/legacy/`

@@ -8,5 +8,7 @@ license.workspace = true
 name = "seis_contracts_views"
 
 [dependencies]
+schemars.workspace = true
 serde.workspace = true
+ts-rs.workspace = true
 seis_contracts_core = { package = "seis-contracts-core", path = "../seis-contracts-core" }

@@ -6,6 +6,7 @@ members = [
     "io",
     "runtime",
     "app/traceboost-app",
+    "scripts/contracts-export",
 ]
 resolver = "3"
 
@@ -15,5 +16,7 @@ license = "MIT"
 version = "0.1.0"
 
 [workspace.dependencies]
+schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+ts-rs = "10.1"

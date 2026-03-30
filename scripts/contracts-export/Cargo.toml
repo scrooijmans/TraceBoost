@@ -1,0 +1,13 @@
+[package]
+name = "contracts-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde_json.workspace = true
+seis-contracts-core = { path = "../../contracts/seis-contracts-core" }
+seis-contracts-views = { path = "../../contracts/seis-contracts-views" }
+seis-contracts-interop = { path = "../../contracts/seis-contracts-interop" }
+ts-rs.workspace = true

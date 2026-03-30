@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains the architecture and working reference material for TraceBoost.
+This directory contains the current TraceBoost architecture docs plus archived legacy imports.
 
 Current source-of-truth document:
 
@@ -8,9 +8,9 @@ Current source-of-truth document:
 
 Status of the rest of this folder:
 
-- some files are active TraceBoost planning notes
-- some files are imported baseline material from earlier research
-- some files are clearly legacy material from before the monorepo reset and should be treated as historical reference, not current product truth
+- `legacy/` contains imported material preserved for historical reference
+- `legacy/upscayl-import/` contains the unrelated Upscayl documentation baseline that existed before the monorepo reset
+- current TraceBoost product truth should stay at the docs root, not inside `legacy/`
 
 When docs conflict, prefer:
 

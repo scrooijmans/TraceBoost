@@ -1,0 +1,464 @@
+{
+  "ipcSchemaVersion": 1,
+  "types": {
+    "DatasetId": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "DatasetId",
+      "type": "string"
+    },
+    "InterpretationPoint": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "sample_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "trace_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sample_index",
+        "trace_index"
+      ],
+      "title": "InterpretationPoint",
+      "type": "object"
+    },
+    "PreviewCommand": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "SectionRequest": {
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "axis",
+            "dataset_id",
+            "index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SectionRequest"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request",
+        "schema_version"
+      ],
+      "title": "PreviewCommand",
+      "type": "object"
+    },
+    "PreviewResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "PreviewView": {
+          "properties": {
+            "preview_ready": {
+              "type": "boolean"
+            },
+            "processing_label": {
+              "type": "string"
+            },
+            "section": {
+              "$ref": "#/definitions/SectionView"
+            }
+          },
+          "required": [
+            "preview_ready",
+            "processing_label",
+            "section"
+          ],
+          "type": "object"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "SectionView": {
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "samples": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "traces": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "axis",
+            "dataset_id",
+            "index",
+            "samples",
+            "traces"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "preview": {
+          "$ref": "#/definitions/PreviewView"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "preview",
+        "schema_version"
+      ],
+      "title": "PreviewResponse",
+      "type": "object"
+    },
+    "PreviewView": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "SectionView": {
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "samples": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "traces": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "axis",
+            "dataset_id",
+            "index",
+            "samples",
+            "traces"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "preview_ready": {
+          "type": "boolean"
+        },
+        "processing_label": {
+          "type": "string"
+        },
+        "section": {
+          "$ref": "#/definitions/SectionView"
+        }
+      },
+      "required": [
+        "preview_ready",
+        "processing_label",
+        "section"
+      ],
+      "title": "PreviewView",
+      "type": "object"
+    },
+    "ProcessingParameters": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "gain": {
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "algorithm",
+        "gain"
+      ],
+      "title": "ProcessingParameters",
+      "type": "object"
+    },
+    "SectionAxis": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "inline",
+        "xline"
+      ],
+      "title": "SectionAxis",
+      "type": "string"
+    },
+    "SectionRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "axis": {
+          "$ref": "#/definitions/SectionAxis"
+        },
+        "dataset_id": {
+          "$ref": "#/definitions/DatasetId"
+        },
+        "index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "axis",
+        "dataset_id",
+        "index"
+      ],
+      "title": "SectionRequest",
+      "type": "object"
+    },
+    "SectionTileRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "SectionRequest": {
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "axis",
+            "dataset_id",
+            "index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "lod": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sample_range": {
+          "items": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "section": {
+          "$ref": "#/definitions/SectionRequest"
+        },
+        "trace_range": {
+          "items": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "lod",
+        "sample_range",
+        "section",
+        "trace_range"
+      ],
+      "title": "SectionTileRequest",
+      "type": "object"
+    },
+    "SectionView": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "axis": {
+          "$ref": "#/definitions/SectionAxis"
+        },
+        "dataset_id": {
+          "$ref": "#/definitions/DatasetId"
+        },
+        "index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "samples": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "traces": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "axis",
+        "dataset_id",
+        "index",
+        "samples",
+        "traces"
+      ],
+      "title": "SectionView",
+      "type": "object"
+    },
+    "VolumeDescriptor": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        }
+      },
+      "properties": {
+        "chunk_shape": {
+          "items": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/definitions/DatasetId"
+        },
+        "label": {
+          "type": "string"
+        },
+        "sample_interval_ms": {
+          "format": "float",
+          "type": "number"
+        },
+        "shape": {
+          "items": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "chunk_shape",
+        "id",
+        "label",
+        "sample_interval_ms",
+        "shape"
+      ],
+      "title": "VolumeDescriptor",
+      "type": "object"
+    }
+  }
+}

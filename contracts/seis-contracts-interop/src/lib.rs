@@ -1,16 +1,18 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use seis_contracts_core::SectionRequest;
 use seis_contracts_views::PreviewView;
+use ts_rs::TS;
 
 pub const IPC_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct PreviewCommand {
     pub schema_version: u32,
     pub request: SectionRequest,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct PreviewResponse {
     pub schema_version: u32,
     pub preview: PreviewView,
