@@ -85,7 +85,7 @@ pub fn create_store(
     GroupBuilder::new()
         .attributes(
             json!({
-                "producer": "seisrefine",
+                "producer": "seis-runtime",
                 "manifest": StoreManifest::FILE_NAME,
             })
             .as_object()

@@ -56,7 +56,7 @@ pub fn upscale_store(
         },
         array_path: String::new(),
         occupancy_array_path: None,
-        created_by: "seisrefine-0.1.0".to_string(),
+        created_by: "seis-runtime-0.1.0".to_string(),
         derived_from: Some(DerivedFrom {
             parent_store: input.root.clone(),
             method: options.method,

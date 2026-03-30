@@ -8,8 +8,8 @@ use seisrefine::{
 };
 
 #[derive(Debug, Parser)]
-#[command(name = "seisrefine")]
-#[command(about = "SEG-Y ingest and conservative trace-volume refinement")]
+#[command(name = "seis-runtime")]
+#[command(about = "TraceBoost runtime for SEG-Y ingest, working-store creation, and refinement")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

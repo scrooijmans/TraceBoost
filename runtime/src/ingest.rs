@@ -88,7 +88,7 @@ pub fn ingest_segy(
         axes: volume.axes,
         array_path: String::new(),
         occupancy_array_path: None,
-        created_by: "seisrefine-0.1.0".to_string(),
+        created_by: "seis-runtime-0.1.0".to_string(),
         derived_from: None,
     };
 

@@ -1,0 +1,53 @@
+# TraceBoost Architecture
+
+## Summary
+
+TraceBoost is the backend/product monorepo for the seismic application stack.
+
+The active backend/product architecture is:
+
+- `contracts/`
+  - shared contracts and IPC-safe schemas
+- `io/`
+  - SEG-Y inspection, header loading, geometry analysis, and ingest-oriented reads
+- `runtime/`
+  - canonical working-store access, runtime dataset helpers, processing, validation, and derived outputs
+- `app/`
+  - product-facing application workflow and future Tauri-facing crates
+
+`geoviz` remains outside this repository as the visualization SDK boundary.
+
+## Design Rules
+
+- CPU-first processing is the default path
+- backend GPU compute remains a deliberate future option
+- one root Cargo workspace governs the Rust/backend side
+- one shared top-level `test-data/` directory is used across backend/product tests
+- dependency direction is strict:
+  - `app -> runtime -> io -> contracts`
+- no generic `shared/` or `common/` bucket is allowed
+
+## Current Package Map
+
+- `seis-contracts-core`
+- `seis-contracts-views`
+- `seis-contracts-interop`
+- `seis-io`
+- `seis-runtime`
+- `traceboost-app`
+
+## Compatibility Notes
+
+- old standalone repos for contracts, I/O, and runtime have been deprecated in favor of this monorepo
+- the existing store manifest filename is still retained for compatibility with previously written runtime stores
+- internal Rust import names may still lag behind package names in some places; package identity and repo boundary are the authoritative naming layer
+
+## Testing And CI
+
+- package-level CI exists for contracts, I/O, runtime, and app
+- one full workspace integration run validates the monorepo as a whole
+- local verification entrypoint remains:
+
+```bash
+cargo test
+```
