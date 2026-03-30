@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
+use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset};
+
 use clap::{Parser, Subcommand, ValueEnum};
+use seis_contracts_interop::{
+    ImportDatasetRequest, OpenDatasetRequest, SurveyPreflightRequest, IPC_SCHEMA_VERSION,
+};
 use seis_runtime::{
     IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
     inspect_segy, open_store, preflight_segy, run_validation,
@@ -62,6 +67,16 @@ enum Command {
         output: PathBuf,
         #[arg(long = "input")]
         inputs: Vec<PathBuf>,
+    },
+    PreflightImport {
+        input: PathBuf,
+    },
+    ImportDataset {
+        input: PathBuf,
+        output: PathBuf,
+    },
+    OpenDataset {
+        store: PathBuf,
     },
     ViewSection {
         store: PathBuf,
@@ -175,6 +190,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 validation_mode: seis_io::ValidationMode::Strict,
             })?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
+        }
+        Command::PreflightImport { input } => {
+            let response = preflight_dataset(SurveyPreflightRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                input_path: input.to_string_lossy().into_owned(),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ImportDataset { input, output } => {
+            let response = import_dataset(ImportDatasetRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                input_path: input.to_string_lossy().into_owned(),
+                output_store_path: output.to_string_lossy().into_owned(),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::OpenDataset { store } => {
+            let response = open_dataset_summary(OpenDatasetRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                store_path: store.to_string_lossy().into_owned(),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::ViewSection { store, axis, index } => {
             let view = open_store(store)?.section_view(axis.into(), index)?;

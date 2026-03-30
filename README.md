@@ -1,77 +1,106 @@
 # TraceBoost
 
-TraceBoost is now the monorepo for the backend/product side of the seismic application stack.
+TraceBoost is the backend/product monorepo for the seismic desktop application stack.
+
+The current product milestone is:
+
+`select SEG-Y -> preflight/ingest -> open runtime store -> view inline/xline sections in the app shell`
+
+## Stack
+
+- Rust 2024 workspace for contracts, I/O, runtime, and app/backend orchestration
+- `serde`, `schemars`, and `ts-rs` for shared JSON and generated TypeScript contracts
+- `clap` for developer-facing CLI surfaces
+- `zarrs` for the current runtime store implementation
+- Svelte 5 + Vite + Bun for the frontend host in `app/traceboost-frontend`
+- Tauri 2 for the desktop shell in `app/traceboost-frontend/src-tauri`
+- external `geoviz` packages for 2D seismic rendering
+
+## Data Formats
+
+- input survey format: SEG-Y
+- working dataset format: chunked Zarr-backed runtime store
+- app/runtime boundary: JSON payloads typed by `seis-contracts-*` and generated into `@traceboost/seis-contracts`
 
 ## Monorepo Layout
 
 - `contracts/`
   - shared Rust contracts and IPC-safe schemas
-  - generated TypeScript contract artifact under `contracts/ts/seis-contracts/`
+  - generated TypeScript artifact under `contracts/ts/seis-contracts/`
 - `io/`
-  - SEG-Y ingest and geometry extraction
+  - SEG-Y inspection, geometry extraction, chunked reads, and ingest-oriented helpers
 - `runtime/`
-  - working-store, processing, validation, and runtime-facing APIs
+  - runtime-store creation/open, validation, section-view generation, and processing entry points
 - `app/`
-  - product-facing application crates and frontend hosts
+  - product-facing Rust orchestration, frontend host, and Tauri shell
 - `test-data/`
-  - shared seismic fixtures used across `io`, `runtime`, and app integration tests
+  - shared fixtures used across `io`, `runtime`, and app tests
 - `docs/`
-  - current architecture notes plus explicitly archived legacy imports
+  - canonical architecture docs plus archived legacy material
 - `scripts/`
-  - repository-level support tooling
+  - repository-level utilities such as contracts export
 
-## Current Direction
+## What Works Today
 
-- CPU-first processing remains the default path
-- the backend keeps a deliberate path open for future GPU compute
-- the canonical working-volume layout remains the current chunked Zarr-backed store in `runtime/`
-- the product app stays separate from the visualization SDK; `geoviz` remains outside this repo
+- shared Rust and TypeScript contracts exist for:
+  - dataset descriptions
+  - section requests/responses
+  - survey preflight
+  - dataset import/open flows
+- `seis-io` can inspect SEG-Y files, load headers, analyze geometry, and feed ingest paths
+- `seis-runtime` can preflight SEG-Y, ingest into the runtime store, reopen stores, describe datasets, and generate section views
+- `traceboost-app` now exposes reusable backend helpers and CLI commands for:
+  - `preflight-import`
+  - `import-dataset`
+  - `open-dataset`
+  - `view-section`
+- `traceboost-frontend` can:
+  - preflight a SEG-Y path
+  - ingest to a runtime-store path
+  - open an existing runtime store
+  - load inline/xline sections into the embedded `geoviz` chart
+- a Tauri shell scaffold exists and is wired to the same backend commands
 
-## Workspace
+## Immediate Roadmap
 
-This repo uses one root Cargo workspace for the Rust/backend side:
+1. Tighten the first working desktop path in `traceboost-frontend` and `src-tauri`.
+2. Add a small dataset/session registry so the app can remember recent runtime stores.
+3. Replace path text-entry UX with file/folder pickers through Tauri.
+4. Harden user-facing error handling and progress reporting around ingest/open/view flows.
+5. After the desktop shell is stable, expand into validation, refinement, and richer processing workflows.
 
-- `seis-contracts-core`
-- `seis-contracts-views`
-- `seis-contracts-interop`
-- `seis-io`
-- `seis-runtime`
-- `traceboost-app`
-- `contracts-export`
+## Contributor Commands
 
-Frontend-facing generated contract artifact:
+Run the Rust workspace:
 
-- `contracts/ts/seis-contracts`
-
-Current frontend host:
-
-- `app/traceboost-frontend`
-  - Svelte/Vite host that consumes `@traceboost/seis-contracts`
-  - embeds external `@geoviz/svelte`
-
-Run the full backend/product test suite with:
-
-```bash
+```powershell
 cargo test
 ```
 
-Regenerate the TypeScript contract artifact with:
+Regenerate the TypeScript contracts:
 
 ```powershell
 .\scripts\generate-ts-contracts.ps1
 ```
 
-Layered CI now treats this repo as the only active backend/product source of truth:
+Work on the frontend host:
 
-- contracts job
-- I/O job
-- runtime job
-- app job
-- full workspace integration job
+```powershell
+Set-Location app\traceboost-frontend
+bun run setup:bun-links
+bun install
+bun run dev
+```
+
+Run the desktop shell:
+
+```powershell
+Set-Location app\traceboost-frontend
+bun run tauri:dev
+```
 
 ## Notes
 
-- `geoviz` remains an external visualization SDK and is not vendored into this monorepo
-- `seisview-js` is not part of the production architecture here
-- old standalone repos are being deprecated in favor of this monorepo layout
-- legacy imported docs now live under `docs/legacy/`
+- `geoviz` remains an external visualization SDK and is not vendored into this monorepo.
+- `seisview-js` is not part of the production architecture here.
+- legacy imported docs live under `docs/legacy/`.

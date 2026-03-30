@@ -6,6 +6,174 @@
       "title": "DatasetId",
       "type": "string"
     },
+    "DatasetSummary": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "descriptor": {
+          "$ref": "#/definitions/VolumeDescriptor"
+        },
+        "store_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "descriptor",
+        "store_path"
+      ],
+      "title": "DatasetSummary",
+      "type": "object"
+    },
+    "ImportDatasetRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "input_path": {
+          "type": "string"
+        },
+        "output_store_path": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_path",
+        "output_store_path",
+        "schema_version"
+      ],
+      "title": "ImportDatasetRequest",
+      "type": "object"
+    },
+    "ImportDatasetResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "dataset": {
+          "$ref": "#/definitions/DatasetSummary"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset",
+        "schema_version"
+      ],
+      "title": "ImportDatasetResponse",
+      "type": "object"
+    },
     "InterpretationPoint": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -25,6 +193,106 @@
         "trace_index"
       ],
       "title": "InterpretationPoint",
+      "type": "object"
+    },
+    "OpenDatasetRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "store_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "store_path"
+      ],
+      "title": "OpenDatasetRequest",
+      "type": "object"
+    },
+    "OpenDatasetResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "dataset": {
+          "$ref": "#/definitions/DatasetSummary"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset",
+        "schema_version"
+      ],
+      "title": "OpenDatasetResponse",
       "type": "object"
     },
     "PreviewCommand": {
@@ -1344,6 +1612,110 @@
         "viewport"
       ],
       "title": "SectionViewportChanged",
+      "type": "object"
+    },
+    "SuggestedImportAction": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "direct_dense_ingest",
+        "regularize_sparse_survey",
+        "review_geometry_mapping",
+        "unsupported_in_v1"
+      ],
+      "title": "SuggestedImportAction",
+      "type": "string"
+    },
+    "SurveyPreflightRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "input_path": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_path",
+        "schema_version"
+      ],
+      "title": "SurveyPreflightRequest",
+      "type": "object"
+    },
+    "SurveyPreflightResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SuggestedImportAction": {
+          "enum": [
+            "direct_dense_ingest",
+            "regularize_sparse_survey",
+            "review_geometry_mapping",
+            "unsupported_in_v1"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "classification": {
+          "type": "string"
+        },
+        "completeness_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "expected_trace_count": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "input_path": {
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_trace_count": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "samples_per_trace": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "suggested_action": {
+          "$ref": "#/definitions/SuggestedImportAction"
+        },
+        "trace_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "classification",
+        "completeness_ratio",
+        "expected_trace_count",
+        "input_path",
+        "notes",
+        "observed_trace_count",
+        "samples_per_trace",
+        "schema_version",
+        "suggested_action",
+        "trace_count"
+      ],
+      "title": "SurveyPreflightResponse",
       "type": "object"
     },
     "VolumeDescriptor": {

@@ -1,14 +1,20 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy } from "svelte";
   import { SeismicSectionChart } from "@geoviz/svelte";
   import type { TraceBoostViewerState } from "./lib/viewer-store";
   import { viewerStore } from "./lib/viewer-store";
 
   let state: TraceBoostViewerState = {
+    inputPath: "",
+    outputStorePath: "",
+    activeStorePath: "",
+    dataset: null,
+    preflight: null,
     axis: "inline",
     index: 0,
     section: null,
     loading: false,
+    busyLabel: null,
     error: null,
     resetToken: "inline:0",
     displayTransform: {
@@ -26,10 +32,6 @@
     state = value;
   });
 
-  onMount(() => {
-    viewerStore.load("inline", 0);
-  });
-
   onDestroy(() => {
     unsubscribe();
   });
@@ -42,13 +44,51 @@
 <div class="shell">
   <aside class="sidebar">
     <h1>TraceBoost</h1>
-    <p>First frontend host consuming external `geoviz` through generated contracts.</p>
+    <p>First desktop-shell candidate for SEG-Y import, runtime-store creation, and 2D section viewing.</p>
 
     <div class="controls">
+      <label>
+        SEG-Y Input Path
+        <input
+          type="text"
+          bind:value={state.inputPath}
+          placeholder="C:\\data\\survey.sgy"
+          on:input={(event) => viewerStore.setInputPath((event.currentTarget as HTMLInputElement).value)}
+        />
+      </label>
+
+      <label>
+        Runtime Store Path
+        <input
+          type="text"
+          bind:value={state.outputStorePath}
+          placeholder="C:\\data\\survey.zarr"
+          on:input={(event) =>
+            viewerStore.setOutputStorePath((event.currentTarget as HTMLInputElement).value)}
+        />
+      </label>
+
+      <button on:click={() => viewerStore.runPreflight()} disabled={state.loading}>
+        Preflight SEG-Y
+      </button>
+
+      <button on:click={() => viewerStore.importDataset()} disabled={state.loading}>
+        Import To Runtime Store
+      </button>
+
+      <button on:click={() => viewerStore.openDataset()} disabled={state.loading}>
+        Open Runtime Store
+      </button>
+
+      {#if state.busyLabel}
+        <div class="status">{state.busyLabel}…</div>
+      {/if}
+
       <label>
         Axis
         <select
           bind:value={state.axis}
+          disabled={!state.activeStorePath || state.loading}
           on:change={() => viewerStore.load(state.axis as "inline" | "xline", state.index)}
         >
           <option value="inline">Inline</option>
@@ -62,11 +102,13 @@
           type="number"
           bind:value={state.index}
           min="0"
+          disabled={!state.activeStorePath || state.loading}
           on:change={() => viewerStore.load(state.axis as "inline" | "xline", Number(state.index))}
         />
       </label>
 
       <button
+        disabled={!state.section}
         on:click={() =>
           viewerStore.setRenderMode(
             state.displayTransform.renderMode === "heatmap" ? "wiggle" : "heatmap"
@@ -76,6 +118,7 @@
       </button>
 
       <button
+        disabled={!state.section}
         on:click={() =>
           viewerStore.setColormap(
             state.displayTransform.colormap === "grayscale" ? "red-white-blue" : "grayscale"
@@ -84,6 +127,35 @@
         {state.displayTransform.colormap === "grayscale" ? "Switch To Red/White/Blue" : "Switch To Grayscale"}
       </button>
     </div>
+
+    {#if state.preflight}
+      <div class="readout">
+        <div><strong>Preflight</strong></div>
+        <div>Classification: {state.preflight.classification}</div>
+        <div>Suggested action: {state.preflight.suggested_action}</div>
+        <div>Traces: {state.preflight.trace_count}</div>
+        <div>Samples/trace: {state.preflight.samples_per_trace}</div>
+        <div>
+          Completeness: {(state.preflight.completeness_ratio * 100).toFixed(1)}%
+        </div>
+      </div>
+    {/if}
+
+    {#if state.dataset}
+      <div class="readout">
+        <div><strong>Dataset</strong></div>
+        <div>Label: {state.dataset.descriptor.label}</div>
+        <div>Store: {state.dataset.store_path}</div>
+        <div>
+          Shape:
+          {state.dataset.descriptor.shape[0]} × {state.dataset.descriptor.shape[1]} × {state.dataset.descriptor.shape[2]}
+        </div>
+        <div>
+          Chunk:
+          {state.dataset.descriptor.chunk_shape[0]} × {state.dataset.descriptor.chunk_shape[1]} × {state.dataset.descriptor.chunk_shape[2]}
+        </div>
+      </div>
+    {/if}
 
     <div class="readout">
       {#if state.lastProbe?.probe}
@@ -163,6 +235,11 @@
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: #102838;
     color: inherit;
+  }
+
+  .status {
+    font-size: 13px;
+    color: #a8d7f0;
   }
 
   .viewer-shell {

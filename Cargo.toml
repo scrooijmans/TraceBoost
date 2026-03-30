@@ -6,6 +6,7 @@ members = [
     "io",
     "runtime",
     "app/traceboost-app",
+    "app/traceboost-frontend/src-tauri",
     "scripts/contracts-export",
 ]
 resolver = "3"

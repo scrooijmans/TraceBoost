@@ -8,14 +8,18 @@
     "setup:bun-links": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-bun-links.ps1",
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "@geoviz/svelte": "link:@geoviz/svelte",
     "@traceboost/seis-contracts": "link:@traceboost/seis-contracts",
     "svelte": "^5.39.6"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "svelte-check": "^4.3.1",
     "typescript": "^5.9.3",

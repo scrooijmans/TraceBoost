@@ -7,7 +7,11 @@ use seis_contracts_core::{
     DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
     SectionTileRequest, VolumeDescriptor,
 };
-use seis_contracts_interop::{PreviewCommand, PreviewResponse, IPC_SCHEMA_VERSION};
+use seis_contracts_interop::{
+    DatasetSummary, ImportDatasetRequest, ImportDatasetResponse, OpenDatasetRequest,
+    OpenDatasetResponse, PreviewCommand, PreviewResponse, SuggestedImportAction,
+    SurveyPreflightRequest, SurveyPreflightResponse, IPC_SCHEMA_VERSION,
+};
 use seis_contracts_views::{
     PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults, SectionInteractionChanged,
     SectionPolarity, SectionPrimaryMode, SectionProbe, SectionProbeChanged, SectionRenderMode,
@@ -60,6 +64,14 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionProbeChanged.ts",
         "SectionViewportChanged.ts",
         "SectionInteractionChanged.ts",
+        "SuggestedImportAction.ts",
+        "DatasetSummary.ts",
+        "SurveyPreflightRequest.ts",
+        "SurveyPreflightResponse.ts",
+        "ImportDatasetRequest.ts",
+        "ImportDatasetResponse.ts",
+        "OpenDatasetRequest.ts",
+        "OpenDatasetResponse.ts",
         "PreviewCommand.ts",
         "PreviewResponse.ts",
         "ipc-schema-version.ts",
@@ -90,6 +102,14 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SectionProbeChanged::export_all_to(output_dir)?;
     SectionViewportChanged::export_all_to(output_dir)?;
     SectionInteractionChanged::export_all_to(output_dir)?;
+    SuggestedImportAction::export_all_to(output_dir)?;
+    DatasetSummary::export_all_to(output_dir)?;
+    SurveyPreflightRequest::export_all_to(output_dir)?;
+    SurveyPreflightResponse::export_all_to(output_dir)?;
+    ImportDatasetRequest::export_all_to(output_dir)?;
+    ImportDatasetResponse::export_all_to(output_dir)?;
+    OpenDatasetRequest::export_all_to(output_dir)?;
+    OpenDatasetResponse::export_all_to(output_dir)?;
     PreviewCommand::export_all_to(output_dir)?;
     PreviewResponse::export_all_to(output_dir)?;
 
@@ -127,6 +147,14 @@ export type { SectionProbe } from "./SectionProbe";
 export type { SectionProbeChanged } from "./SectionProbeChanged";
 export type { SectionViewportChanged } from "./SectionViewportChanged";
 export type { SectionInteractionChanged } from "./SectionInteractionChanged";
+export type { SuggestedImportAction } from "./SuggestedImportAction";
+export type { DatasetSummary } from "./DatasetSummary";
+export type { SurveyPreflightRequest } from "./SurveyPreflightRequest";
+export type { SurveyPreflightResponse } from "./SurveyPreflightResponse";
+export type { ImportDatasetRequest } from "./ImportDatasetRequest";
+export type { ImportDatasetResponse } from "./ImportDatasetResponse";
+export type { OpenDatasetRequest } from "./OpenDatasetRequest";
+export type { OpenDatasetResponse } from "./OpenDatasetResponse";
 export type { PreviewCommand } from "./PreviewCommand";
 export type { PreviewResponse } from "./PreviewResponse";
 export { IPC_SCHEMA_VERSION } from "./ipc-schema-version";
@@ -162,6 +190,14 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SectionProbeChanged": schema_for!(SectionProbeChanged),
             "SectionViewportChanged": schema_for!(SectionViewportChanged),
             "SectionInteractionChanged": schema_for!(SectionInteractionChanged),
+            "SuggestedImportAction": schema_for!(SuggestedImportAction),
+            "DatasetSummary": schema_for!(DatasetSummary),
+            "SurveyPreflightRequest": schema_for!(SurveyPreflightRequest),
+            "SurveyPreflightResponse": schema_for!(SurveyPreflightResponse),
+            "ImportDatasetRequest": schema_for!(ImportDatasetRequest),
+            "ImportDatasetResponse": schema_for!(ImportDatasetResponse),
+            "OpenDatasetRequest": schema_for!(OpenDatasetRequest),
+            "OpenDatasetResponse": schema_for!(OpenDatasetResponse),
             "PreviewCommand": schema_for!(PreviewCommand),
             "PreviewResponse": schema_for!(PreviewResponse),
         }

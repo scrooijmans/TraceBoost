@@ -1,14 +1,41 @@
 # traceboost-frontend
 
-First Svelte/Vite frontend host inside the TraceBoost monorepo.
+`traceboost-frontend` is the current UI host for the first working TraceBoost desktop workflow.
 
-Purpose:
+## Stack
 
-- consume the generated `@traceboost/seis-contracts` package
-- consume external `@geoviz/svelte` as a real package dependency
-- render a real seismic section contract inside the embedded chart component
+- Svelte 5
+- Vite
+- Bun
+- generated `@traceboost/seis-contracts`
+- external `@geoviz/svelte`
+- Tauri 2 desktop shell under `src-tauri`
 
-Development:
+## Data Boundary
+
+- inputs from the user:
+  - SEG-Y file path
+  - runtime-store output path
+  - existing runtime-store path
+- backend responses:
+  - JSON payloads typed from `@traceboost/seis-contracts`
+- rendered data:
+  - section views returned by `traceboost-app` / `seis-runtime`
+
+## Implemented
+
+- form-driven workflow for:
+  - preflighting a SEG-Y file
+  - importing into the runtime store
+  - opening an existing runtime store
+  - loading inline/xline sections
+- shared frontend bridge that can call:
+  - Vite dev endpoints in browser mode
+  - Tauri commands in desktop mode
+- embedded `geoviz` section rendering
+- typechecked/generated contract consumption
+
+## Development
 
 ```powershell
 bun run setup:bun-links
@@ -16,9 +43,30 @@ bun install
 bun run dev
 ```
 
-In dev mode, the Vite server bridges to the Rust CLI app:
+Additional checks:
 
-- it ingests `test-data/small.sgy` into a local demo store if needed
-- it calls `traceboost-app view-section` on `/api/section`
+```powershell
+bun run typecheck
+bun run build
+```
 
-This proves the contracts-first seam before the Tauri desktop shell is added.
+Run the desktop shell:
+
+```powershell
+bun run tauri:dev
+```
+
+In browser dev mode, Vite exposes app-oriented endpoints that shell out to `traceboost-app` for:
+
+- `/api/preflight`
+- `/api/import`
+- `/api/open`
+- `/api/section`
+
+## Roadmap
+
+1. Replace manual path entry with native file and folder pickers through Tauri.
+2. Add session/recent-dataset UX and better progress/error presentation.
+3. Keep the first milestone narrow:
+   import/open/view 2D sections only.
+4. Defer broader processing UI until the desktop shell feels stable.
