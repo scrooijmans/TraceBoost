@@ -1,0 +1,53 @@
+name: Rust CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test contracts packages
+        run: cargo test -p seis-contracts-core -p seis-contracts-views -p seis-contracts-interop
+
+  io:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test I/O package
+        run: cargo test -p seis-io
+
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test runtime package
+        run: cargo test -p seis-runtime
+
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test app package
+        run: cargo test -p traceboost-app
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [contracts, io, runtime, app]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Full workspace test
+        run: cargo test

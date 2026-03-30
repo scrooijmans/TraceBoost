@@ -43,6 +43,14 @@ Run the full backend/product test suite with:
 cargo test
 ```
 
+Layered CI now treats this repo as the only active backend/product source of truth:
+
+- contracts job
+- I/O job
+- runtime job
+- app job
+- full workspace integration job
+
 ## Notes
 
 - `geoviz` remains an external visualization SDK and is not vendored into this monorepo
