@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "sgyx"
+name = "seis_io"
 
 [dependencies]
 ibm1047 = "1.0"

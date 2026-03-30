@@ -11,9 +11,9 @@ pub enum SeisRefineError {
     #[error("{0}")]
     Json(#[from] serde_json::Error),
     #[error("{0}")]
-    SgyxInspect(#[from] sgyx::InspectError),
+    SeisIoInspect(#[from] seis_io::InspectError),
     #[error("{0}")]
-    SgyxRead(#[from] sgyx::ReadError),
+    SeisIoRead(#[from] seis_io::ReadError),
     #[error("{0}")]
     Zarr(#[from] zarrs::array::ArrayError),
     #[error("{0}")]
@@ -28,7 +28,7 @@ pub enum SeisRefineError {
         "unsupported survey geometry for dense post-stack ingest: classification={classification:?}, observed={observed_trace_count}, expected={expected_trace_count}, missing_bins={missing_bin_count}, duplicate_coordinates={duplicate_coordinate_count}"
     )]
     UnsupportedSurveyGeometry {
-        classification: sgyx::GeometryClassification,
+        classification: seis_io::GeometryClassification,
         observed_trace_count: usize,
         expected_trace_count: usize,
         missing_bin_count: usize,

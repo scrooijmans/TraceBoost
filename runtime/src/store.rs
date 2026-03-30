@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ndarray::{Array2, Array3, Ix2, Ix3};
-use seisdomain_core::{DatasetId, SectionAxis, VolumeDescriptor};
-use seisdomain_views::SectionView;
+use seis_contracts_core::{DatasetId, SectionAxis, VolumeDescriptor};
+use seis_contracts_views::SectionView;
 use serde_json::json;
 use zarrs::array::{Array, ArrayBuilder, data_type};
 use zarrs::filesystem::FilesystemStore;

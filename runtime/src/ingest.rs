@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use ndarray::{Array2, Array3};
-use sgyx::{
+use seis_io::{
     ChunkReadConfig, GeometryClassification, GeometryOptions, GeometryReport, HeaderField,
     HeaderMapping, ValidationMode, inspect_file, open,
 };
@@ -116,10 +116,10 @@ pub fn load_source_volume_with_options(
     let summary = inspect_file(segy_path)?;
     let reader = open(
         segy_path,
-        sgyx::ReaderOptions {
+        seis_io::ReaderOptions {
             validation_mode: options.validation_mode,
             header_mapping: options.geometry.header_mapping.clone(),
-            ..sgyx::ReaderOptions::default()
+            ..seis_io::ReaderOptions::default()
         },
     )?;
     let geometry_report = reader.analyze_geometry(GeometryOptions {
@@ -169,8 +169,8 @@ pub fn load_source_volume_with_options(
 
 fn regularize_sparse_regular_poststack(
     segy_path: &Path,
-    summary: &sgyx::FileSummary,
-    reader: &sgyx::SegyReader,
+    summary: &seis_io::FileSummary,
+    reader: &seis_io::SegyReader,
     geometry_report: &GeometryReport,
     options: &IngestOptions,
 ) -> Result<SourceVolume, SeisRefineError> {
@@ -184,7 +184,7 @@ fn regularize_sparse_regular_poststack(
 
     let headers = reader.load_trace_headers(
         &[geometry_report.inline_field, geometry_report.crossline_field],
-        sgyx::TraceSelection::All,
+        seis_io::TraceSelection::All,
     )?;
     let ilines = headers
         .column(geometry_report.inline_field)
@@ -252,7 +252,7 @@ fn regularize_sparse_regular_poststack(
 
 fn build_source_identity(
     segy_path: &Path,
-    summary: &sgyx::FileSummary,
+    summary: &seis_io::FileSummary,
     samples_per_trace: usize,
     sample_interval_us: u16,
     geometry_report: &GeometryReport,

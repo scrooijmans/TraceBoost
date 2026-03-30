@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use seisrefine::{
+use seis_runtime::{
     IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
     inspect_segy, preflight_segy, run_validation,
 };
@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let summary = run_validation(ValidationOptions {
                 output_dir: output,
                 dataset_paths: inputs,
-                validation_mode: sgyx::ValidationMode::Strict,
+                validation_mode: seis_io::ValidationMode::Strict,
             })?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }
@@ -198,9 +198,9 @@ fn header_field(
     name: &'static str,
     start_byte: u16,
     value_type: HeaderTypeArg,
-) -> sgyx::HeaderField {
+) -> seis_io::HeaderField {
     match value_type {
-        HeaderTypeArg::I16 => sgyx::HeaderField::new_i16(name, start_byte),
-        HeaderTypeArg::I32 => sgyx::HeaderField::new_i32(name, start_byte),
+        HeaderTypeArg::I16 => seis_io::HeaderField::new_i16(name, start_byte),
+        HeaderTypeArg::I32 => seis_io::HeaderField::new_i32(name, start_byte),
     }
 }

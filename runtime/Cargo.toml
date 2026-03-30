@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [lib]
-name = "seisrefine"
+name = "seis_runtime"
 
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
@@ -13,9 +13,9 @@ ndarray = "0.17.2"
 rayon = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-seisdomain-core = { package = "seis-contracts-core", path = "../contracts/seis-contracts-core" }
-seisdomain-views = { package = "seis-contracts-views", path = "../contracts/seis-contracts-views" }
-sgyx = { package = "seis-io", path = "../io" }
+seis_contracts_core = { package = "seis-contracts-core", path = "../contracts/seis-contracts-core" }
+seis_contracts_views = { package = "seis-contracts-views", path = "../contracts/seis-contracts-views" }
+seis_io = { package = "seis-io", path = "../io" }
 thiserror = "2.0"
 zarrs = { version = "0.23.7", default-features = true }
 

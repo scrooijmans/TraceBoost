@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ndarray::Array3;
-use seisrefine::{
+use seis_runtime::{
     DatasetId, IngestOptions, InterpMethod, PreflightAction, SectionAxis, SectionRequest,
     SeisGeometryOptions, SeisRefineError, SparseSurveyPolicy, ValidationOptions, describe_store,
     ingest_segy, load_array, load_occupancy, load_source_volume_with_options, open_store,
@@ -60,7 +60,7 @@ fn bytes_per_sample(sample_format_code: u16) -> usize {
 }
 
 fn remove_last_trace(src: &Path, dst: &Path) {
-    let summary = sgyx::inspect_file(src).unwrap();
+    let summary = seis_io::inspect_file(src).unwrap();
     let mut bytes = fs::read(src).unwrap();
     let trace_size =
         240 + summary.samples_per_trace as usize * bytes_per_sample(summary.sample_format_code);
@@ -146,10 +146,10 @@ fn ingest_accepts_explicit_header_mapping_for_nonstandard_dense_file() {
         &segy_path,
         &IngestOptions {
             geometry: SeisGeometryOptions {
-                header_mapping: sgyx::HeaderMapping {
-                    inline_3d: Some(sgyx::HeaderField::new_i32("INLINE_3D_ALT", 17)),
-                    crossline_3d: Some(sgyx::HeaderField::new_i32("CROSSLINE_3D_ALT", 25)),
-                    ..sgyx::HeaderMapping::default()
+                header_mapping: seis_io::HeaderMapping {
+                    inline_3d: Some(seis_io::HeaderField::new_i32("INLINE_3D_ALT", 17)),
+                    crossline_3d: Some(seis_io::HeaderField::new_i32("CROSSLINE_3D_ALT", 25)),
+                    ..seis_io::HeaderMapping::default()
                 },
                 third_axis_field: None,
             },
@@ -341,7 +341,7 @@ fn validation_writes_dataset_and_summary_reports() {
     let summary = run_validation(ValidationOptions {
         output_dir: output_dir.clone(),
         dataset_paths: vec![fixture_path("small.sgy")],
-        validation_mode: sgyx::ValidationMode::Strict,
+        validation_mode: seis_io::ValidationMode::Strict,
     })
     .unwrap();
 

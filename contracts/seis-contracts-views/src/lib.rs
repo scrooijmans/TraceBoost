@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use seisdomain_core::{DatasetId, SectionAxis};
+use seis_contracts_core::{DatasetId, SectionAxis};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SectionView {
@@ -44,4 +44,3 @@ mod tests {
         assert!(!preview.preview_ready);
     }
 }
-

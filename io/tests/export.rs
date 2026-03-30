@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use sgyx::{
+use seis_io::{
     ChunkReadConfig, CubeChunkDescriptor, CubeChunkShape, IoStrategy, ReaderOptions,
     TraceSelection, open,
 };

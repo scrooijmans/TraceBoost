@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use sgyx::{
+use seis_io::{
     CubeChunkDescriptor, CubeChunkShape, Hdf5CubeLayout, Hdf5CubeWriteError, Hdf5CubeWriter,
     HeaderField, HeaderMapping, ReaderOptions, open,
 };
@@ -23,7 +23,7 @@ fn temp_path(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("sgyx-{nonce}-{name}"))
+    std::env::temp_dir().join(format!("seis-io-{nonce}-{name}"))
 }
 
 fn relocate_small_geometry_headers(path: &Path) {

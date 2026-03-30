@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use seisdomain_core::{SectionAxis, SectionRequest};
+use seis_contracts_core::{SectionAxis, SectionRequest};
 
 use crate::error::SeisRefineError;
 use crate::store::{load_array, open_store};

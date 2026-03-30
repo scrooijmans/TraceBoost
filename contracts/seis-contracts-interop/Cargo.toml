@@ -5,10 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "seisdomain_interop"
+name = "seis_contracts_interop"
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-seisdomain-core = { package = "seis-contracts-core", path = "../seis-contracts-core" }
-seisdomain-views = { package = "seis-contracts-views", path = "../seis-contracts-views" }
+seis_contracts_core = { package = "seis-contracts-core", path = "../seis-contracts-core" }
+seis_contracts_views = { package = "seis-contracts-views", path = "../seis-contracts-views" }

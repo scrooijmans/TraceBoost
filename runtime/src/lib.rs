@@ -8,11 +8,11 @@ mod upscale;
 mod validation;
 
 pub use error::SeisRefineError;
-pub use seisdomain_core::{
+pub use seis_contracts_core::{
     DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
     SectionTileRequest, VolumeDescriptor,
 };
-pub use seisdomain_views::{PreviewView, SectionView};
+pub use seis_contracts_views::{PreviewView, SectionView};
 pub use ingest::{
     IngestOptions, SeisGeometryOptions, SourceVolume, SparseSurveyPolicy, ingest_segy,
     load_source_volume, load_source_volume_with_options,
@@ -52,7 +52,7 @@ pub struct SegyInspection {
 }
 
 pub fn inspect_segy(path: impl AsRef<Path>) -> Result<SegyInspection, SeisRefineError> {
-    let summary = sgyx::inspect_file(path)?;
+    let summary = seis_io::inspect_file(path)?;
     Ok(SegyInspection {
         file_size: summary.file_size,
         trace_count: summary.trace_count,

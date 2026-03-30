@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use seisdomain_core::SectionRequest;
-use seisdomain_views::PreviewView;
+use seis_contracts_core::SectionRequest;
+use seis_contracts_views::PreviewView;
 
 pub const IPC_SCHEMA_VERSION: u32 = 1;
 
@@ -27,8 +27,8 @@ pub fn decode_preview_command(json: &str) -> serde_json::Result<PreviewCommand> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use seisdomain_core::{DatasetId, SectionAxis};
-    use seisdomain_views::SectionView;
+    use seis_contracts_core::{DatasetId, SectionAxis};
+    use seis_contracts_views::SectionView;
 
     #[test]
     fn preview_command_round_trips() {
@@ -66,4 +66,3 @@ mod tests {
         assert!(!response.preview.preview_ready);
     }
 }
-

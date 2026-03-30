@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use sgyx::{
+use seis_io::{
     ChunkReadConfig, GeometryClassification, GeometryOptions, HeaderField, HeaderLoadConfig,
     HeaderMapping, IntervalOptions, IoStrategy, ReadError, ReaderOptions, SampleIntervalUnit,
     SegyReader, SegyWarning, TraceSelection, ValidationMode, open,
@@ -24,7 +24,7 @@ fn temp_path(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("sgyx-{nonce}-{name}"))
+    std::env::temp_dir().join(format!("seis-io-{nonce}-{name}"))
 }
 
 fn assert_close(actual: f32, expected: f32) {
@@ -421,7 +421,7 @@ fn reader_rejects_wrong_sized_destination_buffer() {
 
     assert!(matches!(
         process_error,
-        sgyx::ChunkProcessingError::Read(ReadError::InvalidDestinationBuffer {
+        seis_io::ChunkProcessingError::Read(ReadError::InvalidDestinationBuffer {
             actual_len: 10,
             expected_len: 50
         })

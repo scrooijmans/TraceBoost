@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use sgyx::{
+use seis_io::{
     ChunkReadConfig, HeaderField, HeaderLoadConfig, IoStrategy, ReaderOptions, TraceSelection,
     inspect_file, open,
 };

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use ndarray::{Array3, s};
 use serde::Serialize;
-use sgyx::ValidationMode;
+use seis_io::ValidationMode;
 
 use crate::SeisRefineError;
 use crate::ingest::load_source_volume;

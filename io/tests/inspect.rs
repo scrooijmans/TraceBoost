@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use sgyx::{
+use seis_io::{
     Endianness, SampleFormat, SegyWarning, TextualHeaderEncoding, curated_fixtures, inspect_file,
 };
 

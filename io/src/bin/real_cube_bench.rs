@@ -3,7 +3,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use sgyx::{
+use seis_io::{
     ChunkReadConfig, CubeChunkShape, IoStrategy, ReaderOptions, SegyReader, TraceSelection, open,
 };
 
@@ -244,7 +244,7 @@ impl RegularVolumeIndex {
 
 fn bench_inspect(path: &PathBuf, iterations: usize) -> Result<(), Box<dyn std::error::Error>> {
     let elapsed = timed(iterations, || {
-        let _ = sgyx::inspect_file(path).unwrap();
+        let _ = seis_io::inspect_file(path).unwrap();
     });
     report("inspect", elapsed, iterations);
     Ok(())

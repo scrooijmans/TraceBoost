@@ -46,33 +46,33 @@ pub fn preflight_segy(
 ) -> Result<SurveyPreflight, SeisRefineError> {
     let path = path.as_ref();
     let inspection = inspect_segy(path)?;
-    let reader = sgyx::open(
+    let reader = seis_io::open(
         path,
-        sgyx::ReaderOptions {
+        seis_io::ReaderOptions {
             validation_mode: options.validation_mode,
             header_mapping: options.geometry.header_mapping.clone(),
-            ..sgyx::ReaderOptions::default()
+            ..seis_io::ReaderOptions::default()
         },
     )?;
-    let report = reader.analyze_geometry(sgyx::GeometryOptions {
+    let report = reader.analyze_geometry(seis_io::GeometryOptions {
         third_axis_field: options.geometry.third_axis_field,
-        ..sgyx::GeometryOptions::default()
+        ..seis_io::GeometryOptions::default()
     })?;
 
     let recommended_action = match report.classification {
-        sgyx::GeometryClassification::RegularDense => PreflightAction::DirectDenseIngest,
-        sgyx::GeometryClassification::RegularSparse => PreflightAction::RegularizeSparseSurvey,
-        sgyx::GeometryClassification::DuplicateCoordinates
-        | sgyx::GeometryClassification::AmbiguousMapping => PreflightAction::ReviewGeometryMapping,
-        sgyx::GeometryClassification::NonCartesian => PreflightAction::UnsupportedInV1,
+        seis_io::GeometryClassification::RegularDense => PreflightAction::DirectDenseIngest,
+        seis_io::GeometryClassification::RegularSparse => PreflightAction::RegularizeSparseSurvey,
+        seis_io::GeometryClassification::DuplicateCoordinates
+        | seis_io::GeometryClassification::AmbiguousMapping => PreflightAction::ReviewGeometryMapping,
+        seis_io::GeometryClassification::NonCartesian => PreflightAction::UnsupportedInV1,
     };
 
     let mut notes = Vec::new();
     match report.classification {
-        sgyx::GeometryClassification::RegularDense => {
+        seis_io::GeometryClassification::RegularDense => {
             notes.push("Survey is already dense under the resolved geometry mapping.".to_string());
         }
-        sgyx::GeometryClassification::RegularSparse => {
+        seis_io::GeometryClassification::RegularSparse => {
             notes.push(
                 "Survey is sparse on an otherwise regular inline/xline grid and can be regularized explicitly."
                     .to_string(),
@@ -84,19 +84,19 @@ pub fn preflight_segy(
                 );
             }
         }
-        sgyx::GeometryClassification::DuplicateCoordinates => {
+        seis_io::GeometryClassification::DuplicateCoordinates => {
             notes.push(
                 "Duplicate coordinate tuples were observed; a duplicate-resolution policy is required before ingest."
                     .to_string(),
             );
         }
-        sgyx::GeometryClassification::AmbiguousMapping => {
+        seis_io::GeometryClassification::AmbiguousMapping => {
             notes.push(
                 "The resolved geometry mapping produces both missing bins and duplicate coordinates. Review header selection before ingest."
                     .to_string(),
             );
         }
-        sgyx::GeometryClassification::NonCartesian => {
+        seis_io::GeometryClassification::NonCartesian => {
             notes.push(
                 "The dataset does not map cleanly to a Cartesian inline/xline grid under the current mapping."
                     .to_string(),
