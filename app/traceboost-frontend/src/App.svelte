@@ -1,10 +1,12 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { SeismicSectionChart } from "@geoviz/svelte";
   import type { TraceBoostViewerState } from "./lib/viewer-store";
   import { viewerStore } from "./lib/viewer-store";
 
-  let state: TraceBoostViewerState = {
+  let state = $state<TraceBoostViewerState>({
     inputPath: "",
     outputStorePath: "",
     activeStorePath: "",
@@ -26,7 +28,7 @@
     lastProbe: null,
     lastViewport: null,
     lastInteraction: null
-  };
+  });
 
   const unsubscribe = viewerStore.subscribe((value) => {
     state = value;
@@ -53,7 +55,7 @@
           type="text"
           bind:value={state.inputPath}
           placeholder="C:\\data\\survey.sgy"
-          on:input={(event) => viewerStore.setInputPath((event.currentTarget as HTMLInputElement).value)}
+          oninput={(event) => viewerStore.setInputPath((event.currentTarget as HTMLInputElement).value)}
         />
       </label>
 
@@ -63,20 +65,20 @@
           type="text"
           bind:value={state.outputStorePath}
           placeholder="C:\\data\\survey.zarr"
-          on:input={(event) =>
+          oninput={(event) =>
             viewerStore.setOutputStorePath((event.currentTarget as HTMLInputElement).value)}
         />
       </label>
 
-      <button on:click={() => viewerStore.runPreflight()} disabled={state.loading}>
+      <button onclick={() => viewerStore.runPreflight()} disabled={state.loading}>
         Preflight SEG-Y
       </button>
 
-      <button on:click={() => viewerStore.importDataset()} disabled={state.loading}>
+      <button onclick={() => viewerStore.importDataset()} disabled={state.loading}>
         Import To Runtime Store
       </button>
 
-      <button on:click={() => viewerStore.openDataset()} disabled={state.loading}>
+      <button onclick={() => viewerStore.openDataset()} disabled={state.loading}>
         Open Runtime Store
       </button>
 
@@ -89,7 +91,7 @@
         <select
           bind:value={state.axis}
           disabled={!state.activeStorePath || state.loading}
-          on:change={() => viewerStore.load(state.axis as "inline" | "xline", state.index)}
+          onchange={() => viewerStore.load(state.axis as "inline" | "xline", state.index)}
         >
           <option value="inline">Inline</option>
           <option value="xline">Xline</option>
@@ -103,13 +105,13 @@
           bind:value={state.index}
           min="0"
           disabled={!state.activeStorePath || state.loading}
-          on:change={() => viewerStore.load(state.axis as "inline" | "xline", Number(state.index))}
+          onchange={() => viewerStore.load(state.axis as "inline" | "xline", Number(state.index))}
         />
       </label>
 
       <button
         disabled={!state.section}
-        on:click={() =>
+        onclick={() =>
           viewerStore.setRenderMode(
             state.displayTransform.renderMode === "heatmap" ? "wiggle" : "heatmap"
           )}
@@ -119,7 +121,7 @@
 
       <button
         disabled={!state.section}
-        on:click={() =>
+        onclick={() =>
           viewerStore.setColormap(
             state.displayTransform.colormap === "grayscale" ? "red-white-blue" : "grayscale"
           )}
@@ -188,9 +190,9 @@
       loading={state.loading}
       errorMessage={state.error}
       resetToken={state.resetToken}
-      on:probeChange={(event) => viewerStore.setProbe(event.detail)}
-      on:viewportChange={(event) => viewerStore.setViewport(event.detail)}
-      on:interactionChange={(event) => viewerStore.setInteraction(event.detail)}
+      onProbeChange={(event) => viewerStore.setProbe(event)}
+      onViewportChange={(event) => viewerStore.setViewport(event)}
+      onInteractionChange={(event) => viewerStore.setInteraction(event)}
     />
   </main>
 </div>

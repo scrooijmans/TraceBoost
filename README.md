@@ -87,7 +87,6 @@ Work on the frontend host:
 
 ```powershell
 Set-Location app\traceboost-frontend
-bun run setup:bun-links
 bun install
 bun run dev
 ```
@@ -101,6 +100,8 @@ bun run tauri:dev
 
 ## Notes
 
+- `traceboost-frontend` consumes the sibling `../geoviz` repository through direct local `file:` dependencies. Keep that checkout present next to `TraceBoost`.
+- the repository pins Rust `1.91.0` in `rust-toolchain.toml` so `cargo` and Tauri pick a supported compiler automatically.
 - `geoviz` remains an external visualization SDK and is not vendored into this monorepo.
 - `seisview-js` is not part of the production architecture here.
 - legacy imported docs live under `docs/legacy/`.

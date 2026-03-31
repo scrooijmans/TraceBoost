@@ -5,6 +5,7 @@
   "identifier": "com.traceboost.app",
   "build": {
     "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },

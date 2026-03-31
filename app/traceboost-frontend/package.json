@@ -5,7 +5,8 @@
   "type": "module",
   "packageManager": "bun@1.3.5",
   "scripts": {
-    "setup:bun-links": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-bun-links.ps1",
+    "setup:bun-links": "bun run ./scripts/verify-local-deps.mjs",
+    "doctor": "bun run ./scripts/verify-local-deps.mjs",
     "dev": "vite",
     "build": "vite build",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
@@ -14,11 +15,12 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@geoviz/svelte": "link:@geoviz/svelte",
-    "@traceboost/seis-contracts": "link:@traceboost/seis-contracts",
+    "@geoviz/svelte": "file:../../../geoviz/packages/svelte",
+    "@traceboost/seis-contracts": "file:../../contracts/ts/seis-contracts",
     "svelte": "^5.39.6"
   },
   "devDependencies": {
+    "@types/node": "^24.7.2",
     "@tauri-apps/cli": "^2.0.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "svelte-check": "^4.3.1",

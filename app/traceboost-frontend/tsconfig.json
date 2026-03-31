@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "baseUrl": ".",
@@ -16,7 +17,8 @@
     "allowJs": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "types": ["svelte"]
+    "skipLibCheck": true,
+    "types": ["svelte", "node"]
   },
   "include": ["src/**/*", "vite.config.ts"]
 }

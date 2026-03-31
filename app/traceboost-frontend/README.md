@@ -38,9 +38,14 @@
 ## Development
 
 ```powershell
-bun run setup:bun-links
 bun install
 bun run dev
+```
+
+If you want an explicit prerequisite check before install:
+
+```powershell
+bun run doctor
 ```
 
 Additional checks:
@@ -55,6 +60,11 @@ Run the desktop shell:
 ```powershell
 bun run tauri:dev
 ```
+
+## Local Prerequisites
+
+- keep the sibling `geoviz` repository checked out at `../geoviz`
+- use the repo-pinned Rust toolchain from `../../rust-toolchain.toml`
 
 In browser dev mode, Vite exposes app-oriented endpoints that shell out to `traceboost-app` for:
 
