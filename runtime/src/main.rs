@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use seis_runtime::{
     IngestOptions, InterpMethod, SectionAxis, SeisGeometryOptions, SparseSurveyPolicy,
-    UpscaleOptions, ingest_segy, inspect_segy, preflight_segy, render_section_csv,
-    run_validation, upscale_store,
+    UpscaleOptions, ingest_segy, inspect_segy, preflight_segy, render_section_csv, run_validation,
+    upscale_store,
 };
 
 #[derive(Debug, Parser)]
@@ -126,7 +126,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ),
                 ..IngestOptions::default()
             };
-            println!("{}", serde_json::to_string_pretty(&preflight_segy(input, &options)?)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&preflight_segy(input, &options)?)?
+            );
         }
         Command::Ingest {
             input,

@@ -174,7 +174,9 @@ fn ingest_can_regularize_sparse_poststack_with_occupancy_mask() {
         &sparse_path,
         &store_root,
         IngestOptions {
-            sparse_survey_policy: SparseSurveyPolicy::RegularizeToDense { fill_value: -999.25 },
+            sparse_survey_policy: SparseSurveyPolicy::RegularizeToDense {
+                fill_value: -999.25,
+            },
             ..IngestOptions::default()
         },
     )

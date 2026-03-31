@@ -6,6 +6,25 @@ import type {
   SurveyPreflightResponse
 } from "@traceboost/seis-contracts";
 
+export interface DiagnosticsStatus {
+  sessionId: string;
+  sessionStartedAt: string;
+  verboseEnabled: boolean;
+  sessionLogPath: string;
+}
+
+export interface DiagnosticsEvent {
+  sessionId: string;
+  operationId: string;
+  command: string;
+  stage: string;
+  level: string;
+  timestamp: string;
+  message: string;
+  durationMs?: number | null;
+  fields?: Record<string, unknown> | null;
+}
+
 export function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -44,18 +63,21 @@ export async function preflightImport(inputPath: string): Promise<SurveyPrefligh
 
 export async function importDataset(
   inputPath: string,
-  outputStorePath: string
+  outputStorePath: string,
+  overwriteExisting = false
 ): Promise<ImportDatasetResponse> {
   if (isTauriEnvironment()) {
     return invokeTauri<ImportDatasetResponse>("import_dataset_command", {
       inputPath,
-      outputStorePath
+      outputStorePath,
+      overwriteExisting
     });
   }
 
   return postJson<ImportDatasetResponse>("/api/import", {
     inputPath,
-    outputStorePath
+    outputStorePath,
+    overwriteExisting
   });
 }
 
@@ -84,4 +106,33 @@ export async function fetchSectionView(
     `/api/section?storePath=${encodeURIComponent(storePath)}&axis=${encodeURIComponent(axis)}&index=${encodeURIComponent(index)}`
   );
   return readJson<SectionView>(response);
+}
+
+export async function getDiagnosticsStatus(): Promise<DiagnosticsStatus | null> {
+  if (!isTauriEnvironment()) {
+    return null;
+  }
+
+  return invokeTauri<DiagnosticsStatus>("get_diagnostics_status_command", {});
+}
+
+export async function setDiagnosticsVerbosity(enabled: boolean): Promise<void> {
+  if (!isTauriEnvironment()) {
+    return;
+  }
+
+  await invokeTauri<void>("set_diagnostics_verbosity_command", { enabled });
+}
+
+export async function listenToDiagnosticsEvents(
+  listener: (event: DiagnosticsEvent) => void
+): Promise<() => void> {
+  if (!isTauriEnvironment()) {
+    return () => {};
+  }
+
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<DiagnosticsEvent>("diagnostics:event", (event) => {
+    listener(event.payload);
+  });
 }

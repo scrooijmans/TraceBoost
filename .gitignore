@@ -1,4 +1,6 @@
 /target/
+/sandbox/
+.DS_Store
 /app/traceboost-frontend/node_modules/
 /app/traceboost-frontend/dist/
 /app/traceboost-frontend/.cache/

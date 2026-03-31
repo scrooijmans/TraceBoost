@@ -19,7 +19,9 @@ function traceboostDevApi(): Plugin {
     return result.stdout.trim();
   }
 
-  async function readJsonBody(req: NodeJS.ReadableStream & { setEncoding(encoding: BufferEncoding): void }): Promise<Record<string, string>> {
+  async function readJsonBody(
+    req: NodeJS.ReadableStream & { setEncoding(encoding: BufferEncoding): void }
+  ): Promise<Record<string, unknown>> {
     return await new Promise((resolve, reject) => {
       let body = "";
       req.setEncoding("utf8");
@@ -43,7 +45,7 @@ function traceboostDevApi(): Plugin {
       server.middlewares.use("/api/preflight", async (req, res) => {
         try {
           const body = await readJsonBody(req);
-          const inputPath = body.inputPath?.trim();
+          const inputPath = typeof body.inputPath === "string" ? body.inputPath.trim() : "";
           if (!inputPath) {
             res.statusCode = 400;
             res.end("Missing inputPath");
@@ -69,14 +71,16 @@ function traceboostDevApi(): Plugin {
       server.middlewares.use("/api/import", async (req, res) => {
         try {
           const body = await readJsonBody(req);
-          const inputPath = body.inputPath?.trim();
-          const outputStorePath = body.outputStorePath?.trim();
+          const inputPath = typeof body.inputPath === "string" ? body.inputPath.trim() : "";
+          const outputStorePath =
+            typeof body.outputStorePath === "string" ? body.outputStorePath.trim() : "";
+          const overwriteExisting = body.overwriteExisting === true;
           if (!inputPath || !outputStorePath) {
             res.statusCode = 400;
             res.end("Missing inputPath or outputStorePath");
             return;
           }
-          const payload = runCargo([
+          const args = [
             "run",
             "-q",
             "-p",
@@ -85,7 +89,11 @@ function traceboostDevApi(): Plugin {
             "import-dataset",
             inputPath,
             outputStorePath
-          ]);
+          ];
+          if (overwriteExisting) {
+            args.push("--overwrite-existing");
+          }
+          const payload = runCargo(args);
           res.setHeader("Content-Type", "application/json");
           res.end(payload);
         } catch (error) {
@@ -97,7 +105,7 @@ function traceboostDevApi(): Plugin {
       server.middlewares.use("/api/open", async (req, res) => {
         try {
           const body = await readJsonBody(req);
-          const storePath = body.storePath?.trim();
+          const storePath = typeof body.storePath === "string" ? body.storePath.trim() : "";
           if (!storePath) {
             res.statusCode = 400;
             res.end("Missing storePath");

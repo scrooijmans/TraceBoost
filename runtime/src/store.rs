@@ -45,7 +45,11 @@ impl StoreHandle {
         }
     }
 
-    pub fn section_view(&self, axis: SectionAxis, index: usize) -> Result<SectionView, SeisRefineError> {
+    pub fn section_view(
+        &self,
+        axis: SectionAxis,
+        index: usize,
+    ) -> Result<SectionView, SeisRefineError> {
         let (axis_len, traces) = match axis {
             SectionAxis::Inline => (self.manifest.shape[0], self.manifest.shape[1]),
             SectionAxis::Xline => (self.manifest.shape[1], self.manifest.shape[0]),
@@ -187,7 +191,10 @@ pub fn create_store(
         .map_err(|error| SeisRefineError::Message(error.to_string()))?;
         occupancy_array.store_metadata()?;
         occupancy_array.store_array_subset(
-            &[0_u64..manifest.shape[0] as u64, 0_u64..manifest.shape[1] as u64],
+            &[
+                0_u64..manifest.shape[0] as u64,
+                0_u64..manifest.shape[1] as u64,
+            ],
             occupancy.to_owned(),
         )?;
     }
@@ -260,15 +267,21 @@ pub fn load_occupancy(handle: &StoreHandle) -> Result<Option<Array2<u8>>, SeisRe
     Ok(Some(data))
 }
 
-fn dataset_id_string(root: &Path) -> String {
-    root.file_name()
-        .and_then(|value| value.to_str())
+fn dataset_leaf_name(root: &Path) -> String {
+    let raw = root.to_string_lossy();
+    raw.rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| root.to_string_lossy().into_owned())
+        .unwrap_or_else(|| raw.into_owned())
+}
+
+fn dataset_id_string(root: &Path) -> String {
+    dataset_leaf_name(root)
 }
 
 fn dataset_label(root: &Path) -> String {
-    root.file_stem()
+    Path::new(&dataset_leaf_name(root))
+        .file_stem()
         .and_then(|value| value.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| dataset_id_string(root))
@@ -296,8 +309,7 @@ mod tests {
 
     use super::*;
     use crate::metadata::{
-        DatasetKind, GeometryProvenance, HeaderFieldSpec, SourceIdentity, StoreManifest,
-        VolumeAxes,
+        DatasetKind, GeometryProvenance, HeaderFieldSpec, SourceIdentity, StoreManifest, VolumeAxes,
     };
     use ndarray::Array3;
     use tempfile::tempdir;

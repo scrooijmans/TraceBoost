@@ -8,11 +8,6 @@ mod upscale;
 mod validation;
 
 pub use error::SeisRefineError;
-pub use seis_contracts_core::{
-    DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
-    SectionTileRequest, VolumeDescriptor,
-};
-pub use seis_contracts_views::{PreviewView, SectionView};
 pub use ingest::{
     IngestOptions, SeisGeometryOptions, SourceVolume, SparseSurveyPolicy, ingest_segy,
     load_source_volume, load_source_volume_with_options,
@@ -21,10 +16,13 @@ pub use metadata::{
     DatasetKind, DerivedFrom, GeometryProvenance, HeaderFieldSpec, InterpMethod,
     RegularizationProvenance, SourceIdentity, StoreManifest, VolumeAxes,
 };
-pub use preflight::{
-    PreflightAction, PreflightGeometry, SurveyPreflight, preflight_segy,
-};
+pub use preflight::{PreflightAction, PreflightGeometry, SurveyPreflight, preflight_segy};
 pub use render::{render_section_csv, render_section_csv_for_request};
+pub use seis_contracts_core::{
+    DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
+    SectionTileRequest, VolumeDescriptor,
+};
+pub use seis_contracts_views::{PreviewView, SectionView};
 pub use store::{
     ARRAY_PATH, OCCUPANCY_PATH, StoreHandle, describe_store, load_array, load_occupancy,
     open_store, section_view,

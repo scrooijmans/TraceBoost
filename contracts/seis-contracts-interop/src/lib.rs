@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use seis_contracts_core::{SectionRequest, VolumeDescriptor};
 use seis_contracts_views::PreviewView;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 pub const IPC_SCHEMA_VERSION: u32 = 1;
@@ -46,6 +46,8 @@ pub struct ImportDatasetRequest {
     pub schema_version: u32,
     pub input_path: String,
     pub output_store_path: String,
+    #[serde(default)]
+    pub overwrite_existing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -119,7 +121,10 @@ mod tests {
                 SectionView {
                     dataset_id: DatasetId("demo".to_string()),
                     axis: SectionAxis::Xline,
-                    coordinate: SectionCoordinate { index: 9, value: 7202.0 },
+                    coordinate: SectionCoordinate {
+                        index: 9,
+                        value: 7202.0,
+                    },
                     traces: 64,
                     samples: 256,
                     horizontal_axis_f64le: vec![0; 64 * 8],

@@ -8,14 +8,15 @@ use seis_contracts_core::{
     SectionTileRequest, VolumeDescriptor,
 };
 use seis_contracts_interop::{
-    DatasetSummary, ImportDatasetRequest, ImportDatasetResponse, OpenDatasetRequest,
-    OpenDatasetResponse, PreviewCommand, PreviewResponse, SuggestedImportAction,
-    SurveyPreflightRequest, SurveyPreflightResponse, IPC_SCHEMA_VERSION,
+    DatasetSummary, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    OpenDatasetRequest, OpenDatasetResponse, PreviewCommand, PreviewResponse,
+    SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
 };
 use seis_contracts_views::{
-    PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults, SectionInteractionChanged,
-    SectionPolarity, SectionPrimaryMode, SectionProbe, SectionProbeChanged, SectionRenderMode,
-    SectionUnits, SectionMetadata, SectionView, SectionViewport, SectionViewportChanged,
+    PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
+    SectionInteractionChanged, SectionMetadata, SectionPolarity, SectionPrimaryMode, SectionProbe,
+    SectionProbeChanged, SectionRenderMode, SectionUnits, SectionView, SectionViewport,
+    SectionViewportChanged,
 };
 use ts_rs::TS;
 
@@ -26,7 +27,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("scripts/contracts-export should live two levels under repo root")
         .to_path_buf();
 
-    let package_root = repo_root.join("contracts").join("ts").join("seis-contracts");
+    let package_root = repo_root
+        .join("contracts")
+        .join("ts")
+        .join("seis-contracts");
     let generated_dir = package_root.join("src").join("generated");
     let schema_dir = package_root.join("schemas");
 

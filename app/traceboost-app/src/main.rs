@@ -4,7 +4,7 @@ use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seis_contracts_interop::{
-    ImportDatasetRequest, OpenDatasetRequest, SurveyPreflightRequest, IPC_SCHEMA_VERSION,
+    IPC_SCHEMA_VERSION, ImportDatasetRequest, OpenDatasetRequest, SurveyPreflightRequest,
 };
 use seis_runtime::{
     IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
@@ -74,6 +74,8 @@ enum Command {
     ImportDataset {
         input: PathBuf,
         output: PathBuf,
+        #[arg(long, default_value_t = false)]
+        overwrite_existing: bool,
     },
     OpenDataset {
         store: PathBuf,
@@ -114,10 +116,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let info = BackendInfo {
                 backend_repo_hint: "monorepo: runtime/",
                 backend_local_path_hint: "../../runtime",
-                current_default_method_policy:
-                    "keep linear as default unless a stronger method wins on every validation dataset",
-                current_geometry_policy:
-                    "dense surveys ingest directly; sparse regular post-stack surveys require explicit regularization; duplicate-heavy surveys still stop for review",
+                current_default_method_policy: "keep linear as default unless a stronger method wins on every validation dataset",
+                current_geometry_policy: "dense surveys ingest directly; sparse regular post-stack surveys require explicit regularization; duplicate-heavy surveys still stop for review",
                 current_scope: "monorepo app shell with preflight and ingest routing; Tauri app not started yet",
             };
             println!("{}", serde_json::to_string_pretty(&info)?);
@@ -145,7 +145,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ),
                 ..IngestOptions::default()
             };
-            println!("{}", serde_json::to_string_pretty(&preflight_segy(input, &options)?)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&preflight_segy(input, &options)?)?
+            );
         }
         Command::Ingest {
             input,
@@ -198,11 +201,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
-        Command::ImportDataset { input, output } => {
+        Command::ImportDataset {
+            input,
+            output,
+            overwrite_existing,
+        } => {
             let response = import_dataset(ImportDatasetRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 input_path: input.to_string_lossy().into_owned(),
                 output_store_path: output.to_string_lossy().into_owned(),
+                overwrite_existing,
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }

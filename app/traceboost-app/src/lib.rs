@@ -1,11 +1,16 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use seis_contracts_interop::{
-    DatasetSummary, ImportDatasetRequest, ImportDatasetResponse, OpenDatasetRequest,
-    OpenDatasetResponse, SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
-    IPC_SCHEMA_VERSION,
+    DatasetSummary, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    OpenDatasetRequest, OpenDatasetResponse, SuggestedImportAction, SurveyPreflightRequest,
+    SurveyPreflightResponse,
 };
-use seis_runtime::{IngestOptions, SparseSurveyPolicy, describe_store, ingest_segy, open_store, preflight_segy};
+use seis_runtime::{
+    IngestOptions, SparseSurveyPolicy, describe_store, ingest_segy, open_store, preflight_segy,
+};
 
 pub fn preflight_dataset(
     request: SurveyPreflightRequest,
@@ -28,9 +33,11 @@ pub fn preflight_dataset(
 pub fn import_dataset(
     request: ImportDatasetRequest,
 ) -> Result<ImportDatasetResponse, Box<dyn std::error::Error>> {
+    let input = PathBuf::from(&request.input_path);
     let output = PathBuf::from(&request.output_store_path);
+    prepare_output_store(&input, &output, request.overwrite_existing)?;
     let handle = ingest_segy(
-        &request.input_path,
+        &input,
         &output,
         IngestOptions {
             sparse_survey_policy: SparseSurveyPolicy::Reject,
@@ -44,6 +51,36 @@ pub fn import_dataset(
             descriptor: describe_store(&output)?,
         },
     })
+}
+
+fn prepare_output_store(
+    input_path: &Path,
+    output_path: &Path,
+    overwrite_existing: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !overwrite_existing || !output_path.exists() {
+        return Ok(());
+    }
+
+    let input_path = input_path
+        .canonicalize()
+        .unwrap_or_else(|_| input_path.to_path_buf());
+    let output_path = output_path
+        .canonicalize()
+        .unwrap_or_else(|_| output_path.to_path_buf());
+
+    if input_path == output_path {
+        return Err("Output store path cannot overwrite the input SEG-Y file.".into());
+    }
+
+    let metadata = fs::symlink_metadata(&output_path)?;
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(&output_path)?;
+    } else {
+        fs::remove_file(&output_path)?;
+    }
+
+    Ok(())
 }
 
 pub fn open_dataset_summary(
@@ -66,7 +103,9 @@ pub fn open_dataset_summary(
 
 fn suggested_action(action: seis_runtime::PreflightAction) -> SuggestedImportAction {
     match action {
-        seis_runtime::PreflightAction::DirectDenseIngest => SuggestedImportAction::DirectDenseIngest,
+        seis_runtime::PreflightAction::DirectDenseIngest => {
+            SuggestedImportAction::DirectDenseIngest
+        }
         seis_runtime::PreflightAction::RegularizeSparseSurvey => {
             SuggestedImportAction::RegularizeSparseSurvey
         }

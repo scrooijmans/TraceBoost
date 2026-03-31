@@ -36,7 +36,9 @@ pub enum SeisRefineError {
     },
     #[error("only post-stack cubes are supported in v1; found {offset_count} offsets")]
     UnsupportedOffsetCount { offset_count: usize },
-    #[error("sparse regularization only supports post-stack surveys without an explicit third axis in v1")]
+    #[error(
+        "sparse regularization only supports post-stack surveys without an explicit third axis in v1"
+    )]
     UnsupportedRegularizationTarget,
     #[error("unsupported scale factor {scale}; v1 only supports 2x")]
     UnsupportedScale { scale: u8 },

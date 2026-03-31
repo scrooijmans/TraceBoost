@@ -1,12 +1,21 @@
 import { isTauriEnvironment } from "./bridge";
 
+function normalizeDialogPath(result: string | null): string | null {
+  if (typeof result !== "string") {
+    return null;
+  }
+
+  const normalized = result.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 /**
  * Opens a native file picker for SEG-Y files.
  * Returns the selected file path, or null if cancelled.
  */
 export async function pickSegyFile(): Promise<string | null> {
   if (!isTauriEnvironment()) {
-    return prompt("Enter SEG-Y file path:");
+    return normalizeDialogPath(prompt("Enter SEG-Y file path:"));
   }
 
   const { open } = await import("@tauri-apps/plugin-dialog");
@@ -20,7 +29,7 @@ export async function pickSegyFile(): Promise<string | null> {
     directory: false
   });
 
-  return result ?? null;
+  return normalizeDialogPath(result);
 }
 
 /**
@@ -29,7 +38,7 @@ export async function pickSegyFile(): Promise<string | null> {
  */
 export async function pickOutputFolder(): Promise<string | null> {
   if (!isTauriEnvironment()) {
-    return prompt("Enter output store path:");
+    return normalizeDialogPath(prompt("Enter output store path:"));
   }
 
   const { save } = await import("@tauri-apps/plugin-dialog");
@@ -42,5 +51,27 @@ export async function pickOutputFolder(): Promise<string | null> {
     ]
   });
 
-  return result ?? null;
+  return normalizeDialogPath(result);
+}
+
+export async function confirmOverwriteStore(outputStorePath: string): Promise<boolean> {
+  const message = [
+    "A runtime store already exists at this location.",
+    "",
+    outputStorePath,
+    "",
+    "Overwrite it and replace the existing .zarr store?"
+  ].join("\n");
+
+  if (!isTauriEnvironment()) {
+    return window.confirm(message);
+  }
+
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  return confirm(message, {
+    title: "Overwrite Existing Runtime Store?",
+    kind: "warning",
+    okLabel: "Overwrite",
+    cancelLabel: "Cancel"
+  });
 }

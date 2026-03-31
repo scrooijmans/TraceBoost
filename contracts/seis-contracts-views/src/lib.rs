@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use seis_contracts_core::{DatasetId, SectionAxis};
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -141,7 +141,10 @@ mod tests {
         let section = SectionView {
             dataset_id: DatasetId("demo".to_string()),
             axis: SectionAxis::Inline,
-            coordinate: SectionCoordinate { index: 10, value: 1042.0 },
+            coordinate: SectionCoordinate {
+                index: 10,
+                value: 1042.0,
+            },
             traces: 128,
             samples: 512,
             horizontal_axis_f64le: vec![0; 128 * 8],

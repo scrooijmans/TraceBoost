@@ -92,7 +92,12 @@ pub fn ingest_segy(
         derived_from: None,
     };
 
-    create_store(store_root, manifest, &volume.data, volume.occupancy.as_ref())
+    create_store(
+        store_root,
+        manifest,
+        &volume.data,
+        volume.occupancy.as_ref(),
+    )
 }
 
 pub fn load_source_volume(
@@ -178,12 +183,16 @@ fn regularize_sparse_regular_poststack(
         return Err(unsupported_geometry_error(geometry_report));
     };
 
-    if options.geometry.third_axis_field.is_some() || !geometry_report.third_axis_values.is_empty() {
+    if options.geometry.third_axis_field.is_some() || !geometry_report.third_axis_values.is_empty()
+    {
         return Err(SeisRefineError::UnsupportedRegularizationTarget);
     }
 
     let headers = reader.load_trace_headers(
-        &[geometry_report.inline_field, geometry_report.crossline_field],
+        &[
+            geometry_report.inline_field,
+            geometry_report.crossline_field,
+        ],
         seis_io::TraceSelection::All,
     )?;
     let ilines = headers

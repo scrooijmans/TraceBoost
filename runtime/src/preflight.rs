@@ -63,7 +63,9 @@ pub fn preflight_segy(
         seis_io::GeometryClassification::RegularDense => PreflightAction::DirectDenseIngest,
         seis_io::GeometryClassification::RegularSparse => PreflightAction::RegularizeSparseSurvey,
         seis_io::GeometryClassification::DuplicateCoordinates
-        | seis_io::GeometryClassification::AmbiguousMapping => PreflightAction::ReviewGeometryMapping,
+        | seis_io::GeometryClassification::AmbiguousMapping => {
+            PreflightAction::ReviewGeometryMapping
+        }
         seis_io::GeometryClassification::NonCartesian => PreflightAction::UnsupportedInV1,
     };
 

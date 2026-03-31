@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "bun run typecheck && tauri dev",
     "tauri:build": "tauri build"
   },
   "dependencies": {
