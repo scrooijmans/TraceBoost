@@ -9,12 +9,13 @@ name = "traceboost_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0.0" }
+tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tauri = { version = "2.0.0" }
+tauri = { version = "2.0.0", features = [] }
 traceboost-app = { path = "../../traceboost-app" }
 seis-contracts-interop = { package = "seis-contracts-interop", path = "../../../contracts/seis-contracts-interop" }
 seis-runtime = { package = "seis-runtime", path = "../../../runtime" }
+tauri-plugin-dialog = "2.6.0"

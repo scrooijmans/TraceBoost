@@ -14,8 +14,9 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
     "@geoviz/svelte": "file:../../../geoviz/packages/svelte",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
     "@traceboost/seis-contracts": "file:../../contracts/ts/seis-contracts",
     "svelte": "^5.39.6"
   },
