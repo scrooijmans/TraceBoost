@@ -1,3 +1,4 @@
+mod app_paths;
 mod diagnostics;
 
 use seis_contracts_interop::{
@@ -8,9 +9,8 @@ use seis_runtime::{SectionAxis, SectionView, open_store};
 use tauri::{AppHandle, Manager, State};
 use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset};
 
-use crate::diagnostics::{
-    DiagnosticsState, ExportBundleResponse, build_fields, json_value, preferred_logs_dir,
-};
+use crate::app_paths::AppPaths;
+use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
 
 #[tauri::command]
 fn preflight_import_command(
@@ -344,7 +344,6 @@ fn export_diagnostics_bundle_command(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let session_basename = DiagnosticsState::session_basename();
-    let log_dir = preferred_logs_dir();
     let enable_devtools = cfg!(debug_assertions)
         && std::env::var("TRACEBOOST_ENABLE_DEVTOOLS")
             .map(|value| {
@@ -356,6 +355,7 @@ pub fn run() {
             .unwrap_or(false);
 
     let log_plugin = tauri_plugin_log::Builder::default()
+        .clear_targets()
         .level(log::LevelFilter::Info)
         .level_for("traceboost_desktop_lib", log::LevelFilter::Debug)
         .level_for(
@@ -368,8 +368,7 @@ pub fn run() {
             tauri_plugin_log::TargetKind::Stdout,
         ))
         .target(tauri_plugin_log::Target::new(
-            tauri_plugin_log::TargetKind::Folder {
-                path: log_dir.clone(),
+            tauri_plugin_log::TargetKind::LogDir {
                 file_name: Some(session_basename.clone()),
             },
         ))
@@ -378,7 +377,9 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
-            let diagnostics = DiagnosticsState::initialize(&log_dir, session_basename.clone())?;
+            let app_paths = AppPaths::resolve(&app.handle().clone())?;
+            let diagnostics =
+                DiagnosticsState::initialize(app_paths.logs_dir(), session_basename.clone())?;
             diagnostics.emit_session_event(
                 &app.handle().clone(),
                 "started",

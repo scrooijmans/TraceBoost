@@ -3231,6 +3231,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "ophiolite-seismic"
+version = "0.1.0"
+dependencies = [
+ "schemars 0.8.22",
+ "serde",
+ "ts-rs",
+]
+
+[[package]]
+name = "ophiolite-seismic-io"
+version = "0.1.0"
+dependencies = [
+ "ibm1047",
+ "memmap2",
+ "rayon",
+]
+
+[[package]]
+name = "ophiolite-seismic-runtime"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "memmap2",
+ "ndarray",
+ "ophiolite-seismic",
+ "ophiolite-seismic-io",
+ "rayon",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "ts-rs",
+ "zarrs",
+]
+
+[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4256,6 +4292,7 @@ checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 name = "seis-contracts-core"
 version = "0.1.0"
 dependencies = [
+ "ophiolite-seismic",
  "schemars 0.8.22",
  "serde",
  "ts-rs",
@@ -4265,6 +4302,7 @@ dependencies = [
 name = "seis-contracts-interop"
 version = "0.1.0"
 dependencies = [
+ "ophiolite-seismic",
  "schemars 0.8.22",
  "seis-contracts-core",
  "seis-contracts-views",
@@ -4277,6 +4315,7 @@ dependencies = [
 name = "seis-contracts-views"
 version = "0.1.0"
 dependencies = [
+ "ophiolite-seismic",
  "schemars 0.8.22",
  "seis-contracts-core",
  "serde",
@@ -4290,6 +4329,7 @@ dependencies = [
  "criterion",
  "ibm1047",
  "memmap2",
+ "ophiolite-seismic-io",
  "rayon",
 ]
 
@@ -4299,6 +4339,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ndarray",
+ "ophiolite-seismic",
+ "ophiolite-seismic-runtime",
  "rayon",
  "seis-contracts-core",
  "seis-contracts-views",

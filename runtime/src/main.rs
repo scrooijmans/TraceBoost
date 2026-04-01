@@ -38,8 +38,8 @@ enum Command {
     Ingest {
         input: PathBuf,
         output: PathBuf,
-        #[arg(long, value_delimiter = ',', default_values_t = [16_usize, 16, 64])]
-        chunk: Vec<usize>,
+        #[arg(long, value_delimiter = ',')]
+        chunk: Option<Vec<usize>>,
         #[arg(long)]
         inline_byte: Option<u16>,
         #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
@@ -64,8 +64,8 @@ enum Command {
         scale: u8,
         #[arg(long, value_enum, default_value_t = MethodArg::Linear)]
         method: MethodArg,
-        #[arg(long, value_delimiter = ',', default_values_t = [16_usize, 16, 64])]
-        chunk: Vec<usize>,
+        #[arg(long, value_delimiter = ',')]
+        chunk: Option<Vec<usize>>,
     },
     Validate {
         output: PathBuf,
@@ -206,10 +206,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_chunk_shape(values: &[usize]) -> [usize; 3] {
-    match values {
-        [a, b, c] => [*a, *b, *c],
-        _ => [16, 16, 64],
+fn parse_chunk_shape(values: &Option<Vec<usize>>) -> [usize; 3] {
+    match values.as_deref() {
+        Some([a, b, c]) => [*a, *b, *c],
+        _ => [0, 0, 0],
     }
 }
 

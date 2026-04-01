@@ -6,4 +6,4 @@ import type { SectionDisplayDefaults } from "./SectionDisplayDefaults";
 import type { SectionMetadata } from "./SectionMetadata";
 import type { SectionUnits } from "./SectionUnits";
 
-export type SectionView = { dataset_id: DatasetId, axis: SectionAxis, coordinate: SectionCoordinate, traces: number, samples: number, horizontal_axis_f64le: Array<number>, sample_axis_f32le: Array<number>, amplitudes_f32le: Array<number>, units: SectionUnits | null, metadata: SectionMetadata | null, display_defaults: SectionDisplayDefaults | null, };
+export type SectionView = { dataset_id: DatasetId, axis: SectionAxis, coordinate: SectionCoordinate, traces: number, samples: number, horizontal_axis_f64le: Array<number>, inline_axis_f64le: Array<number> | null, xline_axis_f64le: Array<number> | null, sample_axis_f32le: Array<number>, amplitudes_f32le: Array<number>, units: SectionUnits | null, metadata: SectionMetadata | null, display_defaults: SectionDisplayDefaults | null, };

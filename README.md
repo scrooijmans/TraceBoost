@@ -2,6 +2,8 @@
 
 TraceBoost is the backend/product monorepo for the seismic desktop application stack.
 
+It is currently the implementation home for the seismic product workflow, but the longer-term target is for shared canonical seismic SDK layers to live in the sibling `ophiolite` repository while TraceBoost stays focused on product orchestration and desktop UX.
+
 The current product milestone is:
 
 `select SEG-Y -> preflight/ingest -> open runtime store -> view inline/xline sections in the app shell`
@@ -11,7 +13,7 @@ The current product milestone is:
 - Rust 2024 workspace for contracts, I/O, runtime, and app/backend orchestration
 - `serde`, `schemars`, and `ts-rs` for shared JSON and generated TypeScript contracts
 - `clap` for developer-facing CLI surfaces
-- `zarrs` for the current runtime store implementation
+- shared seismic core/runtime crates in the sibling `ophiolite` repository
 - Svelte 5 + Vite + Bun for the frontend host in `app/traceboost-frontend`
 - Tauri 2 for the desktop shell in `app/traceboost-frontend/src-tauri`
 - external `geoviz` packages for 2D seismic rendering
@@ -19,7 +21,7 @@ The current product milestone is:
 ## Data Formats
 
 - input survey format: SEG-Y
-- working dataset format: chunked Zarr-backed runtime store
+- working dataset format: `tbvol` tiled runtime store
 - app/runtime boundary: JSON payloads typed by `seis-contracts-*` and generated into `@traceboost/seis-contracts`
 
 ## Monorepo Layout
@@ -30,7 +32,7 @@ The current product milestone is:
 - `io/`
   - SEG-Y inspection, geometry extraction, chunked reads, and ingest-oriented helpers
 - `runtime/`
-  - runtime-store creation/open, validation, section-view generation, and processing entry points
+  - TraceBoost compatibility wrapper over the shared Ophiolite seismic runtime
 - `app/`
   - product-facing Rust orchestration, frontend host, and Tauri shell
 - `test-data/`
@@ -48,7 +50,7 @@ The current product milestone is:
   - survey preflight
   - dataset import/open flows
 - `seis-io` can inspect SEG-Y files, load headers, analyze geometry, and feed ingest paths
-- `seis-runtime` can preflight SEG-Y, ingest into the runtime store, reopen stores, describe datasets, and generate section views
+- `seis-runtime` re-exports the shared Ophiolite seismic runtime used to preflight SEG-Y, ingest into `tbvol`, reopen stores, describe datasets, and generate section views
 - `traceboost-app` now exposes reusable backend helpers and CLI commands for:
   - `preflight-import`
   - `import-dataset`
@@ -101,6 +103,7 @@ bun run tauri:dev
 ## Notes
 
 - `traceboost-frontend` consumes the sibling `../geoviz` repository through direct local `file:` dependencies. Keep that checkout present next to `TraceBoost`.
+- the longer-term shared-core direction is `TraceBoost app/product repo -> ophiolite shared subsurface core -> geoviz visualization SDK`
 - the repository pins Rust `1.91.0` in `rust-toolchain.toml` so `cargo` and Tauri pick a supported compiler automatically.
 - `geoviz` remains an external visualization SDK and is not vendored into this monorepo.
 - `seisview-js` is not part of the production architecture here.

@@ -8,6 +8,7 @@ license.workspace = true
 name = "seis_contracts_interop"
 
 [dependencies]
+ophiolite-seismic = { path = "../../../ophiolite/crates/ophiolite-seismic" }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

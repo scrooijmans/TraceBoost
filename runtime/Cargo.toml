@@ -10,6 +10,8 @@ name = "seis_runtime"
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
 ndarray = "0.17.2"
+ophiolite-seismic = { path = "../../ophiolite/crates/ophiolite-seismic" }
+ophiolite-seismic-runtime = { path = "../../ophiolite/crates/ophiolite-seismic-runtime" }
 rayon = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

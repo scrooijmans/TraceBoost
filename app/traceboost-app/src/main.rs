@@ -44,7 +44,7 @@ enum Command {
     Ingest {
         input: PathBuf,
         output: PathBuf,
-        #[arg(long, value_delimiter = ',', default_values_t = [16_usize, 16, 64])]
+        #[arg(long, value_delimiter = ',')]
         chunk: Vec<usize>,
         #[arg(long)]
         inline_byte: Option<u16>,
@@ -242,7 +242,7 @@ impl From<SectionAxisArg> for seis_runtime::SectionAxis {
 fn parse_chunk_shape(values: &[usize]) -> [usize; 3] {
     match values {
         [a, b, c] => [*a, *b, *c],
-        _ => [16, 16, 64],
+        _ => [0, 0, 0],
     }
 }
 

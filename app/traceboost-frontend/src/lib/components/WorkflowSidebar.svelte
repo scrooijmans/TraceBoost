@@ -74,7 +74,7 @@
     <div class="step">
       <div class="step-label">Step 1</div>
       <div class="step-title">Select SEG-Y File</div>
-      <button class="btn btn-primary" onclick={handleSelectSegy} disabled={viewerModel.loading}>
+      <button class="btn btn-primary workflow-button" onclick={handleSelectSegy} disabled={viewerModel.loading}>
         {viewerModel.inputPath ? "Change File" : "Select File"}
       </button>
       {#if viewerModel.inputPath}
@@ -88,7 +88,7 @@
       <div class="step-label">Step 2</div>
       <div class="step-title">Preflight Survey</div>
       <button
-        class="btn btn-secondary"
+        class="btn btn-secondary workflow-button"
         onclick={() => void viewerModel.runPreflight()}
         disabled={viewerModel.loading || !viewerModel.inputPath}
       >
@@ -152,7 +152,7 @@
     <div class="step">
       <div class="step-label">Step 3</div>
       <div class="step-title">Runtime Store Output</div>
-      <button class="btn btn-primary" onclick={handleSelectOutput} disabled={viewerModel.loading}>
+      <button class="btn btn-primary workflow-button" onclick={handleSelectOutput} disabled={viewerModel.loading}>
         {viewerModel.outputStorePath ? "Change Folder" : "Set Output Folder"}
       </button>
       {#if viewerModel.outputStorePath}
@@ -167,14 +167,14 @@
       <div class="step-title">Import & View</div>
       <div class="step-actions">
         <button
-          class="btn btn-accent"
+          class="btn btn-accent workflow-button"
           onclick={() => void viewerModel.importDataset()}
           disabled={viewerModel.loading || Boolean(viewerModel.importDisabledReason)}
         >
           Import SEG-Y
         </button>
         <button
-          class="btn btn-secondary"
+          class="btn btn-secondary workflow-button"
           onclick={() => void viewerModel.openDataset()}
           disabled={viewerModel.loading || !viewerModel.outputStorePath}
         >
@@ -411,13 +411,19 @@
     align-items: center;
     justify-content: center;
     padding: 10px 16px;
+    min-height: 44px;
     border-radius: 8px;
-    border: none;
+    border: 1px solid transparent;
+    box-sizing: border-box;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
     color: #fff;
+  }
+
+  .workflow-button {
+    width: 100%;
   }
 
   .btn:disabled {
@@ -452,6 +458,7 @@
 
   .btn-sm {
     padding: 7px 12px;
+    min-height: 36px;
     font-size: 12px;
     flex: 1;
   }

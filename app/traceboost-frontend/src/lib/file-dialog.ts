@@ -44,9 +44,9 @@ export async function pickOutputFolder(): Promise<string | null> {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const result = await save({
     title: "Set Runtime Store Output Path",
-    defaultPath: "survey.zarr",
+    defaultPath: "survey.tbvol",
     filters: [
-      { name: "Zarr Store", extensions: ["zarr"] },
+      { name: "Runtime Store", extensions: ["tbvol"] },
       { name: "All Files", extensions: ["*"] }
     ]
   });
@@ -60,7 +60,7 @@ export async function confirmOverwriteStore(outputStorePath: string): Promise<bo
     "",
     outputStorePath,
     "",
-    "Overwrite it and replace the existing .zarr store?"
+    "Overwrite it and replace the existing .tbvol store?"
   ].join("\n");
 
   if (!isTauriEnvironment()) {

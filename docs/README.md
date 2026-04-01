@@ -5,6 +5,7 @@ This directory contains the current TraceBoost architecture docs plus archived l
 Current source-of-truth document:
 
 - `architecture.md`
+- `compute-storage-benchmark.md` for the runtime compute/storage benchmark and format decision plan
 
 Status of the rest of this folder:
 

@@ -4,8 +4,9 @@ use ndarray::Array3;
 use rayon::prelude::*;
 
 use crate::error::SeisRefineError;
-use crate::metadata::{DatasetKind, DerivedFrom, InterpMethod, StoreManifest, VolumeAxes};
-use crate::store::{StoreHandle, create_store, load_array, open_store};
+use crate::metadata::{DatasetKind, InterpMethod, ProcessingLineage, VolumeAxes, VolumeMetadata};
+use crate::store::{StoreHandle, create_tbvol_store, load_array, open_store};
+use crate::{TbvolManifest, recommended_tbvol_tile_shape};
 
 #[derive(Debug, Clone, Copy)]
 pub struct UpscaleOptions {
@@ -19,7 +20,7 @@ impl Default for UpscaleOptions {
         Self {
             scale: 2,
             method: InterpMethod::Linear,
-            chunk_shape: [16, 16, 64],
+            chunk_shape: [0, 0, 0],
         }
     }
 }
@@ -43,28 +44,39 @@ pub fn upscale_store(
         output_array.shape()[1],
         output_array.shape()[2],
     ];
-    let manifest = StoreManifest {
-        version: 1,
-        kind: DatasetKind::Derived,
-        source: input.manifest.source.clone(),
-        shape,
-        chunk_shape: clamp_chunk_shape(options.chunk_shape, shape),
-        axes: VolumeAxes {
-            ilines: densify_coords(&input.manifest.axes.ilines),
-            xlines: densify_coords(&input.manifest.axes.xlines),
-            sample_axis_ms: input.manifest.axes.sample_axis_ms.clone(),
+    let manifest = TbvolManifest::new(
+        VolumeMetadata {
+            kind: DatasetKind::Derived,
+            source: input.manifest.volume.source.clone(),
+            shape,
+            axes: VolumeAxes {
+                ilines: densify_coords(&input.manifest.volume.axes.ilines),
+                xlines: densify_coords(&input.manifest.volume.axes.xlines),
+                sample_axis_ms: input.manifest.volume.axes.sample_axis_ms.clone(),
+            },
+            created_by: "seis-runtime-0.1.0".to_string(),
+            processing_lineage: Some(ProcessingLineage {
+                parent_store: input.root.clone(),
+                pipeline: Vec::new(),
+                runtime_version: format!(
+                    "traceboost-upscale-{}-{}x",
+                    match options.method {
+                        InterpMethod::Linear => "linear",
+                        InterpMethod::Cubic => "cubic",
+                    },
+                    options.scale
+                ),
+                created_at_unix_s: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            }),
         },
-        array_path: String::new(),
-        occupancy_array_path: None,
-        created_by: "seis-runtime-0.1.0".to_string(),
-        derived_from: Some(DerivedFrom {
-            parent_store: input.root.clone(),
-            method: options.method,
-            scale: options.scale,
-        }),
-    };
+        resolve_tile_shape(options.chunk_shape, shape),
+        false,
+    );
 
-    create_store(output_store_root, manifest, &output_array, None)
+    create_tbvol_store(output_store_root, manifest, &output_array, None)
 }
 
 pub fn upscale_2x(input: &Array3<f32>, method: InterpMethod) -> Array3<f32> {
@@ -267,7 +279,11 @@ fn densify_coords(values: &[f64]) -> Vec<f64> {
     out
 }
 
-fn clamp_chunk_shape(chunk_shape: [usize; 3], shape: [usize; 3]) -> [usize; 3] {
+fn resolve_tile_shape(chunk_shape: [usize; 3], shape: [usize; 3]) -> [usize; 3] {
+    if chunk_shape.iter().all(|value| *value == 0) {
+        return recommended_tbvol_tile_shape(shape, 8);
+    }
+
     [
         chunk_shape[0].max(1).min(shape[0].max(1)),
         chunk_shape[1].max(1).min(shape[1].max(1)),

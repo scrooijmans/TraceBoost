@@ -9,6 +9,7 @@ name = "seis_io"
 [dependencies]
 ibm1047 = "1.0"
 memmap2 = "0.9"
+ophiolite-seismic-io = { path = "../../ophiolite/crates/ophiolite-seismic-io" }
 rayon = "1.11"
 
 [dev-dependencies]

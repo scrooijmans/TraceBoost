@@ -69,9 +69,9 @@ fn remove_last_trace(src: &Path, dst: &Path) {
 }
 
 #[test]
-fn ingest_writes_a_zarr_store_and_manifest() {
+fn ingest_writes_a_store_and_manifest() {
     let temp = tempdir().unwrap();
-    let store_root = temp.path().join("small.zarr");
+    let store_root = temp.path().join("small.tbvol");
 
     let handle = ingest_segy(
         fixture_path("small.sgy"),
@@ -83,16 +83,16 @@ fn ingest_writes_a_zarr_store_and_manifest() {
     )
     .unwrap();
 
-    assert!(store_root.join("zarr.json").exists() || store_root.join(".zgroup").exists());
+    assert!(store_root.join("manifest.json").exists() || handle.manifest_path().exists());
     assert!(handle.manifest_path().exists());
-    assert_eq!(handle.manifest.shape, [5, 5, 50]);
-    assert_eq!(handle.manifest.chunk_shape, [2, 3, 50]);
-    assert_eq!(handle.manifest.source.geometry.inline_field.start_byte, 189);
+    assert_eq!(handle.manifest.volume.shape, [5, 5, 50]);
+    assert_eq!(handle.manifest.tile_shape, [2, 3, 50]);
+    assert_eq!(handle.manifest.volume.source.geometry.inline_field.start_byte, 189);
     assert_eq!(
-        handle.manifest.source.geometry.crossline_field.start_byte,
+        handle.manifest.volume.source.geometry.crossline_field.start_byte,
         193
     );
-    assert!(handle.manifest.source.geometry.third_axis_field.is_none());
+    assert!(handle.manifest.volume.source.geometry.third_axis_field.is_none());
 
     let array = load_array(&handle).unwrap();
     assert_eq!(array.shape(), &[5, 5, 50]);
@@ -102,7 +102,7 @@ fn ingest_writes_a_zarr_store_and_manifest() {
 #[test]
 fn ingest_rejects_irregular_geometry_with_structured_error() {
     let temp = tempdir().unwrap();
-    let store_root = temp.path().join("small-ps.zarr");
+    let store_root = temp.path().join("small-ps.tbvol");
     let error = ingest_segy(
         fixture_path("small-ps.sgy"),
         &store_root,
@@ -167,7 +167,7 @@ fn ingest_accepts_explicit_header_mapping_for_nonstandard_dense_file() {
 fn ingest_can_regularize_sparse_poststack_with_occupancy_mask() {
     let temp = tempdir().unwrap();
     let sparse_path = temp.path().join("small-sparse.sgy");
-    let store_root = temp.path().join("small-sparse.zarr");
+    let store_root = temp.path().join("small-sparse.tbvol");
     remove_last_trace(&fixture_path("small.sgy"), &sparse_path);
 
     let handle = ingest_segy(
@@ -191,6 +191,7 @@ fn ingest_can_regularize_sparse_poststack_with_occupancy_mask() {
     assert_eq!(
         handle
             .manifest
+            .volume
             .source
             .regularization
             .as_ref()
@@ -198,17 +199,14 @@ fn ingest_can_regularize_sparse_poststack_with_occupancy_mask() {
             .source_classification,
         "regular_sparse"
     );
-    assert_eq!(
-        handle.manifest.occupancy_array_path.as_deref(),
-        Some("/occupancy")
-    );
+    assert!(handle.manifest.has_occupancy);
 }
 
 #[test]
 fn upscale_generates_dense_midpoints_and_preserves_samples() {
     let temp = tempdir().unwrap();
-    let source_root = temp.path().join("source.zarr");
-    let derived_root = temp.path().join("derived.zarr");
+    let source_root = temp.path().join("source.tbvol");
+    let derived_root = temp.path().join("derived.tbvol");
 
     ingest_segy(
         fixture_path("small.sgy"),
@@ -219,18 +217,18 @@ fn upscale_generates_dense_midpoints_and_preserves_samples() {
     let derived = upscale_store(&source_root, &derived_root, Default::default()).unwrap();
     let array = load_array(&derived).unwrap();
 
-    assert_eq!(derived.manifest.shape, [9, 9, 50]);
+    assert_eq!(derived.manifest.volume.shape, [9, 9, 50]);
     let source = load_array(&open_store(&source_root).unwrap()).unwrap();
     let midpoint = array[[0, 1, 0]];
     let expected = (source[[0, 0, 0]] + source[[0, 1, 0]]) * 0.5;
     assert!((midpoint - expected).abs() < 1.0e-5);
-    assert_eq!(derived.manifest.axes.sample_axis_ms.len(), 50);
+    assert_eq!(derived.manifest.volume.axes.sample_axis_ms.len(), 50);
 }
 
 #[test]
 fn render_exports_inline_section_to_csv() {
     let temp = tempdir().unwrap();
-    let source_root = temp.path().join("source.zarr");
+    let source_root = temp.path().join("source.tbvol");
     let csv_path = temp.path().join("inline.csv");
 
     ingest_segy(
@@ -252,7 +250,7 @@ fn render_exports_inline_section_to_csv() {
 #[test]
 fn describe_store_returns_shared_volume_descriptor() {
     let temp = tempdir().unwrap();
-    let source_root = temp.path().join("source.zarr");
+    let source_root = temp.path().join("source.tbvol");
 
     ingest_segy(
         fixture_path("small.sgy"),
@@ -262,7 +260,7 @@ fn describe_store_returns_shared_volume_descriptor() {
     .unwrap();
 
     let descriptor = describe_store(&source_root).unwrap();
-    assert_eq!(descriptor.id.0, "source.zarr");
+    assert_eq!(descriptor.id.0, "source.tbvol");
     assert_eq!(descriptor.label, "source");
     assert_eq!(descriptor.shape, [5, 5, 50]);
     assert_eq!(descriptor.chunk_shape, [5, 5, 50]);
@@ -271,7 +269,7 @@ fn describe_store_returns_shared_volume_descriptor() {
 #[test]
 fn section_view_returns_shared_section_view() {
     let temp = tempdir().unwrap();
-    let source_root = temp.path().join("source.zarr");
+    let source_root = temp.path().join("source.tbvol");
 
     ingest_segy(
         fixture_path("small.sgy"),
@@ -281,7 +279,7 @@ fn section_view_returns_shared_section_view() {
     .unwrap();
 
     let view = section_view(&source_root, SectionAxis::Inline, 0).unwrap();
-    assert_eq!(view.dataset_id.0, "source.zarr");
+    assert_eq!(view.dataset_id.0, "source.tbvol");
     assert_eq!(view.axis, SectionAxis::Inline);
     assert_eq!(view.coordinate.index, 0);
     assert_eq!(view.coordinate.value, 1.0);
@@ -295,7 +293,7 @@ fn section_view_returns_shared_section_view() {
 #[test]
 fn request_driven_render_rejects_dataset_mismatch() {
     let temp = tempdir().unwrap();
-    let source_root = temp.path().join("source.zarr");
+    let source_root = temp.path().join("source.tbvol");
     let csv_path = temp.path().join("inline.csv");
 
     ingest_segy(
@@ -308,7 +306,7 @@ fn request_driven_render_rejects_dataset_mismatch() {
     let error = render_section_csv_for_request(
         &source_root,
         &SectionRequest {
-            dataset_id: DatasetId("other.zarr".to_string()),
+            dataset_id: DatasetId("other.tbvol".to_string()),
             axis: SectionAxis::Inline,
             index: 0,
         },

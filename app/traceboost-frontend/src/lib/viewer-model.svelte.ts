@@ -68,7 +68,7 @@ function deriveStorePathFromInput(inputPath: string): string {
     return "";
   }
 
-  return `${directory}${basename}.zarr`;
+  return `${directory}${basename}.tbvol`;
 }
 
 export class ViewerModel {

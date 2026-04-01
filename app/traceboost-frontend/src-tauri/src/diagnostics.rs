@@ -348,16 +348,6 @@ impl DiagnosticsState {
     }
 }
 
-pub fn preferred_logs_dir() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join("Library/Logs/TraceBoost");
-        }
-    }
-
-    PathBuf::from("traceboost-logs")
-}
-
 pub fn build_fields(
     entries: impl IntoIterator<Item = (&'static str, Value)>,
 ) -> Map<String, Value> {

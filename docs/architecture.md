@@ -12,11 +12,17 @@ The active backend/product architecture is:
 - `io/`
   - SEG-Y inspection, header loading, geometry analysis, and ingest-oriented reads
 - `runtime/`
-  - canonical working-store access, runtime dataset helpers, processing, validation, and derived outputs
+  - TraceBoost compatibility wrapper over the shared Ophiolite seismic runtime
 - `app/`
   - product-facing application workflow and future Tauri-facing crates
 
 `geoviz` remains outside this repository as the visualization SDK boundary.
+
+The target ecosystem boundary is:
+
+- `ophiolite` owns shared subsurface SDK layers and canonical domain/app-boundary types over time
+- `TraceBoost` owns product-facing seismic workflow composition, desktop UX, and app-specific orchestration
+- `geoviz` remains the visualization SDK and adapter boundary
 
 ## Design Rules
 
@@ -27,6 +33,7 @@ The active backend/product architecture is:
 - dependency direction is strict:
   - `app -> runtime -> io -> contracts`
 - no generic `shared/` or `common/` bucket is allowed
+- as shared seismic core concerns move into `ophiolite`, TraceBoost should consume them rather than recreate a second canonical core here
 
 ## Current Package Map
 
@@ -40,7 +47,7 @@ The active backend/product architecture is:
 ## Compatibility Notes
 
 - old standalone repos for contracts, I/O, and runtime have been deprecated in favor of this monorepo
-- the existing store manifest filename is still retained for compatibility with previously written runtime stores
+- canonical runtime storage now lives in the shared Ophiolite seismic runtime and uses `tbvol`
 - internal Rust import names may still lag behind package names in some places; package identity and repo boundary are the authoritative naming layer
 
 ## Testing And CI
