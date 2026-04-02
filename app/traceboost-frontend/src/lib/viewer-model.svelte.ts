@@ -467,7 +467,7 @@ export class ViewerModel {
     }
 
     this.note("Cycling compare foreground survey.", "ui", "info", nextCandidate.displayName);
-    await this.openDatasetAt(nextCandidate.storePath, this.axis, this.index);
+    await this.activateDatasetEntry(nextCandidate.entryId);
   };
 
   refreshCompareSelection = (): void => {
@@ -747,6 +747,7 @@ export class ViewerModel {
         (await defaultImportStorePath(normalizedPath));
       this.loading = false;
       this.busyLabel = null;
+      this.activeEntryId = matchingEntry?.entry_id ?? null;
       this.inputPath = normalizedPath;
       this.outputStorePath = outputStorePath;
       this.#outputPathSource = "manual";

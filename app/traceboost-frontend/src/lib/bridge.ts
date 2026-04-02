@@ -173,6 +173,19 @@ export async function importDataset(
   });
 }
 
+export async function defaultImportStorePath(inputPath: string): Promise<string> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<string>("default_import_store_path_command", { inputPath });
+  }
+
+  const normalized = inputPath.trim();
+  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  const directory = separatorIndex >= 0 ? normalized.slice(0, separatorIndex + 1) : "";
+  const filename = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+  const basename = filename.replace(/\.[^.]+$/, "");
+  return `${directory}${basename}.tbvol`;
+}
+
 export async function openDataset(storePath: string): Promise<OpenDatasetResponse> {
   if (isTauriEnvironment()) {
     return invokeTauri<OpenDatasetResponse>("open_dataset_command", { storePath });
@@ -218,6 +231,43 @@ export async function runProcessing(
   }
 
   return postJson<RunProcessingResponse>("/api/processing/run", request as Record<string, unknown>);
+}
+
+export async function defaultProcessingStorePath(
+  storePath: string,
+  pipeline: ProcessingPreset["pipeline"] | RunProcessingRequest["pipeline"]
+): Promise<string> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<string>("default_processing_store_path_command", {
+      storePath,
+      pipeline
+    });
+  }
+
+  const normalizedStorePath = storePath.trim();
+  const separatorIndex = Math.max(normalizedStorePath.lastIndexOf("/"), normalizedStorePath.lastIndexOf("\\"));
+  const directory = separatorIndex >= 0 ? normalizedStorePath.slice(0, separatorIndex + 1) : "";
+  const filename = separatorIndex >= 0 ? normalizedStorePath.slice(separatorIndex + 1) : normalizedStorePath;
+  const sourceStem = filename.replace(/\.[^.]+$/, "") || "dataset";
+  const namedPipeline = pipeline.name?.trim();
+  const operationSlug =
+    pipeline.operations
+      .map((operation) =>
+        typeof operation === "string"
+          ? "trace-rms-normalize"
+          : `amplitude-scalar-${String(operation.amplitude_scalar.factor).replace(".", "_")}`
+      )
+      .join("-") || "pipeline";
+  const pipelineStem = (namedPipeline || operationSlug)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\..+$/, "")
+    .replace("T", "-");
+  return `${directory}${sourceStem}.${pipelineStem || "pipeline"}.${timestamp}.tbvol`;
 }
 
 export async function getProcessingJob(jobId: string): Promise<GetProcessingJobResponse> {

@@ -1,6 +1,84 @@
 {
   "ipcSchemaVersion": 1,
   "types": {
+    "AxisSummaryF32": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "count": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "first": {
+          "format": "float",
+          "type": "number"
+        },
+        "last": {
+          "format": "float",
+          "type": "number"
+        },
+        "regular": {
+          "type": "boolean"
+        },
+        "step": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "units": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "first",
+        "last",
+        "regular"
+      ],
+      "title": "AxisSummaryF32",
+      "type": "object"
+    },
+    "AxisSummaryI32": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "count": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "first": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "last": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "regular": {
+          "type": "boolean"
+        },
+        "step": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "first",
+        "last",
+        "regular"
+      ],
+      "title": "AxisSummaryI32",
+      "type": "object"
+    },
     "CancelProcessingJobRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -204,6 +282,80 @@
     "DatasetRegistryEntry": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -228,6 +380,56 @@
           "required": [
             "descriptor",
             "store_path"
+          ],
+          "type": "object"
+        },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
           ],
           "type": "object"
         },
@@ -318,6 +520,9 @@
               "minItems": 3,
               "type": "array"
             },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
+            },
             "id": {
               "$ref": "#/definitions/DatasetId"
             },
@@ -341,6 +546,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -467,8 +673,132 @@
     "DatasetSummary": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
+        },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
         },
         "VolumeDescriptor": {
           "properties": {
@@ -481,6 +811,9 @@
               "maxItems": 3,
               "minItems": 3,
               "type": "array"
+            },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
             },
             "id": {
               "$ref": "#/definitions/DatasetId"
@@ -505,6 +838,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -564,6 +898,253 @@
         "schema_version"
       ],
       "title": "DeletePipelinePresetResponse",
+      "type": "object"
+    },
+    "GeometryDescriptor": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "compare_family": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/definitions/GeometrySummary"
+        }
+      },
+      "required": [
+        "compare_family",
+        "fingerprint",
+        "summary"
+      ],
+      "title": "GeometryDescriptor",
+      "type": "object"
+    },
+    "GeometryProvenanceSummary": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "source",
+        "derived",
+        "regularized"
+      ],
+      "title": "GeometryProvenanceSummary",
+      "type": "string"
+    },
+    "GeometrySummary": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "inline_axis": {
+          "$ref": "#/definitions/AxisSummaryI32"
+        },
+        "provenance": {
+          "$ref": "#/definitions/GeometryProvenanceSummary"
+        },
+        "sample_axis": {
+          "$ref": "#/definitions/AxisSummaryF32"
+        },
+        "xline_axis": {
+          "$ref": "#/definitions/AxisSummaryI32"
+        }
+      },
+      "required": [
+        "inline_axis",
+        "provenance",
+        "sample_axis",
+        "xline_axis"
+      ],
+      "title": "GeometrySummary",
       "type": "object"
     },
     "GetProcessingJobRequest": {
@@ -791,6 +1372,80 @@
     "ImportDatasetResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -809,6 +1464,56 @@
           ],
           "type": "object"
         },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
+        },
         "VolumeDescriptor": {
           "properties": {
             "chunk_shape": {
@@ -820,6 +1525,9 @@
               "maxItems": 3,
               "minItems": 3,
               "type": "array"
+            },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
             },
             "id": {
               "$ref": "#/definitions/DatasetId"
@@ -844,6 +1552,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -1019,6 +1728,80 @@
     "LoadWorkspaceStateResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -1129,6 +1912,56 @@
           ],
           "type": "object"
         },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -1223,6 +2056,9 @@
               "minItems": 3,
               "type": "array"
             },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
+            },
             "id": {
               "$ref": "#/definitions/DatasetId"
             },
@@ -1246,6 +2082,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -1356,6 +2193,80 @@
     "OpenDatasetResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -1374,6 +2285,56 @@
           ],
           "type": "object"
         },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
+        },
         "VolumeDescriptor": {
           "properties": {
             "chunk_shape": {
@@ -1385,6 +2346,9 @@
               "maxItems": 3,
               "minItems": 3,
               "type": "array"
+            },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
             },
             "id": {
               "$ref": "#/definitions/DatasetId"
@@ -1409,6 +2373,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -4494,6 +5459,80 @@
     "SetActiveDatasetEntryResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -4604,6 +5643,56 @@
           ],
           "type": "object"
         },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -4698,6 +5787,9 @@
               "minItems": 3,
               "type": "array"
             },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
+            },
             "id": {
               "$ref": "#/definitions/DatasetId"
             },
@@ -4721,6 +5813,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -4913,6 +6006,80 @@
     "UpsertDatasetEntryRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -4928,6 +6095,56 @@
           "required": [
             "descriptor",
             "store_path"
+          ],
+          "type": "object"
+        },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
           ],
           "type": "object"
         },
@@ -5018,6 +6235,9 @@
               "minItems": 3,
               "type": "array"
             },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
+            },
             "id": {
               "$ref": "#/definitions/DatasetId"
             },
@@ -5041,6 +6261,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -5147,6 +6368,80 @@
     "UpsertDatasetEntryResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
         },
@@ -5257,6 +6552,56 @@
           ],
           "type": "object"
         },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -5351,6 +6696,9 @@
               "minItems": 3,
               "type": "array"
             },
+            "geometry": {
+              "$ref": "#/definitions/GeometryDescriptor"
+            },
             "id": {
               "$ref": "#/definitions/DatasetId"
             },
@@ -5374,6 +6722,7 @@
           },
           "required": [
             "chunk_shape",
+            "geometry",
             "id",
             "label",
             "sample_interval_ms",
@@ -5462,8 +6811,132 @@
     "VolumeDescriptor": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "AxisSummaryF32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "float",
+              "type": "number"
+            },
+            "last": {
+              "format": "float",
+              "type": "number"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
+        "AxisSummaryI32": {
+          "properties": {
+            "count": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "first": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "last": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "regular": {
+              "type": "boolean"
+            },
+            "step": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "first",
+            "last",
+            "regular"
+          ],
+          "type": "object"
+        },
         "DatasetId": {
           "type": "string"
+        },
+        "GeometryDescriptor": {
+          "properties": {
+            "compare_family": {
+              "type": "string"
+            },
+            "fingerprint": {
+              "type": "string"
+            },
+            "summary": {
+              "$ref": "#/definitions/GeometrySummary"
+            }
+          },
+          "required": [
+            "compare_family",
+            "fingerprint",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "GeometryProvenanceSummary": {
+          "enum": [
+            "source",
+            "derived",
+            "regularized"
+          ],
+          "type": "string"
+        },
+        "GeometrySummary": {
+          "properties": {
+            "inline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            },
+            "provenance": {
+              "$ref": "#/definitions/GeometryProvenanceSummary"
+            },
+            "sample_axis": {
+              "$ref": "#/definitions/AxisSummaryF32"
+            },
+            "xline_axis": {
+              "$ref": "#/definitions/AxisSummaryI32"
+            }
+          },
+          "required": [
+            "inline_axis",
+            "provenance",
+            "sample_axis",
+            "xline_axis"
+          ],
+          "type": "object"
         }
       },
       "properties": {
@@ -5476,6 +6949,9 @@
           "maxItems": 3,
           "minItems": 3,
           "type": "array"
+        },
+        "geometry": {
+          "$ref": "#/definitions/GeometryDescriptor"
         },
         "id": {
           "$ref": "#/definitions/DatasetId"
@@ -5500,6 +6976,7 @@
       },
       "required": [
         "chunk_shape",
+        "geometry",
         "id",
         "label",
         "sample_interval_ms",

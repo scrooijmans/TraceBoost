@@ -64,6 +64,11 @@
       previewBusy={processingModel.previewBusy}
       runBusy={processingModel.runBusy}
       processingError={processingModel.error}
+      runOutputSettingsOpen={processingModel.runOutputSettingsOpen}
+      runOutputPathMode={processingModel.runOutputPathMode}
+      runOutputPath={processingModel.resolvedRunOutputPath}
+      resolvingRunOutputPath={processingModel.resolvingRunOutputPath}
+      overwriteExistingRunOutput={processingModel.overwriteExistingRunOutput}
       onSetPipelineName={processingModel.setPipelineName}
       onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
       onMoveUp={processingModel.moveSelectedUp}
@@ -72,6 +77,13 @@
       onPreview={() => processingModel.previewCurrentSection()}
       onShowRaw={processingModel.showRawSection}
       onRun={() => processingModel.runOnVolume()}
+      onToggleRunOutputSettings={() =>
+        processingModel.setRunOutputSettingsOpen(!processingModel.runOutputSettingsOpen)}
+      onSetRunOutputPathMode={processingModel.setRunOutputPathMode}
+      onSetCustomRunOutputPath={processingModel.setCustomRunOutputPath}
+      onBrowseRunOutputPath={() => processingModel.browseRunOutputPath()}
+      onResetRunOutputPath={processingModel.resetRunOutputPath}
+      onSetOverwriteExistingRunOutput={processingModel.setOverwriteExistingRunOutput}
       onCancelJob={() => processingModel.cancelActiveJob()}
       onLoadPreset={processingModel.loadPreset}
       onSavePreset={() => processingModel.savePreset()}
@@ -84,62 +96,62 @@
   .workspace-shell {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 8px;
     min-height: 0;
-    padding: 18px 20px 12px;
+    padding: 10px 12px 8px;
     outline: none;
   }
 
   .workspace-header {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
+    gap: 12px;
     align-items: flex-start;
   }
 
   .eyebrow {
     display: inline-block;
-    margin-bottom: 6px;
-    font-size: 11px;
-    letter-spacing: 0.16em;
+    margin-bottom: 2px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
+    color: #555;
   }
 
   h2 {
     margin: 0;
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
+    color: #c0c0c0;
   }
 
   .workspace-header p {
-    margin: 6px 0 0;
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.58);
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: #777;
   }
 
   .shortcut-card {
     flex-shrink: 0;
-    min-width: 260px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 12px 14px;
+    min-width: 220px;
+    border: 1px solid #2a2a2a;
+    background: #1e1e1e;
+    padding: 7px 10px;
   }
 
   .shortcut-card span {
     display: block;
-    font-size: 11px;
-    letter-spacing: 0.16em;
+    font-size: 10px;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.46);
-    margin-bottom: 6px;
+    color: #555;
+    margin-bottom: 3px;
   }
 
   .shortcut-card p {
     margin: 0;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.68);
+    font-size: 11px;
+    color: #888;
   }
 
   code {
@@ -149,8 +161,8 @@
   .workspace-grid {
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(220px, 0.7fr) minmax(280px, 0.95fr) minmax(340px, 1.1fr);
-    gap: 14px;
+    grid-template-columns: minmax(200px, 0.7fr) minmax(240px, 0.95fr) minmax(300px, 1.1fr);
+    gap: 8px;
     flex: 1;
   }
 

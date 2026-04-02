@@ -11,6 +11,7 @@ import type {
 } from "@traceboost/seis-contracts";
 import {
   cancelProcessingJob,
+  defaultProcessingStorePath,
   deletePipelinePreset,
   getProcessingJob,
   listPipelinePresets,
@@ -18,6 +19,7 @@ import {
   runProcessing,
   savePipelinePreset
 } from "./bridge";
+import { confirmOverwriteStore, pickOutputStorePath } from "./file-dialog";
 import type { ViewerModel } from "./viewer-model.svelte";
 
 type PreviewState = "raw" | "preview" | "stale";
@@ -68,8 +70,23 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function isExistingOutputStoreError(message: string): boolean {
+  return message.toLowerCase().includes("output processing store already exists:");
+}
+
 function pipelineTimestamp(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
+  return JSON.stringify({
+    name: pipeline.name ?? null,
+    operations: pipeline.operations.map((operation) =>
+      typeof operation === "string"
+        ? operation
+        : { amplitude_scalar: { factor: operation.amplitude_scalar.factor } }
+    )
+  });
 }
 
 export interface ProcessingModelOptions {
@@ -94,11 +111,18 @@ export class ProcessingModel {
   presets = $state.raw<ProcessingPreset[]>([]);
   activeJob = $state<ProcessingJobStatus | null>(null);
   loadingPresets = $state(false);
+  runOutputSettingsOpen = $state(false);
+  runOutputPathMode = $state<"default" | "custom">("default");
+  customRunOutputPath = $state("");
+  overwriteExistingRunOutput = $state(false);
+  defaultRunOutputPath = $state<string | null>(null);
+  resolvingRunOutputPath = $state(false);
 
   #jobPollTimer: number | null = null;
   #presetCounter = 0;
   #sessionPipelineCounter = 0;
   #hydratedDatasetEntryId: string | null = null;
+  #runOutputPathRequestId = 0;
 
   constructor(options: ProcessingModelOptions) {
     this.viewerModel = options.viewerModel;
@@ -176,6 +200,19 @@ export class ProcessingModel {
       this.editingParams = false;
       this.clearPreviewState();
     });
+
+    $effect(() => {
+      const activeStorePath = this.viewerModel.activeStorePath;
+      const signature = pipelineRunOutputSignature(this.pipeline);
+
+      if (!activeStorePath) {
+        this.defaultRunOutputPath = null;
+        this.resolvingRunOutputPath = false;
+        return;
+      }
+
+      void this.refreshDefaultRunOutputPath(activeStorePath, clonePipeline(this.pipeline), signature);
+    });
   }
 
   mount = (): (() => void) => {
@@ -243,8 +280,53 @@ export class ProcessingModel {
     return this.sessionPipelines.length > 1;
   }
 
+  get resolvedRunOutputPath(): string | null {
+    if (this.runOutputPathMode === "custom") {
+      const nextPath = this.customRunOutputPath.trim();
+      return nextPath.length > 0 ? nextPath : null;
+    }
+    return this.defaultRunOutputPath;
+  }
+
   sessionPipelineLabel = (entry: WorkspacePipelineEntry, index: number): string => {
     return pipelineName(entry.pipeline) || `Pipeline ${index + 1}`;
+  };
+
+  setRunOutputSettingsOpen = (open: boolean): void => {
+    this.runOutputSettingsOpen = open;
+    if (open && this.viewerModel.activeStorePath && !this.defaultRunOutputPath && !this.resolvingRunOutputPath) {
+      void this.refreshDefaultRunOutputPath(
+        this.viewerModel.activeStorePath,
+        clonePipeline(this.pipeline),
+        pipelineRunOutputSignature(this.pipeline)
+      );
+    }
+  };
+
+  setRunOutputPathMode = (mode: "default" | "custom"): void => {
+    this.runOutputPathMode = mode;
+  };
+
+  setCustomRunOutputPath = (value: string): void => {
+    this.customRunOutputPath = value;
+  };
+
+  resetRunOutputPath = (): void => {
+    this.runOutputPathMode = "default";
+    this.customRunOutputPath = "";
+  };
+
+  browseRunOutputPath = async (): Promise<void> => {
+    const selected = await pickOutputStorePath(this.resolvedRunOutputPath ?? this.defaultRunOutputPath ?? "processed.tbvol");
+    if (!selected) {
+      return;
+    }
+    this.runOutputPathMode = "custom";
+    this.customRunOutputPath = selected;
+  };
+
+  setOverwriteExistingRunOutput = (value: boolean): void => {
+    this.overwriteExistingRunOutput = value;
   };
 
   refreshPresets = async (): Promise<void> => {
@@ -591,19 +673,39 @@ export class ProcessingModel {
     this.runBusy = true;
     this.error = null;
     try {
-      const request: RunProcessingRequest = {
-        schema_version: 1,
-        store_path: this.viewerModel.activeStorePath,
-        output_store_path: null,
-        overwrite_existing: false,
-        pipeline: clonePipeline(this.pipeline)
-      };
-      const response = await runProcessing(request);
-      this.activeJob = response.job;
-      this.viewerModel.note("Started full-volume processing job.", "backend", "info", response.job.job_id);
-      this.scheduleJobPoll();
+      const outputStorePath =
+        this.runOutputPathMode === "custom"
+          ? this.customRunOutputPath.trim()
+          : await defaultProcessingStorePath(this.viewerModel.activeStorePath, this.pipeline);
+      if (!outputStorePath) {
+        this.error = "Select an output runtime store path before running the full volume.";
+        this.runBusy = false;
+        return;
+      }
+      await this.startRunOnVolume(outputStorePath, this.overwriteExistingRunOutput);
     } catch (error) {
       this.error = errorMessage(error, "Failed to start processing job.");
+      if (!this.overwriteExistingRunOutput && isExistingOutputStoreError(this.error)) {
+        const confirmed = await confirmOverwriteStore(
+          this.resolvedRunOutputPath ?? this.customRunOutputPath.trim()
+        );
+        if (confirmed) {
+          this.overwriteExistingRunOutput = true;
+          const outputStorePath =
+            this.resolvedRunOutputPath ??
+            (this.viewerModel.activeStorePath
+              ? await defaultProcessingStorePath(this.viewerModel.activeStorePath, this.pipeline)
+              : null);
+          if (outputStorePath) {
+            try {
+              await this.startRunOnVolume(outputStorePath, true);
+              return;
+            } catch (retryError) {
+              this.error = errorMessage(retryError, "Failed to start processing job.");
+            }
+          }
+        }
+      }
       this.runBusy = false;
       this.viewerModel.note("Failed to start processing job.", "backend", "error", this.error);
     }
@@ -757,6 +859,58 @@ export class ProcessingModel {
     } else {
       this.previewState = "raw";
     }
+  }
+
+  private async refreshDefaultRunOutputPath(
+    activeStorePath: string,
+    pipeline: ProcessingPipeline,
+    signature: string
+  ): Promise<void> {
+    const requestId = ++this.#runOutputPathRequestId;
+    this.resolvingRunOutputPath = true;
+    try {
+      const nextPath = await defaultProcessingStorePath(activeStorePath, pipeline);
+      if (
+        requestId !== this.#runOutputPathRequestId ||
+        activeStorePath !== this.viewerModel.activeStorePath ||
+        signature !== pipelineRunOutputSignature(this.pipeline)
+      ) {
+        return;
+      }
+      this.defaultRunOutputPath = nextPath;
+    } catch {
+      if (requestId !== this.#runOutputPathRequestId) {
+        return;
+      }
+      this.defaultRunOutputPath = null;
+    } finally {
+      if (requestId === this.#runOutputPathRequestId) {
+        this.resolvingRunOutputPath = false;
+      }
+    }
+  }
+
+  private async startRunOnVolume(outputStorePath: string, overwriteExisting: boolean): Promise<void> {
+    if (!this.viewerModel.activeStorePath) {
+      throw new Error("Open a dataset before running processing on the full volume.");
+    }
+
+    const request: RunProcessingRequest = {
+      schema_version: 1,
+      store_path: this.viewerModel.activeStorePath,
+      output_store_path: outputStorePath,
+      overwrite_existing: overwriteExisting,
+      pipeline: clonePipeline(this.pipeline)
+    };
+    const response = await runProcessing(request);
+    this.activeJob = response.job;
+    this.viewerModel.note(
+      "Started full-volume processing job.",
+      "backend",
+      "info",
+      response.job.output_store_path ?? response.job.job_id
+    );
+    this.scheduleJobPoll();
   }
 }
 

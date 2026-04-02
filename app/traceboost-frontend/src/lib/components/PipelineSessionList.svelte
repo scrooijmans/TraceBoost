@@ -64,46 +64,47 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
     overflow: hidden;
   }
 
   .panel-header,
   .panel-footer {
-    padding: 14px 16px;
+    padding: 8px 10px;
   }
 
   .panel-header {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 6px;
+    border-bottom: 1px solid #242424;
   }
 
   h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #c0c0c0;
   }
 
   .panel-header p {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.55);
+    margin: 0;
+    font-size: 11px;
+    color: #666;
   }
 
   .action-row {
     display: flex;
-    gap: 8px;
+    gap: 5px;
     flex-wrap: wrap;
   }
 
   .pipeline-list {
-    padding: 10px;
+    padding: 6px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 3px;
     overflow: auto;
     min-height: 0;
     flex: 1;
@@ -112,39 +113,44 @@
   .pipeline-row {
     width: 100%;
     display: grid;
-    grid-template-columns: 30px 1fr;
-    gap: 10px;
+    grid-template-columns: 22px 1fr;
+    gap: 8px;
     align-items: center;
     text-align: left;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #2a2a2a;
+    background: #1e1e1e;
     color: inherit;
-    border-radius: 12px;
-    padding: 12px;
+    padding: 7px 8px;
     cursor: pointer;
   }
 
+  .pipeline-row:hover {
+    background: #252525;
+  }
+
   .pipeline-row.selected {
-    border-color: rgba(74, 222, 128, 0.6);
-    background: rgba(74, 222, 128, 0.08);
+    border-color: rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.06);
   }
 
   .pipeline-index {
-    width: 26px;
-    height: 26px;
+    width: 20px;
+    height: 20px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    font-size: 11px;
+    border-radius: 2px;
+    background: #2a2a2a;
+    font-size: 10px;
+    color: #888;
+    flex-shrink: 0;
   }
 
   .pipeline-copy {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
 
   .pipeline-copy strong,
@@ -155,34 +161,41 @@
   }
 
   .pipeline-copy strong {
-    font-size: 13px;
+    font-size: 12px;
+    color: #c0c0c0;
   }
 
   .pipeline-copy small {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: #666;
   }
 
   .panel-footer {
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid #242424;
   }
 
   .chip {
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.04);
-    color: inherit;
-    border-radius: 999px;
-    padding: 8px 10px;
+    border: 1px solid #333;
+    background: #252525;
+    color: #aaa;
+    border-radius: 2px;
+    padding: 4px 8px;
+    font-size: 11px;
     cursor: pointer;
   }
 
+  .chip:hover:not(:disabled) {
+    background: #2e2e2e;
+    color: #d0d0d0;
+  }
+
   .chip.danger {
-    border-color: rgba(255, 120, 120, 0.35);
-    color: #ff9a9a;
+    border-color: rgba(200, 60, 60, 0.3);
+    color: #c07070;
   }
 
   .chip:disabled {
-    opacity: 0.5;
+    opacity: 0.38;
     cursor: not-allowed;
   }
 </style>

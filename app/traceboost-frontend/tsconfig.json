@@ -11,6 +11,7 @@
       "@geoviz/renderer": ["../../../geoviz/packages/renderer/src/index.ts"],
       "@geoviz/domain-geoscience": ["../../../geoviz/packages/domain-geoscience/src/index.ts"],
       "@geoviz/svelte": ["../../../geoviz/packages/svelte/src/index.ts"],
+      "@geoviz/svelte-toolbar": ["../../../geoviz/packages/svelte-toolbar/src/index.ts"],
       "@traceboost/seis-contracts": ["../../contracts/ts/seis-contracts/src/index.ts"]
     },
     "strict": true,

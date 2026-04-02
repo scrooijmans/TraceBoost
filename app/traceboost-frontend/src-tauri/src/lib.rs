@@ -19,9 +19,17 @@ use seis_runtime::{
     MaterializeOptions, SectionAxis, SectionView, materialize_processing_volume_with_progress,
     open_store,
 };
-use tauri::{AppHandle, Manager, State};
+use std::{
+    fs,
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+};
+use tauri::{
+    AppHandle, Emitter, Manager, State,
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+};
 use traceboost_app::{
-    default_output_store_path, import_dataset, open_dataset_summary, preflight_dataset,
+    import_dataset, open_dataset_summary, preflight_dataset,
     preview_processing,
 };
 
@@ -29,6 +37,166 @@ use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
 use crate::processing::{JobRecord, ProcessingState};
 use crate::workspace::WorkspaceState;
+
+const FILE_OPEN_VOLUME_MENU_ID: &str = "file.open_volume";
+const FILE_OPEN_VOLUME_MENU_EVENT: &str = "menu:file-open-volume";
+
+fn sanitized_stem(value: &str, fallback: &str) -> String {
+    let sanitized: String = value
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let collapsed = sanitized
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if collapsed.is_empty() {
+        fallback.to_string()
+    } else {
+        collapsed
+    }
+}
+
+fn pipeline_output_slug(pipeline: &seis_runtime::ProcessingPipeline) -> String {
+    if let Some(name) = pipeline
+        .name
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return sanitized_stem(name, "pipeline");
+    }
+
+    let mut parts = Vec::with_capacity(pipeline.operations.len());
+    for operation in &pipeline.operations {
+        let part = match operation {
+            seis_runtime::ProcessingOperation::AmplitudeScalar { factor } => {
+                format!("amplitude-scalar-{}", format_factor(*factor))
+            }
+            seis_runtime::ProcessingOperation::TraceRmsNormalize => "trace-rms-normalize".to_string(),
+        };
+        parts.push(part);
+    }
+
+    if parts.is_empty() {
+        "pipeline".to_string()
+    } else {
+        sanitized_stem(&parts.join("-"), "pipeline")
+    }
+}
+
+fn format_factor(value: f32) -> String {
+    let mut formatted = format!("{value:.4}");
+    while formatted.contains('.') && formatted.ends_with('0') {
+        formatted.pop();
+    }
+    if formatted.ends_with('.') {
+        formatted.pop();
+    }
+    formatted.replace('.', "_")
+}
+
+fn source_store_stem(store_path: &str) -> String {
+    let path = Path::new(store_path);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("dataset");
+    sanitized_stem(stem, "dataset")
+}
+
+fn unique_store_candidate(dir: &Path, base_name: &str) -> PathBuf {
+    let mut candidate = dir.join(format!("{base_name}.tbvol"));
+    let mut index = 2usize;
+    while candidate.exists() {
+        candidate = dir.join(format!("{base_name}-{index}.tbvol"));
+        index += 1;
+    }
+    candidate
+}
+
+fn default_processing_store_path(
+    app_paths: &AppPaths,
+    input_store_path: &str,
+    pipeline: &seis_runtime::ProcessingPipeline,
+) -> Result<String, String> {
+    fs::create_dir_all(app_paths.derived_volumes_dir()).map_err(|error| error.to_string())?;
+    let source_stem = source_store_stem(input_store_path);
+    let pipeline_stem = pipeline_output_slug(pipeline);
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let base_name = format!("{source_stem}.{pipeline_stem}.{timestamp}");
+    Ok(unique_store_candidate(app_paths.derived_volumes_dir(), &base_name)
+        .display()
+        .to_string())
+}
+
+fn import_store_path_for_input(app_paths: &AppPaths, input_path: &str) -> Result<String, String> {
+    let input_path = input_path.trim();
+    if input_path.is_empty() {
+        return Err("Input path is required.".to_string());
+    }
+
+    fs::create_dir_all(app_paths.imported_volumes_dir()).map_err(|error| error.to_string())?;
+
+    let source = Path::new(input_path);
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("volume");
+    let sanitized_stem = sanitized_stem(stem, "volume");
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    input_path.to_ascii_lowercase().hash(&mut hasher);
+    let fingerprint = hasher.finish();
+    let store_name = format!("{sanitized_stem}-{fingerprint:016x}.tbvol");
+    Ok(app_paths
+        .imported_volumes_dir()
+        .join(store_name)
+        .display()
+        .to_string())
+}
+
+#[tauri::command]
+fn default_import_store_path_command(app: AppHandle, input_path: String) -> Result<String, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    import_store_path_for_input(&app_paths, &input_path)
+}
+
+#[tauri::command]
+fn default_processing_store_path_command(
+    app: AppHandle,
+    store_path: String,
+    pipeline: seis_runtime::ProcessingPipeline,
+) -> Result<String, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    default_processing_store_path(&app_paths, &store_path, &pipeline)
+}
+
+fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let open_volume = MenuItem::with_id(app, FILE_OPEN_VOLUME_MENU_ID, "&Open Volume...", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let close_window = PredefinedMenuItem::close_window(app, None)?;
+
+    Menu::with_items(
+        app,
+        &[&Submenu::with_items(
+            app,
+            "&File",
+            true,
+            &[&open_volume, &separator, &close_window],
+        )?],
+    )
+}
 
 #[tauri::command]
 fn preflight_import_command(
@@ -363,14 +531,15 @@ fn run_processing_command(
     processing: State<ProcessingState>,
     request: RunProcessingRequest,
 ) -> Result<RunProcessingResponse, String> {
+    let app_paths = AppPaths::resolve(&app)?;
     let output_store_path = request
         .output_store_path
         .clone()
-        .unwrap_or_else(|| {
-            default_output_store_path(&request.store_path, &request.pipeline)
-                .display()
-                .to_string()
-        });
+        .unwrap_or(default_processing_store_path(
+            &app_paths,
+            &request.store_path,
+            &request.pipeline,
+        )?);
     let queued = processing.enqueue_job(
         request.store_path.clone(),
         Some(output_store_path.clone()),
@@ -514,11 +683,30 @@ fn save_workspace_session_command(
 }
 
 fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessingRequest) {
+    let app_paths = match AppPaths::resolve(app) {
+        Ok(paths) => paths,
+        Err(error) => {
+            let _ = record.mark_failed(error.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "processing_job_failed",
+                    log::Level::Error,
+                    "Processing job failed before initialization",
+                    Some(build_fields([("error", json_value(&error))])),
+                );
+            }
+            return;
+        }
+    };
     let _ = record.mark_running();
     let output_store_path = request
         .output_store_path
         .clone()
-        .unwrap_or_else(|| default_output_store_path(&request.store_path, &request.pipeline).display().to_string());
+        .unwrap_or_else(|| {
+            default_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
+                .unwrap_or_else(|_| "derived-output.tbvol".to_string())
+        });
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
         &output_store_path,
@@ -732,6 +920,16 @@ pub fn run() {
         .build();
 
     let builder = tauri::Builder::default()
+        .menu(build_app_menu)
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() != FILE_OPEN_VOLUME_MENU_ID {
+                return;
+            }
+
+            if let Err(error) = app.emit(FILE_OPEN_VOLUME_MENU_EVENT, ()) {
+                log::warn!("failed to emit native open-volume menu event: {error}");
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let app_paths = AppPaths::resolve(&app.handle().clone())?;
@@ -777,6 +975,8 @@ pub fn run() {
             remove_dataset_entry_command,
             set_active_dataset_entry_command,
             save_workspace_session_command,
+            default_import_store_path_command,
+            default_processing_store_path_command,
             get_diagnostics_status_command,
             set_diagnostics_verbosity_command,
             export_diagnostics_bundle_command

@@ -65,58 +65,62 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
     overflow: hidden;
   }
 
   .panel-header {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid #242424;
+    align-items: center;
   }
 
   h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #c0c0c0;
   }
 
   .panel-header p {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.55);
+    margin: 0;
+    font-size: 11px;
+    color: #666;
   }
 
   .quick-add {
     display: flex;
-    gap: 8px;
+    gap: 5px;
     align-items: center;
+    flex-shrink: 0;
   }
 
   .chip {
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.04);
-    color: inherit;
-    border-radius: 999px;
-    padding: 7px 10px;
-    font-size: 12px;
+    border: 1px solid #333;
+    background: #252525;
+    color: #aaa;
+    border-radius: 2px;
+    padding: 4px 8px;
+    font-size: 11px;
     cursor: pointer;
   }
 
   .chip:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: #2e2e2e;
+    color: #d0d0d0;
   }
 
   .sequence-list {
     list-style: none;
     margin: 0;
-    padding: 10px;
+    padding: 6px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 3px;
     overflow: auto;
   }
 
@@ -127,57 +131,63 @@
   .sequence-row {
     width: 100%;
     display: grid;
-    grid-template-columns: 32px 1fr;
-    gap: 12px;
+    grid-template-columns: 22px 1fr;
+    gap: 8px;
     align-items: center;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
+    border: 1px solid #2a2a2a;
+    background: #1e1e1e;
     color: inherit;
     text-align: left;
-    padding: 12px;
+    padding: 7px 8px;
     cursor: pointer;
   }
 
+  .sequence-row:hover {
+    background: #252525;
+  }
+
   .sequence-row.selected {
-    border-color: rgba(74, 222, 128, 0.6);
-    background: rgba(74, 222, 128, 0.08);
+    border-color: rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.06);
   }
 
   .step-index {
-    width: 28px;
-    height: 28px;
+    width: 20px;
+    height: 20px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    font-size: 12px;
+    border-radius: 2px;
+    background: #2a2a2a;
+    font-size: 10px;
+    color: #888;
+    flex-shrink: 0;
   }
 
   .step-copy {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
   }
 
   .step-copy strong {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 500;
+    color: #c0c0c0;
   }
 
   .empty-state {
-    padding: 18px 16px;
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 13px;
+    padding: 14px 10px;
+    color: #777;
+    font-size: 12px;
   }
 
   .empty-state p {
-    margin: 0 0 8px;
+    margin: 0 0 5px;
   }
 
   .hint code {
     font-family: "Cascadia Mono", "Consolas", monospace;
-    font-size: 12px;
+    font-size: 11px;
   }
 </style>

@@ -10,18 +10,20 @@ function normalizeDialogPath(result: string | null): string | null {
 }
 
 /**
- * Opens a native file picker for SEG-Y files.
+ * Opens a native file picker for TraceBoost-supported seismic volumes.
  * Returns the selected file path, or null if cancelled.
  */
-export async function pickSegyFile(): Promise<string | null> {
+export async function pickVolumeFile(): Promise<string | null> {
   if (!isTauriEnvironment()) {
-    return normalizeDialogPath(prompt("Enter SEG-Y file path:"));
+    return normalizeDialogPath(prompt("Enter volume path (.segy, .sgy, .tbvol):"));
   }
 
   const { open } = await import("@tauri-apps/plugin-dialog");
   const result = await open({
-    title: "Select SEG-Y File",
+    title: "Open Volume",
     filters: [
+      { name: "Supported Volumes", extensions: ["tbvol", "sgy", "segy"] },
+      { name: "Runtime Stores", extensions: ["tbvol"] },
       { name: "SEG-Y Files", extensions: ["sgy", "segy"] },
       { name: "All Files", extensions: ["*"] }
     ],
@@ -32,11 +34,13 @@ export async function pickSegyFile(): Promise<string | null> {
   return normalizeDialogPath(result);
 }
 
+export const pickSegyFile = pickVolumeFile;
+
 /**
  * Opens a native folder/save picker for the runtime store output.
  * Returns the selected path, or null if cancelled.
  */
-export async function pickOutputFolder(): Promise<string | null> {
+export async function pickOutputStorePath(defaultPath = "survey.tbvol"): Promise<string | null> {
   if (!isTauriEnvironment()) {
     return normalizeDialogPath(prompt("Enter output store path:"));
   }
@@ -44,7 +48,7 @@ export async function pickOutputFolder(): Promise<string | null> {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const result = await save({
     title: "Set Runtime Store Output Path",
-    defaultPath: "survey.tbvol",
+    defaultPath,
     filters: [
       { name: "Runtime Store", extensions: ["tbvol"] },
       { name: "All Files", extensions: ["*"] }
@@ -53,6 +57,8 @@ export async function pickOutputFolder(): Promise<string | null> {
 
   return normalizeDialogPath(result);
 }
+
+export const pickOutputFolder = pickOutputStorePath;
 
 export async function confirmOverwriteStore(outputStorePath: string): Promise<boolean> {
   const message = [

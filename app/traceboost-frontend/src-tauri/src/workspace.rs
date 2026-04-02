@@ -39,9 +39,15 @@ impl WorkspaceState {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
 
-        let mut entries = load_registry(&registry_path)?;
+        let (mut entries, reset_registry) = load_registry(&registry_path)?;
         entries.sort_by(|left, right| right.updated_at_unix_s.cmp(&left.updated_at_unix_s));
-        let session = load_session(&session_path)?;
+        let (session, reset_session) = load_session(&session_path)?;
+        if reset_registry {
+            persist_registry(&registry_path, &entries)?;
+        }
+        if reset_session {
+            persist_session(&session_path, &session)?;
+        }
 
         Ok(Self {
             registry_path,
@@ -334,22 +340,32 @@ fn find_matching_entry(
     })
 }
 
-fn load_registry(path: &Path) -> Result<Vec<DatasetRegistryEntry>, String> {
+fn load_registry(path: &Path) -> Result<(Vec<DatasetRegistryEntry>, bool), String> {
     if !path.exists() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), false));
     }
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    let document =
-        serde_json::from_slice::<DatasetRegistryDocument>(&bytes).map_err(|error| error.to_string())?;
-    Ok(document.entries)
+    match serde_json::from_slice::<DatasetRegistryDocument>(&bytes) {
+        Ok(document) => Ok((document.entries, false)),
+        Err(_) => {
+            fs::remove_file(path).map_err(|error| error.to_string())?;
+            Ok((Vec::new(), true))
+        }
+    }
 }
 
-fn load_session(path: &Path) -> Result<WorkspaceSession, String> {
+fn load_session(path: &Path) -> Result<(WorkspaceSession, bool), String> {
     if !path.exists() {
-        return Ok(default_session());
+        return Ok((default_session(), false));
     }
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    serde_json::from_slice::<WorkspaceSession>(&bytes).map_err(|error| error.to_string())
+    match serde_json::from_slice::<WorkspaceSession>(&bytes) {
+        Ok(session) => Ok((session, false)),
+        Err(_) => {
+            fs::remove_file(path).map_err(|error| error.to_string())?;
+            Ok((default_session(), true))
+        }
+    }
 }
 
 fn persist_registry(path: &Path, entries: &[DatasetRegistryEntry]) -> Result<(), String> {
@@ -364,6 +380,7 @@ fn persist_session(path: &Path, session: &WorkspaceSession) -> Result<(), String
     let json = serde_json::to_vec_pretty(session).map_err(|error| error.to_string())?;
     fs::write(path, json).map_err(|error| error.to_string())
 }
+
 
 fn default_session() -> WorkspaceSession {
     WorkspaceSession {
@@ -541,5 +558,51 @@ mod tests {
 
         let restored = state.load_state().expect("load state");
         assert_eq!(restored.entries.len(), 2);
+    }
+
+    #[test]
+    fn initialize_resets_legacy_registry_without_geometry() {
+        let registry = temp_file("legacy-registry.json");
+        let session = temp_file("legacy-session.json");
+
+        let legacy = serde_json::json!({
+            "entries": [
+                {
+                    "entry_id": "dataset-legacy-001",
+                    "display_name": "Legacy Dataset",
+                    "source_path": null,
+                    "preferred_store_path": "C:/missing/legacy.tbvol",
+                    "imported_store_path": null,
+                    "last_dataset": {
+                        "store_path": "C:/missing/legacy.tbvol",
+                        "descriptor": {
+                            "id": "legacy",
+                            "label": "Legacy Dataset",
+                            "shape": [4, 4, 4],
+                            "chunk_shape": [4, 4, 4],
+                            "sample_interval_ms": 2.0
+                        }
+                    },
+                    "session_pipelines": [],
+                    "active_session_pipeline_id": null,
+                    "status": "linked",
+                    "last_opened_at_unix_s": null,
+                    "last_imported_at_unix_s": null,
+                    "updated_at_unix_s": 1
+                }
+            ]
+        });
+
+        fs::write(&registry, serde_json::to_vec_pretty(&legacy).expect("serialize legacy registry"))
+            .expect("write legacy registry");
+
+        let restored = WorkspaceState::initialize(&registry, &session)
+            .expect("initialize workspace state")
+            .load_state()
+            .expect("load upgraded state");
+
+        assert!(restored.entries.is_empty());
+        let persisted = fs::read_to_string(&registry).expect("read reset registry");
+        assert!(persisted.contains("\"entries\": []"));
     }
 }

@@ -27,8 +27,9 @@ pub use metadata::{
 pub use preflight::{PreflightAction, PreflightGeometry, SurveyPreflight, preflight_segy};
 pub use render::{render_section_csv, render_section_csv_for_request};
 pub use ophiolite_seismic::{
-    CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetId,
-    DeletePipelinePresetRequest, DeletePipelinePresetResponse, GetProcessingJobRequest,
+    AxisSummaryF32, AxisSummaryI32, CancelProcessingJobRequest, CancelProcessingJobResponse,
+    DatasetId, DeletePipelinePresetRequest, DeletePipelinePresetResponse, GeometryDescriptor,
+    GeometryProvenanceSummary, GeometrySummary, GetProcessingJobRequest,
     GetProcessingJobResponse, InterpretationPoint, ListPipelinePresetsResponse,
     PreviewProcessingRequest, PreviewProcessingResponse, ProcessingJobProgress,
     ProcessingJobState, ProcessingJobStatus, ProcessingOperation, ProcessingPipeline,

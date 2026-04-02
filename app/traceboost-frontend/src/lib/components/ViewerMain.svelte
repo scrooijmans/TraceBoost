@@ -4,6 +4,7 @@
   import type { ChartToolbarActionItem, ChartToolbarToolItem } from "@geoviz/svelte-toolbar";
   import { ChartInteractionToolbar } from "@geoviz/svelte-toolbar";
   import { SeismicSectionChart } from "@geoviz/svelte";
+  import { PLOT_MARGIN } from "@geoviz/renderer";
   import PipelineOperatorEditor from "./PipelineOperatorEditor.svelte";
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
   import PipelineSessionList from "./PipelineSessionList.svelte";
@@ -29,6 +30,7 @@
   let draftClipMax = $state("");
   let draftColormap = $state<"grayscale" | "red-white-blue">("grayscale");
   let draftPolarity = $state<"normal" | "reversed">("normal");
+  let sectionIndexInput = $state("0");
 
   const compareViewport = $derived(viewerModel.lastViewport?.viewport ?? null);
   const splitReady = $derived(
@@ -37,6 +39,18 @@
       !!viewerModel.backgroundSection &&
       viewerModel.displayTransform.renderMode === "heatmap"
   );
+  const sectionAxisLimit = $derived(
+    viewerModel.dataset
+      ? viewerModel.axis === "inline"
+        ? Math.max(0, viewerModel.dataset.descriptor.shape[0] - 1)
+        : Math.max(0, viewerModel.dataset.descriptor.shape[1] - 1)
+      : 0
+  );
+  const chartOverlayTop = `${PLOT_MARGIN.top + 8}px`;
+  const chartOverlayLeft = `${PLOT_MARGIN.left + 8}px`;
+  const chartOverlayRight = `${PLOT_MARGIN.right + 8}px`;
+  const chartOverlayBottom = `${PLOT_MARGIN.bottom + 8}px`;
+  const chartToolbarCenter = `calc(${PLOT_MARGIN.left}px + ((100% - ${PLOT_MARGIN.left + PLOT_MARGIN.right}px) / 2))`;
   const toolbarTools = $derived<ChartToolbarToolItem[]>([
     {
       id: "pointer",
@@ -66,14 +80,12 @@
       label: "Fit To Data",
       icon: "fitToData",
       disabled: !processingModel.displaySection
-    },
-    {
-      id: "displaySettings",
-      label: "Display Settings",
-      icon: "settings",
-      disabled: !processingModel.displaySection
     }
   ]);
+
+  $effect(() => {
+    sectionIndexInput = String(viewerModel.index);
+  });
 
   function handleToolbarToolSelect(toolId: string): void {
     if (toolId === "pointer" || toolId === "crosshair" || toolId === "pan") {
@@ -84,12 +96,53 @@
   function handleToolbarActionSelect(actionId: string): void {
     if (actionId === "fitToData") {
       chartRef?.fitToData?.();
+    }
+  }
+
+  function handleAxisChange(nextAxis: "inline" | "xline"): void {
+    if (!viewerModel.activeStorePath || viewerModel.loading) {
       return;
     }
 
-    if (actionId === "displaySettings") {
-      openDisplaySettings();
+    const clampedIndex = Math.min(
+      viewerModel.index,
+      nextAxis === "inline"
+        ? Math.max(0, (viewerModel.dataset?.descriptor.shape[0] ?? 1) - 1)
+        : Math.max(0, (viewerModel.dataset?.descriptor.shape[1] ?? 1) - 1)
+    );
+    void viewerModel.load(nextAxis, clampedIndex);
+  }
+
+  function commitSectionIndex(): void {
+    if (!viewerModel.activeStorePath || viewerModel.loading) {
+      sectionIndexInput = String(viewerModel.index);
+      return;
     }
+
+    const parsed = Number(sectionIndexInput);
+    if (!Number.isFinite(parsed)) {
+      sectionIndexInput = String(viewerModel.index);
+      return;
+    }
+
+    const clamped = Math.min(Math.max(Math.round(parsed), 0), sectionAxisLimit);
+    sectionIndexInput = String(clamped);
+    if (clamped !== viewerModel.index) {
+      void viewerModel.load(viewerModel.axis, clamped);
+    }
+  }
+
+  function toggleRenderMode(nextMode: "heatmap" | "wiggle"): void {
+    viewerModel.setRenderMode(nextMode);
+    if (viewerModel.compareSplitEnabled && nextMode !== "heatmap") {
+      viewerModel.setCompareSplitEnabled(false);
+    }
+  }
+
+  function toggleColormap(): void {
+    viewerModel.setColormap(
+      viewerModel.displayTransform.colormap === "grayscale" ? "red-white-blue" : "grayscale"
+    );
   }
 
   function openDisplaySettings(): void {
@@ -212,6 +265,11 @@
             previewBusy={processingModel.previewBusy}
             runBusy={processingModel.runBusy}
             processingError={processingModel.error}
+            runOutputSettingsOpen={processingModel.runOutputSettingsOpen}
+            runOutputPathMode={processingModel.runOutputPathMode}
+            runOutputPath={processingModel.resolvedRunOutputPath}
+            resolvingRunOutputPath={processingModel.resolvingRunOutputPath}
+            overwriteExistingRunOutput={processingModel.overwriteExistingRunOutput}
             onSetPipelineName={processingModel.setPipelineName}
             onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
             onMoveUp={processingModel.moveSelectedUp}
@@ -220,6 +278,13 @@
             onPreview={() => processingModel.previewCurrentSection()}
             onShowRaw={processingModel.showRawSection}
             onRun={() => processingModel.runOnVolume()}
+            onToggleRunOutputSettings={() =>
+              processingModel.setRunOutputSettingsOpen(!processingModel.runOutputSettingsOpen)}
+            onSetRunOutputPathMode={processingModel.setRunOutputPathMode}
+            onSetCustomRunOutputPath={processingModel.setCustomRunOutputPath}
+            onBrowseRunOutputPath={() => processingModel.browseRunOutputPath()}
+            onResetRunOutputPath={processingModel.resetRunOutputPath}
+            onSetOverwriteExistingRunOutput={processingModel.setOverwriteExistingRunOutput}
             onCancelJob={() => processingModel.cancelActiveJob()}
             onLoadPreset={processingModel.loadPreset}
             onSavePreset={() => processingModel.savePreset()}
@@ -230,15 +295,6 @@
 
       <div class="viewer-pane">
       {#if processingModel.displaySection}
-        <div class="chart-status">
-          <span class:preview={processingModel.displaySectionMode === "preview"} class="mode-badge">
-            {processingModel.displaySectionMode}
-          </span>
-          {#if processingModel.previewLabel && processingModel.displaySectionMode === "preview"}
-            <span class="mode-copy">{processingModel.previewLabel}</span>
-          {/if}
-        </div>
-
         <div class="chart-frame">
           <SeismicSectionChart
             bind:this={chartRef}
@@ -261,7 +317,81 @@
             onSplitPositionChange={(ratio) => viewerModel.setCompareSplitPosition(ratio)}
           />
 
-          <div class="chart-toolbar-overlay">
+          <div
+            class="chart-display-overlay"
+            style:right={chartOverlayRight}
+            style:bottom={chartOverlayBottom}
+          >
+            <div class="display-chip-row">
+              <label class="display-chip field">
+                <span>{viewerModel.axis === "inline" ? "Inline" : "Xline"}</span>
+                <select
+                  value={viewerModel.axis}
+                  disabled={!viewerModel.activeStorePath || viewerModel.loading}
+                  onchange={(event) => handleAxisChange((event.currentTarget as HTMLSelectElement).value as "inline" | "xline")}
+                >
+                  <option value="inline">Inline</option>
+                  <option value="xline">Xline</option>
+                </select>
+              </label>
+
+              <label class="display-chip field">
+                <span>Index</span>
+                <input
+                  bind:value={sectionIndexInput}
+                  type="number"
+                  min="0"
+                  max={sectionAxisLimit}
+                  disabled={!viewerModel.activeStorePath || viewerModel.loading}
+                  onblur={commitSectionIndex}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter") {
+                      commitSectionIndex();
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div class="display-chip-row">
+              <button
+                class:active={viewerModel.displayTransform.renderMode === "heatmap"}
+                class="display-chip action"
+                onclick={() => toggleRenderMode("heatmap")}
+                disabled={!processingModel.displaySection}
+              >
+                Heatmap
+              </button>
+              <button
+                class:active={viewerModel.displayTransform.renderMode === "wiggle"}
+                class="display-chip action"
+                onclick={() => toggleRenderMode("wiggle")}
+                disabled={!processingModel.displaySection}
+              >
+                Wiggle
+              </button>
+              <button
+                class="display-chip action"
+                onclick={toggleColormap}
+                disabled={!processingModel.displaySection}
+              >
+                {viewerModel.displayTransform.colormap === "grayscale" ? "R/W/B" : "Gray"}
+              </button>
+              <button
+                class="display-chip icon"
+                onclick={openDisplaySettings}
+                aria-label="Open display settings"
+                disabled={!processingModel.displaySection}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M10.3 2.5h3.4l.5 2.2a7.9 7.9 0 012 .8l1.9-1.2 2.4 2.4-1.2 1.9c.35.63.61 1.3.78 2l2.23.52v3.4l-2.23.52a7.9 7.9 0 01-.78 2l1.2 1.9-2.4 2.4-1.9-1.2a7.9 7.9 0 01-2 .78l-.52 2.23h-3.4l-.52-2.23a7.9 7.9 0 01-2-.78l-1.9 1.2-2.4-2.4 1.2-1.9a7.9 7.9 0 01-.78-2L2.5 13.7v-3.4l2.23-.52a7.9 7.9 0 01.78-2L4.26 5.9l2.4-2.4 1.9 1.2a7.9 7.9 0 012-.78z" />
+                  <circle cx="12" cy="12" r="3.1" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="chart-toolbar-overlay" style:top={chartOverlayTop} style:left={chartToolbarCenter}>
             <ChartInteractionToolbar
               variant="overlay"
               iconOnly={true}
@@ -273,7 +403,11 @@
           </div>
 
           {#if viewerModel.canCycleForegroundCompareSurvey}
-            <div class="compare-cycle-overlay">
+            <div
+              class="compare-cycle-overlay"
+              style:top={chartOverlayTop}
+              style:right={chartOverlayRight}
+            >
               <button
                 class="compare-arrow"
                 onclick={() => void viewerModel.cycleForegroundCompareSurvey(-1)}
@@ -308,15 +442,17 @@
             </div>
           {/if}
 
-          <div class="compare-label-overlay">
-            <div class="compare-label-chip">
-              <span class="compare-label-key">Foreground</span>
+          <div
+            class="compare-label-overlay"
+            style:left={chartOverlayLeft}
+            style:bottom={chartOverlayBottom}
+          >
+            <div class="compare-label-line">
               <strong>{viewerModel.activeForegroundCompareCandidate?.displayName ?? viewerModel.dataset?.descriptor.label}</strong>
             </div>
 
             {#if viewerModel.activeBackgroundCompareCandidate}
-              <div class="compare-label-chip secondary">
-                <span class="compare-label-key">Background</span>
+              <div class="compare-label-line secondary">
                 <strong>{viewerModel.activeBackgroundCompareCandidate.displayName}</strong>
               </div>
             {/if}
@@ -341,10 +477,10 @@
             />
             <line x1="3" y1="20" x2="21" y2="20" />
           </svg>
-          <h2>Select a SEG-Y File</h2>
+          <h2>Open a Volume</h2>
           <p>
-            Use the sidebar to select a SEG-Y file, run a preflight check, set an output folder, then
-            import or open a runtime store to view seismic sections and build processing pipelines.
+            Use <strong>File &gt; Open Volume…</strong> to open a `.tbvol` directly or import a
+            `.segy`/`.sgy` into the runtime store automatically, then start viewing and processing.
           </p>
           <span class="welcome-version">TraceBoost v0.1.0</span>
         </div>
@@ -555,38 +691,108 @@
     position: relative;
     flex: 1;
     min-height: 0;
+    --plot-top: 104px;
+    --plot-left: 76px;
+    --plot-right: 32px;
+  }
+
+  .chart-display-overlay {
+    position: absolute;
+    z-index: 3;
+    display: grid;
+    gap: 6px;
+    pointer-events: auto;
+    justify-items: end;
+  }
+
+  .display-chip-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .display-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 4px;
+    border: none;
+    background: transparent;
+    color: #d7dde1;
+  }
+
+  .display-chip.field {
+    padding-right: 6px;
+  }
+
+  .display-chip.field span {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7d7d7d;
+  }
+
+  .display-chip.field select,
+  .display-chip.field input {
+    min-width: 56px;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #f3f5f6;
+    font: inherit;
+  }
+
+  .display-chip.field input {
+    width: 52px;
+  }
+
+  .display-chip.action,
+  .display-chip.icon {
+    cursor: pointer;
+  }
+
+  .display-chip.action:hover:not(:disabled),
+  .display-chip.icon:hover:not(:disabled) {
+    color: #ffffff;
+  }
+
+  .display-chip.action.active {
+    color: #effff5;
+  }
+
+  .display-chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .chart-toolbar-overlay {
     position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
     z-index: 3;
+    transform: translateX(-50%);
   }
 
-  .chart-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    color: #777;
+  .chart-toolbar-overlay :global(.toolbar-group) {
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
   }
 
-  .mode-badge {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 2px;
-    padding: 2px 7px;
-    border: 1px solid #333;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-size: 10px;
+  .chart-toolbar-overlay :global(.toolbar-button) {
+    background: transparent;
+    color: #d7dde1;
   }
 
-  .mode-badge.preview {
-    border-color: rgba(74, 222, 128, 0.35);
-    color: #6fcf97;
+  .chart-toolbar-overlay :global(.toolbar-button:hover:not(:disabled)) {
+    background: transparent;
+    color: #ffffff;
+  }
+
+  .chart-toolbar-overlay :global(.toolbar-button.active) {
+    background: transparent;
+    box-shadow: none;
+    color: #effff5;
   }
 
   .viewer-shell :global(.geoviz-svelte-chart-shell) {
@@ -599,17 +805,12 @@
 
   .compare-cycle-overlay {
     position: absolute;
-    top: 10px;
-    right: 10px;
     z-index: 2;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 6px;
     align-items: center;
-    padding: 6px 8px;
-    background: rgba(20, 20, 20, 0.92);
-    border: 1px solid #333;
-    backdrop-filter: blur(6px);
+    padding: 0;
   }
 
   .compare-arrow {
@@ -619,15 +820,14 @@
     width: 28px;
     height: 28px;
     border-radius: 2px;
-    border: 1px solid #333;
-    background: #252525;
-    color: #999;
+    border: none;
+    background: transparent;
+    color: #cfd6db;
     cursor: pointer;
   }
 
   .compare-arrow:hover:not(:disabled) {
-    background: #2e2e2e;
-    color: #d0d0d0;
+    color: #ffffff;
   }
 
   .compare-arrow:disabled {
@@ -651,18 +851,16 @@
 
   .compare-cycle-copy strong {
     font-size: 12px;
-    color: #c0c0c0;
+    color: #f0f4f6;
   }
 
   .compare-cycle-copy small {
     font-size: 11px;
-    color: #777;
+    color: #cfd6db;
   }
 
   .compare-label-overlay {
     position: absolute;
-    left: 10px;
-    bottom: 10px;
     z-index: 2;
     display: flex;
     gap: 6px;
@@ -670,29 +868,15 @@
     pointer-events: none;
   }
 
-  .compare-label-chip {
-    display: grid;
-    gap: 1px;
-    padding: 5px 8px;
-    background: rgba(20, 20, 20, 0.88);
-    border: 1px solid #333;
-  }
-
-  .compare-label-chip.secondary {
-    border-color: rgba(90, 162, 255, 0.2);
-  }
-
-  .compare-label-key {
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #555;
-  }
-
-  .compare-label-chip strong {
+  .compare-label-line strong {
     font-size: 12px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: #eef3f6;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  }
+
+  .compare-label-line.secondary strong {
+    color: #bed8ff;
   }
 
   .welcome-card {

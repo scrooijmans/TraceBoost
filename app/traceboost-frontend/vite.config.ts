@@ -200,6 +200,10 @@ export default defineConfig({
         "../../../geoviz/packages/domain-geoscience/src/index.ts"
       ),
       "@geoviz/svelte": path.resolve(__dirname, "../../../geoviz/packages/svelte/src/index.ts"),
+      "@geoviz/svelte-toolbar": path.resolve(
+        __dirname,
+        "../../../geoviz/packages/svelte-toolbar/src/index.ts"
+      ),
       "@traceboost/seis-contracts": path.resolve(
         __dirname,
         "../../contracts/ts/seis-contracts/src/index.ts"
