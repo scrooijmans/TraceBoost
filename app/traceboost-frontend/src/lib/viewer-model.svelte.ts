@@ -1,4 +1,5 @@
 import { createContext } from "svelte";
+import type { SeismicChartInteractionState, SeismicChartTool } from "@geoviz/svelte";
 import type {
   DatasetRegistryEntry,
   DatasetSummary,
@@ -14,6 +15,7 @@ import type {
 } from "@traceboost/seis-contracts";
 import type { DiagnosticsEvent, DiagnosticsStatus } from "./bridge";
 import {
+  defaultImportStorePath,
   fetchSectionView,
   getDiagnosticsStatus,
   importDataset,
@@ -40,6 +42,44 @@ export interface ViewerActivity {
 
 export interface ViewerModelOptions {
   tauriRuntime: boolean;
+}
+
+interface OpenDatasetOptions {
+  entryId?: string | null;
+  sourcePath?: string | null;
+  sessionPipelines?: WorkspacePipelineEntry[] | null;
+  activeSessionPipelineId?: string | null;
+}
+
+export type CompareCompatibilityReason =
+  | "primary_unset"
+  | "missing_store_path"
+  | "missing_dataset"
+  | "missing_geometry_descriptor"
+  | "compare_family_mismatch"
+  | "geometry_fingerprint_mismatch";
+
+export interface CompareCandidate {
+  entryId: string;
+  displayName: string;
+  storePath: string;
+  datasetId: string | null;
+  compareFamily: string | null;
+  fingerprint: string | null;
+  compatible: boolean;
+  isPrimary: boolean;
+  reason: CompareCompatibilityReason | null;
+}
+
+export interface ComparePoolState {
+  primaryStorePath: string | null;
+  primaryDatasetId: string | null;
+  primaryLabel: string | null;
+  compareFamily: string | null;
+  fingerprint: string | null;
+  candidates: CompareCandidate[];
+  compatibleStorePaths: string[];
+  compatibleSecondaryStorePaths: string[];
 }
 
 function timestampLabel(): string {
@@ -79,6 +119,14 @@ function deriveStorePathFromInput(inputPath: string): string {
   return `${directory}${basename}.tbvol`;
 }
 
+function fileExtension(filePath: string): string {
+  const normalized = trimPath(filePath);
+  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  const filename = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+  const extensionIndex = filename.lastIndexOf(".");
+  return extensionIndex >= 0 ? filename.slice(extensionIndex).toLowerCase() : "";
+}
+
 function sortWorkspaceEntries(entries: DatasetRegistryEntry[]): DatasetRegistryEntry[] {
   return [...entries].sort((left, right) => right.updated_at_unix_s - left.updated_at_unix_s);
 }
@@ -96,6 +144,60 @@ function entryStorePath(entry: DatasetRegistryEntry | null): string {
   return entry?.imported_store_path ?? entry?.preferred_store_path ?? "";
 }
 
+function cloneSessionPipelines(
+  entries: WorkspacePipelineEntry[] | null | undefined
+): WorkspacePipelineEntry[] | null {
+  return entries ? entries.map((entry) => ({ ...entry })) : null;
+}
+
+function datasetCompareFamily(dataset: DatasetSummary | null): string | null {
+  return dataset?.descriptor.geometry?.compare_family ?? null;
+}
+
+function datasetGeometryFingerprint(dataset: DatasetSummary | null): string | null {
+  return dataset?.descriptor.geometry?.fingerprint ?? null;
+}
+
+function compareCandidateReason(
+  primary: DatasetSummary | null,
+  candidate: DatasetSummary | null,
+  candidateStorePath: string,
+  isPrimary: boolean
+): CompareCompatibilityReason | null {
+  if (isPrimary) {
+    return null;
+  }
+
+  if (!primary) {
+    return "primary_unset";
+  }
+
+  if (!candidateStorePath) {
+    return "missing_store_path";
+  }
+
+  if (!candidate) {
+    return "missing_dataset";
+  }
+
+  const primaryGeometry = primary.descriptor.geometry;
+  const candidateGeometry = candidate.descriptor.geometry;
+
+  if (!primaryGeometry || !candidateGeometry) {
+    return "missing_geometry_descriptor";
+  }
+
+  if (candidateGeometry.compare_family !== primaryGeometry.compare_family) {
+    return "compare_family_mismatch";
+  }
+
+  if (candidateGeometry.fingerprint !== primaryGeometry.fingerprint) {
+    return "geometry_fingerprint_mismatch";
+  }
+
+  return null;
+}
+
 export class ViewerModel {
   readonly tauriRuntime: boolean;
 
@@ -107,16 +209,22 @@ export class ViewerModel {
   axis = $state<SectionAxis>("inline");
   index = $state(0);
   section = $state<SectionView | null>(null);
+  backgroundSection = $state<SectionView | null>(null);
   loading = $state(false);
+  backgroundLoading = $state(false);
   busyLabel = $state<string | null>(null);
   error = $state<string | null>(null);
+  backgroundError = $state<string | null>(null);
   resetToken = $state("inline:0");
   displayTransform = $state({
     renderMode: "heatmap" as "heatmap" | "wiggle",
     colormap: "grayscale" as "grayscale" | "red-white-blue",
     gain: 1,
-    polarity: "normal" as "normal" | "reversed"
+    polarity: "normal" as "normal" | "reversed",
+    clipMin: undefined as number | undefined,
+    clipMax: undefined as number | undefined
   });
+  chartTool = $state<SeismicChartTool>("crosshair");
   lastProbe = $state<SectionProbeChanged | null>(null);
   lastViewport = $state<SectionViewportChanged | null>(null);
   lastInteraction = $state<SectionInteractionChanged | null>(null);
@@ -131,13 +239,51 @@ export class ViewerModel {
   selectedPresetId = $state<string | null>(null);
   workspaceReady = $state(false);
   restoringWorkspace = $state(false);
+  compareBackgroundStorePath = $state<string | null>(null);
+  compareSplitEnabled = $state(false);
+  compareSplitPosition = $state(0.5);
 
   #activityCounter = 0;
   #diagnosticsUnlisten: (() => void) | null = null;
   #outputPathSource: "auto" | "manual" = "auto";
+  #backgroundLoadRequestId = 0;
+  #backgroundSectionKey: string | null = null;
 
   constructor(options: ViewerModelOptions) {
     this.tauriRuntime = options.tauriRuntime;
+
+    $effect(() => {
+      const backgroundStorePath = this.compareBackgroundStorePath;
+      const foregroundStorePath = this.comparePrimaryStorePath;
+      const axis = this.axis;
+      const index = this.index;
+
+      if (!backgroundStorePath || !foregroundStorePath || backgroundStorePath === foregroundStorePath) {
+        this.backgroundSection = null;
+        this.backgroundError = null;
+        this.backgroundLoading = false;
+        this.#backgroundSectionKey = null;
+        return;
+      }
+
+      const nextKey = `${backgroundStorePath}:${axis}:${index}`;
+      if (this.#backgroundSectionKey === nextKey) {
+        return;
+      }
+
+      void this.loadBackgroundSection(backgroundStorePath, axis, index);
+    });
+
+    $effect(() => {
+      const splitAllowed =
+        this.compareSplitEnabled &&
+        !!this.activeBackgroundCompareCandidate &&
+        this.displayTransform.renderMode === "heatmap";
+
+      if (!splitAllowed && this.compareSplitEnabled) {
+        this.compareSplitEnabled = false;
+      }
+    });
   }
 
   #nextActivityId(): number {
@@ -167,6 +313,215 @@ export class ViewerModel {
 
   get activeDatasetEntry(): DatasetRegistryEntry | null {
     return this.workspaceEntries.find((entry) => entry.entry_id === this.activeEntryId) ?? null;
+  }
+
+  get comparePrimaryDataset(): DatasetSummary | null {
+    return this.dataset ?? this.activeDatasetEntry?.last_dataset ?? null;
+  }
+
+  get comparePrimaryStorePath(): string | null {
+    const activeStorePath = trimPath(this.activeStorePath);
+    if (activeStorePath) {
+      return activeStorePath;
+    }
+
+    const fallbackStorePath = trimPath(entryStorePath(this.activeDatasetEntry));
+    return fallbackStorePath || null;
+  }
+
+  get comparePoolState(): ComparePoolState {
+    const primary = this.comparePrimaryDataset;
+    const primaryStorePath = this.comparePrimaryStorePath;
+    const primaryFingerprint = datasetGeometryFingerprint(primary);
+    const primaryCompareFamily = datasetCompareFamily(primary);
+
+    const candidates = this.workspaceEntries.map((entry) => {
+      const storePath = trimPath(entryStorePath(entry));
+      const candidateDataset = entry.last_dataset;
+      const isPrimary = !!primaryStorePath && storePath === primaryStorePath;
+      const reason = compareCandidateReason(primary, candidateDataset, storePath, isPrimary);
+
+      return {
+        entryId: entry.entry_id,
+        displayName: entry.display_name,
+        storePath,
+        datasetId: candidateDataset?.descriptor.id ?? null,
+        compareFamily: datasetCompareFamily(candidateDataset),
+        fingerprint: datasetGeometryFingerprint(candidateDataset),
+        compatible: reason === null,
+        isPrimary,
+        reason
+      } satisfies CompareCandidate;
+    });
+
+    const compatibleStorePaths = candidates
+      .filter((candidate) => candidate.compatible)
+      .map((candidate) => candidate.storePath);
+
+    const compatibleSecondaryStorePaths = candidates
+      .filter((candidate) => candidate.compatible && !candidate.isPrimary)
+      .map((candidate) => candidate.storePath);
+
+    return {
+      primaryStorePath,
+      primaryDatasetId: primary?.descriptor.id ?? null,
+      primaryLabel: primary?.descriptor.label ?? null,
+      compareFamily: primaryCompareFamily,
+      fingerprint: primaryFingerprint,
+      candidates,
+      compatibleStorePaths,
+      compatibleSecondaryStorePaths
+    };
+  }
+
+  get compareCandidates(): CompareCandidate[] {
+    return this.comparePoolState.candidates;
+  }
+
+  get compatibleCompareCandidates(): CompareCandidate[] {
+    return this.compareCandidates.filter((candidate) => candidate.compatible);
+  }
+
+  get compatibleSecondaryCompareCandidates(): CompareCandidate[] {
+    return this.compareCandidates.filter(
+      (candidate) => candidate.compatible && !candidate.isPrimary
+    );
+  }
+
+  get activeForegroundCompareCandidate(): CompareCandidate | null {
+    const primaryStorePath = this.comparePrimaryStorePath;
+    return this.compareCandidates.find((candidate) => candidate.storePath === primaryStorePath) ?? null;
+  }
+
+  get activeBackgroundCompareCandidate(): CompareCandidate | null {
+    if (!this.compareBackgroundStorePath) {
+      return null;
+    }
+
+    return (
+      this.compatibleSecondaryCompareCandidates.find(
+        (candidate) => candidate.storePath === this.compareBackgroundStorePath
+      ) ?? null
+    );
+  }
+
+  get canCycleForegroundCompareSurvey(): boolean {
+    return this.compatibleCompareCandidates.length > 1;
+  }
+
+  get canEnableCompareSplit(): boolean {
+    return !!this.activeBackgroundCompareCandidate && this.displayTransform.renderMode === "heatmap";
+  }
+
+  selectCompareBackground = (storePath: string | null): void => {
+    const normalizedStorePath = trimPath(storePath ?? "") || null;
+
+    if (!normalizedStorePath) {
+      this.compareBackgroundStorePath = null;
+      this.backgroundSection = null;
+      this.backgroundError = null;
+      this.backgroundLoading = false;
+      this.#backgroundSectionKey = null;
+      this.compareSplitEnabled = false;
+      return;
+    }
+
+    const selectedCandidate = this.compatibleSecondaryCompareCandidates.find(
+      (candidate) => candidate.storePath === normalizedStorePath
+    );
+
+    this.compareBackgroundStorePath = selectedCandidate?.storePath ?? null;
+  };
+
+  setCompareSplitEnabled = (enabled: boolean): void => {
+    if (!enabled) {
+      this.compareSplitEnabled = false;
+      return;
+    }
+
+    if (!this.canEnableCompareSplit) {
+      return;
+    }
+
+    this.compareSplitEnabled = true;
+  };
+
+  setCompareSplitPosition = (position: number): void => {
+    this.compareSplitPosition = Math.min(Math.max(position, 0.1), 0.9);
+  };
+
+  cycleForegroundCompareSurvey = async (direction: -1 | 1): Promise<void> => {
+    const candidates = this.compatibleCompareCandidates;
+    if (candidates.length <= 1 || this.loading) {
+      return;
+    }
+
+    const primaryStorePath = this.comparePrimaryStorePath;
+    const currentIndex = candidates.findIndex((candidate) => candidate.storePath === primaryStorePath);
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (baseIndex + direction + candidates.length) % candidates.length;
+    const nextCandidate = candidates[nextIndex];
+
+    if (!nextCandidate || !nextCandidate.storePath || nextCandidate.storePath === primaryStorePath) {
+      return;
+    }
+
+    this.note("Cycling compare foreground survey.", "ui", "info", nextCandidate.displayName);
+    await this.openDatasetAt(nextCandidate.storePath, this.axis, this.index);
+  };
+
+  refreshCompareSelection = (): void => {
+    if (!this.compareBackgroundStorePath) {
+      return;
+    }
+
+    const stillCompatible = this.compatibleSecondaryCompareCandidates.some(
+      (candidate) => candidate.storePath === this.compareBackgroundStorePath
+    );
+
+    if (!stillCompatible) {
+      this.compareBackgroundStorePath = null;
+      this.compareSplitEnabled = false;
+      this.backgroundSection = null;
+      this.backgroundError = null;
+      this.backgroundLoading = false;
+      this.#backgroundSectionKey = null;
+    }
+  };
+
+  private async loadBackgroundSection(
+    storePath: string,
+    axis: SectionAxis,
+    index: number
+  ): Promise<void> {
+    const requestId = ++this.#backgroundLoadRequestId;
+    const sectionKey = `${storePath}:${axis}:${index}`;
+    this.backgroundLoading = true;
+    this.backgroundError = null;
+
+    try {
+      const section = await fetchSectionView(storePath, axis, index);
+      if (requestId !== this.#backgroundLoadRequestId) {
+        return;
+      }
+
+      this.backgroundSection = section;
+      this.#backgroundSectionKey = sectionKey;
+    } catch (error) {
+      if (requestId !== this.#backgroundLoadRequestId) {
+        return;
+      }
+
+      this.backgroundSection = null;
+      this.#backgroundSectionKey = null;
+      this.backgroundError = errorMessage(error, "Failed to load compare background section.");
+      this.compareSplitEnabled = false;
+      this.note("Failed to load compare background section.", "backend", "warn", this.backgroundError);
+    } finally {
+      if (requestId === this.#backgroundLoadRequestId) {
+        this.backgroundLoading = false;
+      }
+    }
   }
 
   setSelectedPresetId = (presetId: string | null): void => {
@@ -203,10 +558,17 @@ export class ViewerModel {
     this.activeStorePath = "";
     this.dataset = null;
     this.section = null;
+    this.backgroundSection = null;
     this.lastProbe = null;
     this.lastViewport = null;
     this.lastInteraction = null;
     this.resetToken = `${this.axis}:${this.index}`;
+    this.compareBackgroundStorePath = null;
+    this.compareSplitEnabled = false;
+    this.compareSplitPosition = 0.5;
+    this.backgroundError = null;
+    this.backgroundLoading = false;
+    this.#backgroundSectionKey = null;
   };
 
   #syncWorkspaceState = (entries: DatasetRegistryEntry[], session: WorkspaceSession): void => {
@@ -215,6 +577,7 @@ export class ViewerModel {
     this.#applyWorkspaceEntry(
       this.workspaceEntries.find((entry) => entry.entry_id === session.active_entry_id) ?? null
     );
+    this.refreshCompareSelection();
     this.workspaceReady = true;
   };
 
@@ -319,6 +682,83 @@ export class ViewerModel {
     this.note("Selected SEG-Y input path.", "ui", "info", normalizedPath);
   };
 
+  openVolumePath = async (volumePath: string): Promise<void> => {
+    const normalizedPath = trimPath(volumePath);
+    if (!normalizedPath) {
+      this.error = "Volume path is required.";
+      this.note("Open-volume blocked because no usable path was provided.", "ui", "error");
+      return;
+    }
+
+    const extension = fileExtension(normalizedPath);
+    if (extension === ".tbvol") {
+      const matchingEntry =
+        this.workspaceEntries.find(
+          (entry) =>
+            trimPath(entry.imported_store_path ?? entry.preferred_store_path ?? "") === normalizedPath
+        ) ?? null;
+      await this.openDatasetAt(normalizedPath, "inline", 0, {
+        entryId: matchingEntry?.entry_id ?? null,
+        sourcePath: matchingEntry?.source_path ?? null,
+        sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
+        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null
+      });
+      return;
+    }
+
+    if (extension !== ".sgy" && extension !== ".segy") {
+      this.error = "TraceBoost currently supports opening .tbvol, .sgy, and .segy volumes.";
+      this.note("Open-volume blocked because the selected file type is unsupported.", "ui", "error", normalizedPath);
+      return;
+    }
+
+    const matchingEntry =
+      this.workspaceEntries.find((entry) => trimPath(entry.source_path ?? "") === normalizedPath) ?? null;
+    const existingImportedStore = trimPath(matchingEntry?.imported_store_path ?? "");
+    if (existingImportedStore) {
+      this.note("Reusing existing imported runtime store for the selected SEG-Y volume.", "ui", "info", existingImportedStore);
+      await this.openDatasetAt(existingImportedStore, "inline", 0, {
+        entryId: matchingEntry?.entry_id ?? null,
+        sourcePath: normalizedPath,
+        sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
+        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null
+      });
+      return;
+    }
+
+    this.loading = true;
+    this.busyLabel = "Inspecting volume";
+    this.error = null;
+    this.preflight = null;
+    this.note("Started one-shot volume import.", "ui", "info", normalizedPath);
+
+    try {
+      const preflight = await preflightImport(normalizedPath);
+      this.preflight = preflight;
+
+      if (preflight.suggested_action !== "direct_dense_ingest") {
+        throw new Error(
+          `This SEG-Y survey cannot be opened automatically yet. Classification: ${preflight.classification}. Suggested action: ${preflight.suggested_action}.`
+        );
+      }
+
+      const outputStorePath =
+        trimPath(matchingEntry?.imported_store_path ?? matchingEntry?.preferred_store_path ?? "") ||
+        (await defaultImportStorePath(normalizedPath));
+      this.loading = false;
+      this.busyLabel = null;
+      this.inputPath = normalizedPath;
+      this.outputStorePath = outputStorePath;
+      this.#outputPathSource = "manual";
+      await this.importDataset();
+    } catch (error) {
+      this.loading = false;
+      this.busyLabel = null;
+      this.error = errorMessage(error, "Failed to open the selected volume.");
+      this.note("One-shot volume open failed.", "backend", "error", this.error);
+    }
+  };
+
   selectInputPath = async (inputPath: string): Promise<void> => {
     this.setInputPath(inputPath);
     const normalizedInputPath = trimPath(this.inputPath);
@@ -353,6 +793,7 @@ export class ViewerModel {
       this.activeEntryId = response.entry.entry_id;
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
       this.#applyWorkspaceSession(response.session);
+      this.refreshCompareSelection();
     } catch (error) {
       this.note(
         "Failed to register the selected SEG-Y path in the workspace.",
@@ -393,6 +834,7 @@ export class ViewerModel {
       this.activeEntryId = response.entry.entry_id;
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
       this.#applyWorkspaceSession(response.session);
+      this.refreshCompareSelection();
     } catch (error) {
       this.note(
         "Failed to persist the selected runtime store path.",
@@ -448,6 +890,23 @@ export class ViewerModel {
     this.displayTransform.colormap = colormap;
   };
 
+  setGain = (gain: number): void => {
+    this.displayTransform.gain = gain;
+  };
+
+  setPolarity = (polarity: (typeof this.displayTransform)["polarity"]): void => {
+    this.displayTransform.polarity = polarity;
+  };
+
+  setClipRange = (clipMin: number | undefined, clipMax: number | undefined): void => {
+    this.displayTransform.clipMin = clipMin;
+    this.displayTransform.clipMax = clipMax;
+  };
+
+  setChartTool = (tool: SeismicChartTool): void => {
+    this.chartTool = tool;
+  };
+
   setProbe = (event: SectionProbeChanged): void => {
     this.lastProbe = event;
   };
@@ -458,6 +917,10 @@ export class ViewerModel {
 
   setInteraction = (event: SectionInteractionChanged): void => {
     this.lastInteraction = event;
+  };
+
+  setInteractionState = (state: SeismicChartInteractionState): void => {
+    this.chartTool = state.tool;
   };
 
   mountShell = (): (() => void) => {
@@ -554,6 +1017,7 @@ export class ViewerModel {
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
       this.#applyWorkspaceSession(response.session);
       this.#applyWorkspaceEntry(response.entry);
+      this.refreshCompareSelection();
       this.note("Activated dataset entry from the workspace list.", "ui", "info", response.entry.display_name);
 
       if (response.entry.imported_store_path) {
@@ -575,6 +1039,7 @@ export class ViewerModel {
       const removedActive = this.activeEntryId === entryId;
       this.workspaceEntries = this.workspaceEntries.filter((entry) => entry.entry_id !== entryId);
       this.#applyWorkspaceSession(response.session);
+      this.refreshCompareSelection();
       if (removedActive) {
         this.inputPath = "";
         this.outputStorePath = "";
@@ -591,7 +1056,8 @@ export class ViewerModel {
   openDatasetAt = async (
     storePath: string,
     axis: SectionAxis = "inline",
-    index = 0
+    index = 0,
+    options: OpenDatasetOptions = {}
   ): Promise<void> => {
     const normalizedStorePath = trimPath(storePath);
     if (!normalizedStorePath) {
@@ -603,29 +1069,46 @@ export class ViewerModel {
     this.error = null;
     this.note("Opening runtime store.", "ui", "info", normalizedStorePath);
 
+    const hasOwnOption = (key: keyof OpenDatasetOptions): boolean =>
+      Object.prototype.hasOwnProperty.call(options, key);
+    const nextEntryId: string | null = hasOwnOption("entryId")
+      ? options.entryId ?? null
+      : this.activeEntryId;
+    const nextSourcePath: string = hasOwnOption("sourcePath")
+      ? options.sourcePath ?? ""
+      : this.inputPath;
+    const nextSessionPipelines: WorkspacePipelineEntry[] | null = hasOwnOption("sessionPipelines")
+      ? cloneSessionPipelines(options.sessionPipelines)
+      : this.activeDatasetEntry?.session_pipelines ?? null;
+    const nextActiveSessionPipelineId: string | null = hasOwnOption("activeSessionPipelineId")
+      ? options.activeSessionPipelineId ?? null
+      : this.activeDatasetEntry?.active_session_pipeline_id ?? null;
+
     try {
       const response = await openDataset(normalizedStorePath);
       this.dataset = response.dataset;
       this.activeStorePath = response.dataset.store_path;
       this.outputStorePath = response.dataset.store_path;
       this.#outputPathSource = "manual";
+      this.inputPath = trimPath(nextSourcePath);
       this.error = null;
 
       const workspaceResponse = await upsertDatasetEntry({
         schema_version: 1,
-        entry_id: this.activeEntryId,
+        entry_id: nextEntryId,
         display_name: response.dataset.descriptor.label,
-        source_path: trimPath(this.inputPath) || null,
+        source_path: trimPath(nextSourcePath) || null,
         preferred_store_path: response.dataset.store_path,
         imported_store_path: response.dataset.store_path,
         dataset: response.dataset,
-        session_pipelines: this.activeDatasetEntry?.session_pipelines ?? null,
-        active_session_pipeline_id: this.activeDatasetEntry?.active_session_pipeline_id ?? null,
+        session_pipelines: nextSessionPipelines,
+        active_session_pipeline_id: nextActiveSessionPipelineId,
         make_active: true
       });
       this.activeEntryId = workspaceResponse.entry.entry_id;
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, workspaceResponse.entry);
       this.#applyWorkspaceSession(workspaceResponse.session);
+      this.refreshCompareSelection();
 
       this.note(
         "Runtime store opened.",
@@ -641,6 +1124,20 @@ export class ViewerModel {
       this.note("Opening runtime store failed.", "backend", "error", this.error);
       throw error;
     }
+  };
+
+  openDerivedDatasetAt = async (
+    storePath: string,
+    axis: SectionAxis = "inline",
+    index = 0
+  ): Promise<void> => {
+    const activeEntry = this.activeDatasetEntry;
+    await this.openDatasetAt(storePath, axis, index, {
+      entryId: null,
+      sourcePath: null,
+      sessionPipelines: cloneSessionPipelines(activeEntry?.session_pipelines),
+      activeSessionPipelineId: activeEntry?.active_session_pipeline_id ?? null
+    });
   };
 
   runPreflight = async (): Promise<void> => {
@@ -768,6 +1265,7 @@ export class ViewerModel {
       this.activeEntryId = workspaceResponse.entry.entry_id;
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, workspaceResponse.entry);
       this.#applyWorkspaceSession(workspaceResponse.session);
+      this.refreshCompareSelection();
       this.note(
         "Dataset import completed.",
         "backend",

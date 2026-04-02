@@ -1,17 +1,14 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import DiagnosticsPanel from "./DiagnosticsPanel.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
-  import { pickOutputFolder, pickSegyFile } from "../file-dialog";
 
   interface Props {
     showSidebar: boolean;
     hideSidebar: () => void;
-    chartBound: boolean;
   }
 
-  let { showSidebar, hideSidebar, chartBound }: Props = $props();
+  let { showSidebar, hideSidebar }: Props = $props();
 
   const viewerModel = getViewerModelContext();
 
@@ -19,28 +16,8 @@
     return filePath.split(/[\\/]/).pop() ?? filePath;
   }
 
-  async function handleSelectSegy() {
-    const path = await pickSegyFile();
-    if (path) {
-      await viewerModel.selectInputPath(path);
-      return;
-    }
-
-    viewerModel.note("SEG-Y file selection did not produce a usable path.", "ui", "warn");
-  }
-
-  async function handleSelectOutput() {
-    const path = await pickOutputFolder();
-    if (path) {
-      await viewerModel.selectOutputStorePath(path);
-      return;
-    }
-
-    viewerModel.note("Runtime store output selection did not produce a usable path.", "ui", "warn");
-  }
-
-  function statusLabel(status: string): string {
-    return status.replace(/_/g, " ");
+  function datasetLabel(displayName: string, fallbackPath: string | null | undefined, entryId: string): string {
+    return displayName.trim() || basename(fallbackPath ?? entryId);
   }
 </script>
 
@@ -64,7 +41,7 @@
       </svg>
       <div class="logo-copy">
         <h1>TraceBoost <span class="version">v0.1.0</span></h1>
-        <p class="subtitle">Seismic Data Viewer</p>
+        <p class="subtitle">Seismic Volumes</p>
       </div>
       <button class="collapse-button" onclick={hideSidebar} aria-label="Hide sidebar">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -74,271 +51,54 @@
     </div>
   </div>
 
-  <div class="steps">
-    <div class="step">
-      <div class="step-label">Step 1</div>
-      <div class="step-title">Select SEG-Y File</div>
-      <button class="btn btn-primary workflow-button" onclick={handleSelectSegy} disabled={viewerModel.loading}>
-        {viewerModel.inputPath ? "Change File" : "Select File"}
-      </button>
-      {#if viewerModel.inputPath}
-        <div class="selected-path" title={viewerModel.inputPath}>
-          {basename(viewerModel.inputPath)}
-        </div>
-      {/if}
-
-      {#if viewerModel.workspaceEntries.length}
-        <div class="workspace-list">
-          <div class="workspace-list-title">Remembered datasets</div>
-          {#each viewerModel.workspaceEntries as entry (entry.entry_id)}
+  <div class="volume-list-shell">
+    {#if viewerModel.workspaceEntries.length}
+      <div class="volume-list">
+        {#each viewerModel.workspaceEntries as entry (entry.entry_id)}
+          <div class="volume-row">
             <button
               class:active={viewerModel.activeEntryId === entry.entry_id}
-              class="workspace-entry"
+              class="volume-entry"
               onclick={() => void viewerModel.activateDatasetEntry(entry.entry_id)}
               disabled={viewerModel.loading}
+              title={entry.display_name}
             >
-              <span class="workspace-entry-copy">
-                <strong>{entry.display_name}</strong>
-                <small>{basename(entry.source_path ?? entry.imported_store_path ?? entry.preferred_store_path ?? entry.entry_id)}</small>
+              <span class="volume-entry-label">
+                {datasetLabel(
+                  entry.display_name,
+                  entry.imported_store_path ?? entry.source_path ?? entry.preferred_store_path,
+                  entry.entry_id
+                )}
               </span>
-              <span class={`workspace-badge status-${entry.status}`}>{statusLabel(entry.status)}</span>
             </button>
             <button
-              class="workspace-remove"
+              class="volume-remove"
               onclick={() => void viewerModel.removeWorkspaceEntry(entry.entry_id)}
               disabled={viewerModel.loading}
+              aria-label={`Remove ${entry.display_name}`}
+              title={`Remove ${entry.display_name}`}
             >
-              Remove
+              ×
             </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-
-    <div class="step">
-      <div class="step-label">Step 2</div>
-      <div class="step-title">Preflight Survey</div>
-      <button
-        class="btn btn-secondary workflow-button"
-        onclick={() => void viewerModel.runPreflight()}
-        disabled={viewerModel.loading || !viewerModel.inputPath}
-      >
-        Run Preflight
-      </button>
-
-      {#if viewerModel.preflight}
-        <div class="info-card">
-          <div class="info-row">
-            <span>Classification</span>
-            <span class="info-value">{viewerModel.preflight.classification}</span>
           </div>
-          <div class="info-row">
-            <span>Action</span>
-            <span class="info-value">{viewerModel.preflight.suggested_action}</span>
-          </div>
-          <div class="info-row">
-            <span>Traces</span>
-            <span class="info-value">{viewerModel.preflight.trace_count}</span>
-          </div>
-          <div class="info-row">
-            <span>Samples/trace</span>
-            <span class="info-value">{viewerModel.preflight.samples_per_trace}</span>
-          </div>
-          <div class="info-row">
-            <span>Completeness</span>
-            <span class="info-value"
-              >{(viewerModel.preflight.completeness_ratio * 100).toFixed(1)}%</span
-            >
-          </div>
-          <div class="info-row">
-            <span>Observed Traces</span>
-            <span class="info-value">{viewerModel.preflight.observed_trace_count}</span>
-          </div>
-          <div class="info-row">
-            <span>Expected Traces</span>
-            <span class="info-value">{viewerModel.preflight.expected_trace_count}</span>
-          </div>
-        </div>
-
-        {#if viewerModel.preflight.notes.length}
-          <div class="notes-card">
-            <div class="notes-title">Preflight Notes</div>
-            <ul class="notes-list">
-              {#each viewerModel.preflight.notes as note, index (`${index}:${note}`)}
-                <li>{note}</li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
-
-        {#if viewerModel.preflight.suggested_action !== "direct_dense_ingest"}
-          <div class="warning-bar">
-            Current backend policy only auto-imports direct dense surveys. This preflight path is likely
-            to fail before any section reaches the viewer.
-          </div>
-        {/if}
-      {/if}
-    </div>
-
-    <div class="step">
-      <div class="step-label">Step 3</div>
-      <div class="step-title">Runtime Store Output</div>
-      <button class="btn btn-primary workflow-button" onclick={handleSelectOutput} disabled={viewerModel.loading}>
-        {viewerModel.outputStorePath ? "Change Folder" : "Set Output Folder"}
-      </button>
-      {#if viewerModel.outputStorePath}
-        <div class="selected-path" title={viewerModel.outputStorePath}>
-          {basename(viewerModel.outputStorePath)}
-        </div>
-      {/if}
-    </div>
-
-    <div class="step">
-      <div class="step-label">Step 4</div>
-      <div class="step-title">Import & View</div>
-      <div class="step-actions">
-        <button
-          class="btn btn-accent workflow-button"
-          onclick={() => void viewerModel.importDataset()}
-          disabled={viewerModel.loading || Boolean(viewerModel.importDisabledReason)}
-        >
-          Import SEG-Y
-        </button>
-        <button
-          class="btn btn-secondary workflow-button"
-          onclick={() => void viewerModel.openDataset()}
-          disabled={viewerModel.loading || !viewerModel.outputStorePath}
-        >
-          Open Existing Store
-        </button>
+        {/each}
       </div>
-
-      {#if !viewerModel.loading && viewerModel.importDisabledReason && viewerModel.inputPath && viewerModel.outputStorePath}
-        <div class="step-hint">
-          {viewerModel.importDisabledReason}
-        </div>
-      {/if}
-    </div>
-
-    {#if viewerModel.busyLabel}
-      <div class="status-bar">
-        <div class="spinner"></div>
-        <span>{viewerModel.busyLabel}...</span>
+    {:else}
+      <div class="empty-state">
+        <span class="empty-title">No volumes loaded</span>
+        <p>Use <strong>File &gt; Open Volume…</strong> to open a `.tbvol` or import a `.segy`.</p>
       </div>
     {/if}
-
-    {#if viewerModel.dataset}
-      <div class="divider"></div>
-
-      <div class="section-controls">
-        <div class="step-title">Section Controls</div>
-
-        <div class="info-card">
-          <div class="info-row">
-            <span>Label</span>
-            <span class="info-value">{viewerModel.dataset.descriptor.label}</span>
-          </div>
-          <div class="info-row">
-            <span>Shape</span>
-            <span class="info-value"
-              >{viewerModel.dataset.descriptor.shape[0]} x {viewerModel.dataset.descriptor.shape[1]} x
-              {viewerModel.dataset.descriptor.shape[2]}</span
-            >
-          </div>
-        </div>
-
-        <div class="control-row">
-          <label class="control-label">
-            Axis
-            <select
-              bind:value={viewerModel.axis}
-              disabled={!viewerModel.activeStorePath || viewerModel.loading}
-              onchange={() => void viewerModel.load(viewerModel.axis, viewerModel.index)}
-            >
-              <option value="inline">Inline</option>
-              <option value="xline">Xline</option>
-            </select>
-          </label>
-
-          <label class="control-label">
-            Index
-            <input
-              type="number"
-              bind:value={viewerModel.index}
-              min="0"
-              disabled={!viewerModel.activeStorePath || viewerModel.loading}
-              onchange={() => void viewerModel.load(viewerModel.axis, Number(viewerModel.index))}
-            />
-          </label>
-        </div>
-
-        <div class="control-row">
-          <button
-            class="btn btn-secondary btn-sm"
-            disabled={!viewerModel.section}
-            onclick={() =>
-              viewerModel.setRenderMode(
-                viewerModel.displayTransform.renderMode === "heatmap" ? "wiggle" : "heatmap"
-              )}
-          >
-            {viewerModel.displayTransform.renderMode === "heatmap" ? "Wiggles" : "Heatmap"}
-          </button>
-
-          <button
-            class="btn btn-secondary btn-sm"
-            disabled={!viewerModel.section}
-            onclick={() =>
-              viewerModel.setColormap(
-                viewerModel.displayTransform.colormap === "grayscale"
-                  ? "red-white-blue"
-                  : "grayscale"
-              )}
-          >
-            {viewerModel.displayTransform.colormap === "grayscale" ? "R/W/B" : "Gray"}
-          </button>
-        </div>
-      </div>
-
-      <div class="probe-readout">
-        {#if viewerModel.lastProbe?.probe}
-          <div class="info-row">
-            <span>Trace</span>
-            <span class="info-value">{viewerModel.lastProbe.probe.trace_index}</span>
-          </div>
-          <div class="info-row">
-            <span>Sample</span>
-            <span class="info-value">{viewerModel.lastProbe.probe.sample_index}</span>
-          </div>
-          <div class="info-row">
-            <span>Amplitude</span>
-            <span class="info-value">{viewerModel.lastProbe.probe.amplitude.toFixed(4)}</span>
-          </div>
-        {:else}
-          <div class="hint">Hover over the seismic chart for probe data.</div>
-        {/if}
-      </div>
-    {/if}
-
-    {#if viewerModel.error}
-      <div class="error-bar">{viewerModel.error}</div>
-    {/if}
-
-    <DiagnosticsPanel {chartBound} />
-  </div>
-
-  <div class="sidebar-footer">
-    <span>TraceBoost v0.1.0</span>
   </div>
 </aside>
 
 <style>
   .sidebar {
-    display: flex;
-    flex-direction: column;
-    background: #0c1f2d;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
-    overflow-y: auto;
-    height: 100vh;
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    background: #181818;
+    border-right: 1px solid #242424;
   }
 
   .sidebar.hidden {
@@ -346,402 +106,149 @@
   }
 
   .sidebar-header {
-    padding: 20px 20px 0;
+    padding: 10px 10px 8px;
+    border-bottom: 1px solid #242424;
   }
 
   .logo-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-  }
-
-  .logo-copy {
-    min-width: 0;
-    flex: 1;
+    gap: 10px;
   }
 
   .logo-icon {
-    color: #4ade80;
-    flex-shrink: 0;
+    color: #67c48f;
   }
 
-  h1 {
+  .logo-copy h1 {
     margin: 0;
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
+    font-size: 18px;
+    font-weight: 650;
+    color: #d7d7d7;
   }
 
   .version {
-    font-size: 12px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.4);
-    vertical-align: middle;
+    font-size: 11px;
+    color: #6c6c6c;
+    font-weight: 500;
   }
 
   .subtitle {
     margin: 2px 0 0;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+    color: #6f6f6f;
   }
 
   .collapse-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    background: #102838;
-    color: rgba(255, 255, 255, 0.55);
+    width: 28px;
+    height: 28px;
+    border-radius: 2px;
+    border: 1px solid #303030;
+    background: #202020;
+    color: #777;
     cursor: pointer;
-    flex-shrink: 0;
   }
 
   .collapse-button:hover {
-    color: #fff;
-    background: #1a3a50;
+    background: #282828;
+    color: #d0d0d0;
   }
 
-  .steps {
-    flex: 1;
-    padding: 16px 20px;
+  .volume-list-shell {
+    min-height: 0;
+    overflow: auto;
+    padding: 10px;
+  }
+
+  .volume-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .volume-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .volume-entry {
+    min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .step {
-    padding: 12px 0;
-  }
-
-  .step-label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: rgba(255, 255, 255, 0.35);
-    margin-bottom: 4px;
-  }
-
-  .step-title {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 10px;
-  }
-
-  .step-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .btn {
-    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 10px 16px;
-    min-height: 44px;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    box-sizing: border-box;
-    font-size: 13px;
-    font-weight: 600;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #2b2b2b;
+    background: #1d1d1d;
+    color: #a9a9a9;
+    text-align: left;
     cursor: pointer;
-    transition: background 0.15s, opacity 0.15s;
-    color: #fff;
   }
 
-  .workflow-button {
-    width: 100%;
+  .volume-entry:hover:not(:disabled) {
+    border-color: #3b3b3b;
+    background: #242424;
+    color: #dddddd;
   }
 
-  .btn:disabled {
-    opacity: 0.4;
+  .volume-entry.active {
+    border-color: rgba(103, 196, 143, 0.45);
+    background: rgba(33, 60, 44, 0.72);
+    color: #f2fff7;
+  }
+
+  .volume-entry:disabled {
+    opacity: 0.55;
     cursor: not-allowed;
   }
 
-  .btn-primary {
-    background: #1a6b3c;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #22874d;
-  }
-
-  .btn-secondary {
-    background: #102838;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: #1a3a50;
-  }
-
-  .btn-accent {
-    background: #2563eb;
-  }
-
-  .btn-accent:hover:not(:disabled) {
-    background: #3b82f6;
-  }
-
-  .btn-sm {
-    padding: 7px 12px;
-    min-height: 36px;
-    font-size: 12px;
-    flex: 1;
-  }
-
-  .selected-path {
-    margin-top: 8px;
-    padding: 8px 10px;
-    background: rgba(255, 255, 255, 0.04);
-    border-radius: 6px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .workspace-list {
-    margin-top: 12px;
-    display: grid;
-    gap: 8px;
-  }
-
-  .workspace-list-title {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.38);
-  }
-
-  .workspace-entry {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
-    text-align: left;
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-    color: inherit;
-    cursor: pointer;
-  }
-
-  .workspace-entry.active {
-    border-color: rgba(74, 222, 128, 0.4);
-    background: rgba(74, 222, 128, 0.08);
-  }
-
-  .workspace-entry-copy {
+  .volume-entry-label {
     min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-
-  .workspace-entry-copy strong,
-  .workspace-entry-copy small {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .workspace-entry-copy strong {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .workspace-entry-copy small {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.48);
-  }
-
-  .workspace-badge {
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    border-radius: 999px;
-    padding: 4px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.66);
-  }
-
-  .workspace-badge.status-imported {
-    border-color: rgba(74, 222, 128, 0.35);
-    color: #8df0b4;
-  }
-
-  .workspace-badge.status-missing_store,
-  .workspace-badge.status-missing_source {
-    border-color: rgba(245, 158, 11, 0.35);
-    color: #fcd34d;
-  }
-
-  .workspace-remove {
-    justify-self: end;
-    margin-top: -2px;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 11px;
-    cursor: pointer;
-  }
-
-  .step-hint {
-    margin-top: 8px;
-    font-size: 12px;
-    line-height: 1.45;
-    color: rgba(255, 255, 255, 0.52);
-  }
-
-  .info-card {
-    margin-top: 8px;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border-radius: 8px;
-  }
-
-  .notes-card {
-    margin-top: 8px;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border-radius: 8px;
-  }
-
-  .notes-title {
     font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.8);
-    margin-bottom: 6px;
   }
 
-  .notes-list {
-    margin: 0;
-    padding-left: 18px;
-    display: grid;
-    gap: 6px;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 12px;
-    line-height: 1.45;
-  }
-
-  .info-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    padding: 3px 0;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .info-value {
-    color: rgba(255, 255, 255, 0.8);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    background: rgba(74, 222, 128, 0.08);
-    border-radius: 8px;
-    font-size: 13px;
-    color: #4ade80;
-  }
-
-  .spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(74, 222, 128, 0.2);
-    border-top-color: #4ade80;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .divider {
-    height: 1px;
-    background: rgba(255, 255, 255, 0.08);
-    margin: 8px 0;
-  }
-
-  .section-controls {
-    padding: 8px 0;
-  }
-
-  .control-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .control-label {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .control-label select,
-  .control-label input {
-    padding: 8px 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: #102838;
-    color: inherit;
-    font-size: 13px;
-  }
-
-  .probe-readout {
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border-radius: 8px;
+  .volume-remove {
+    width: 28px;
+    height: 28px;
     margin-top: 4px;
+    border-radius: 2px;
+    border: 1px solid #2c2c2c;
+    background: #1b1b1b;
+    color: #6f6f6f;
+    cursor: pointer;
   }
 
-  .hint {
+  .volume-remove:hover:not(:disabled) {
+    border-color: #733838;
+    background: #2a1b1b;
+    color: #f08f8f;
+  }
+
+  .empty-state {
+    border: 1px dashed #2d2d2d;
+    background: #1c1c1c;
+    padding: 14px;
+    color: #828282;
+  }
+
+  .empty-title {
+    display: block;
+    margin-bottom: 6px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.35);
+    font-weight: 650;
+    color: #c4c4c4;
   }
 
-  .error-bar {
-    padding: 10px 12px;
-    background: rgba(255, 100, 100, 0.1);
-    border: 1px solid rgba(255, 100, 100, 0.2);
-    border-radius: 8px;
-    color: #ffb0b0;
-    font-size: 13px;
-    margin-top: 8px;
-  }
-
-  .warning-bar {
-    margin-top: 12px;
-    padding: 10px 12px;
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid rgba(245, 158, 11, 0.24);
-    border-radius: 8px;
-    color: #fcd34d;
-    font-size: 13px;
-    line-height: 1.45;
-  }
-
-  .sidebar-footer {
-    padding: 16px 20px;
+  .empty-state p {
+    margin: 0;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.25);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    line-height: 1.5;
   }
 </style>

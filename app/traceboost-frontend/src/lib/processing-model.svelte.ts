@@ -721,8 +721,11 @@ export class ProcessingModel {
         case "completed":
           this.runBusy = false;
           if (response.job.output_store_path) {
-            this.viewerModel.outputStorePath = response.job.output_store_path;
-            await this.viewerModel.openDataset();
+            await this.viewerModel.openDerivedDatasetAt(
+              response.job.output_store_path,
+              this.viewerModel.axis,
+              this.viewerModel.index
+            );
           }
           this.viewerModel.note(
             "Processing job completed.",
