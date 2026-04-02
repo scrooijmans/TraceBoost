@@ -201,6 +201,159 @@
       "title": "DatasetId",
       "type": "string"
     },
+    "DatasetRegistryEntry": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetRegistryStatus": {
+          "enum": [
+            "linked",
+            "imported",
+            "missing_source",
+            "missing_store"
+          ],
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "display_name": {
+          "type": "string"
+        },
+        "entry_id": {
+          "type": "string"
+        },
+        "imported_store_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DatasetSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_imported_at_unix_s": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "last_opened_at_unix_s": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "preferred_store_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/DatasetRegistryStatus"
+        },
+        "updated_at_unix_s": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "display_name",
+        "entry_id",
+        "status",
+        "updated_at_unix_s"
+      ],
+      "title": "DatasetRegistryEntry",
+      "type": "object"
+    },
+    "DatasetRegistryStatus": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "linked",
+        "imported",
+        "missing_source",
+        "missing_store"
+      ],
+      "title": "DatasetRegistryStatus",
+      "type": "string"
+    },
     "DatasetSummary": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
@@ -751,6 +904,214 @@
         "schema_version"
       ],
       "title": "ListPipelinePresetsResponse",
+      "type": "object"
+    },
+    "LoadWorkspaceStateResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetRegistryEntry": {
+          "properties": {
+            "display_name": {
+              "type": "string"
+            },
+            "entry_id": {
+              "type": "string"
+            },
+            "imported_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_dataset": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DatasetSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "last_imported_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "last_opened_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "preferred_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/DatasetRegistryStatus"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "display_name",
+            "entry_id",
+            "status",
+            "updated_at_unix_s"
+          ],
+          "type": "object"
+        },
+        "DatasetRegistryStatus": {
+          "enum": [
+            "linked",
+            "imported",
+            "missing_source",
+            "missing_store"
+          ],
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        },
+        "WorkspaceSession": {
+          "properties": {
+            "active_axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "active_entry_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "active_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "active_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "active_axis",
+            "active_index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/definitions/DatasetRegistryEntry"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/definitions/WorkspaceSession"
+        }
+      },
+      "required": [
+        "entries",
+        "schema_version",
+        "session"
+      ],
+      "title": "LoadWorkspaceStateResponse",
       "type": "object"
     },
     "OpenDatasetRequest": {
@@ -2370,6 +2731,92 @@
       "title": "ProcessingPreset",
       "type": "object"
     },
+    "RemoveDatasetEntryRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "entry_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entry_id",
+        "schema_version"
+      ],
+      "title": "RemoveDatasetEntryRequest",
+      "type": "object"
+    },
+    "RemoveDatasetEntryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "WorkspaceSession": {
+          "properties": {
+            "active_axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "active_entry_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "active_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "active_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "active_axis",
+            "active_index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "deleted": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/definitions/WorkspaceSession"
+        }
+      },
+      "required": [
+        "deleted",
+        "schema_version",
+        "session"
+      ],
+      "title": "RemoveDatasetEntryResponse",
+      "type": "object"
+    },
     "RunProcessingRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
@@ -2900,6 +3347,121 @@
         "schema_version"
       ],
       "title": "SavePipelinePresetResponse",
+      "type": "object"
+    },
+    "SaveWorkspaceSessionRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "active_axis": {
+          "$ref": "#/definitions/SectionAxis"
+        },
+        "active_entry_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "active_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "active_store_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "selected_preset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "active_axis",
+        "active_index",
+        "schema_version"
+      ],
+      "title": "SaveWorkspaceSessionRequest",
+      "type": "object"
+    },
+    "SaveWorkspaceSessionResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "WorkspaceSession": {
+          "properties": {
+            "active_axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "active_entry_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "active_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "active_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "active_axis",
+            "active_index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/definitions/WorkspaceSession"
+        }
+      },
+      "required": [
+        "schema_version",
+        "session"
+      ],
+      "title": "SaveWorkspaceSessionResponse",
       "type": "object"
     },
     "SectionAxis": {
@@ -3690,6 +4252,230 @@
       "title": "SectionViewportChanged",
       "type": "object"
     },
+    "SetActiveDatasetEntryRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "entry_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entry_id",
+        "schema_version"
+      ],
+      "title": "SetActiveDatasetEntryRequest",
+      "type": "object"
+    },
+    "SetActiveDatasetEntryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetRegistryEntry": {
+          "properties": {
+            "display_name": {
+              "type": "string"
+            },
+            "entry_id": {
+              "type": "string"
+            },
+            "imported_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_dataset": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DatasetSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "last_imported_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "last_opened_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "preferred_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/DatasetRegistryStatus"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "display_name",
+            "entry_id",
+            "status",
+            "updated_at_unix_s"
+          ],
+          "type": "object"
+        },
+        "DatasetRegistryStatus": {
+          "enum": [
+            "linked",
+            "imported",
+            "missing_source",
+            "missing_store"
+          ],
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        },
+        "WorkspaceSession": {
+          "properties": {
+            "active_axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "active_entry_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "active_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "active_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "active_axis",
+            "active_index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/DatasetRegistryEntry"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/definitions/WorkspaceSession"
+        }
+      },
+      "required": [
+        "entry",
+        "schema_version",
+        "session"
+      ],
+      "title": "SetActiveDatasetEntryResponse",
+      "type": "object"
+    },
     "SuggestedImportAction": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "enum": [
@@ -3794,6 +4580,332 @@
       "title": "SurveyPreflightResponse",
       "type": "object"
     },
+    "UpsertDatasetEntryRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DatasetSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entry_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "imported_store_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "make_active": {
+          "type": "boolean"
+        },
+        "preferred_store_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "make_active",
+        "schema_version"
+      ],
+      "title": "UpsertDatasetEntryRequest",
+      "type": "object"
+    },
+    "UpsertDatasetEntryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "DatasetRegistryEntry": {
+          "properties": {
+            "display_name": {
+              "type": "string"
+            },
+            "entry_id": {
+              "type": "string"
+            },
+            "imported_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_dataset": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DatasetSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "last_imported_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "last_opened_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "preferred_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/DatasetRegistryStatus"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "display_name",
+            "entry_id",
+            "status",
+            "updated_at_unix_s"
+          ],
+          "type": "object"
+        },
+        "DatasetRegistryStatus": {
+          "enum": [
+            "linked",
+            "imported",
+            "missing_source",
+            "missing_store"
+          ],
+          "type": "string"
+        },
+        "DatasetSummary": {
+          "properties": {
+            "descriptor": {
+              "$ref": "#/definitions/VolumeDescriptor"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "descriptor",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "VolumeDescriptor": {
+          "properties": {
+            "chunk_shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sample_interval_ms": {
+              "format": "float",
+              "type": "number"
+            },
+            "shape": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "chunk_shape",
+            "id",
+            "label",
+            "sample_interval_ms",
+            "shape"
+          ],
+          "type": "object"
+        },
+        "WorkspaceSession": {
+          "properties": {
+            "active_axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "active_entry_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "active_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "active_store_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "active_axis",
+            "active_index"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/DatasetRegistryEntry"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session": {
+          "$ref": "#/definitions/WorkspaceSession"
+        }
+      },
+      "required": [
+        "entry",
+        "schema_version",
+        "session"
+      ],
+      "title": "UpsertDatasetEntryResponse",
+      "type": "object"
+    },
     "VolumeDescriptor": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
@@ -3841,6 +4953,52 @@
         "shape"
       ],
       "title": "VolumeDescriptor",
+      "type": "object"
+    },
+    "WorkspaceSession": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "active_axis": {
+          "$ref": "#/definitions/SectionAxis"
+        },
+        "active_entry_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "active_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "active_store_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_preset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "active_axis",
+        "active_index"
+      ],
+      "title": "WorkspaceSession",
       "type": "object"
     }
   }

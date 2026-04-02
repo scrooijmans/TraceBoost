@@ -27,6 +27,7 @@ The contracts layer defines the typed payloads that cross:
 - survey preflight request-response contracts
 - dataset import request-response contracts
 - dataset open/summary request-response contracts
+- dataset registry and workspace-session payloads for the desktop shell
 - schema-versioned IPC types for the first desktop workflow
 
 Regenerate the TypeScript artifact from the repo root with:
@@ -44,7 +45,7 @@ The generated output currently lives under:
 
 1. Keep this layer as the only source of truth for app/runtime/frontend payloads.
 2. Add only the next app-facing contracts that the desktop workflow actually needs:
-   error envelopes, progress events, and recent-dataset/session payloads.
+   error envelopes, progress events, and richer workspace/session payloads.
 3. Avoid premature job-system or processing-batch schema growth until those features are implemented in the app.
 
 ## Non-Goals

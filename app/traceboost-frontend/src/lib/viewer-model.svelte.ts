@@ -1,5 +1,6 @@
 import { createContext } from "svelte";
 import type {
+  DatasetRegistryEntry,
   DatasetSummary,
   ImportDatasetResponse,
   SectionAxis,
@@ -7,16 +8,22 @@ import type {
   SectionProbeChanged,
   SectionView,
   SectionViewportChanged,
-  SurveyPreflightResponse
+  SurveyPreflightResponse,
+  WorkspaceSession
 } from "@traceboost/seis-contracts";
 import type { DiagnosticsEvent, DiagnosticsStatus } from "./bridge";
 import {
   fetchSectionView,
   getDiagnosticsStatus,
   importDataset,
+  loadWorkspaceState,
   listenToDiagnosticsEvents,
   openDataset,
   preflightImport,
+  removeDatasetEntry,
+  saveWorkspaceSession,
+  setActiveDatasetEntry,
+  upsertDatasetEntry,
   setDiagnosticsVerbosity
 } from "./bridge";
 import { confirmOverwriteStore } from "./file-dialog";
@@ -71,6 +78,23 @@ function deriveStorePathFromInput(inputPath: string): string {
   return `${directory}${basename}.tbvol`;
 }
 
+function sortWorkspaceEntries(entries: DatasetRegistryEntry[]): DatasetRegistryEntry[] {
+  return [...entries].sort((left, right) => right.updated_at_unix_s - left.updated_at_unix_s);
+}
+
+function mergeWorkspaceEntry(
+  entries: DatasetRegistryEntry[],
+  nextEntry: DatasetRegistryEntry
+): DatasetRegistryEntry[] {
+  const nextEntries = entries.filter((entry) => entry.entry_id !== nextEntry.entry_id);
+  nextEntries.push(nextEntry);
+  return sortWorkspaceEntries(nextEntries);
+}
+
+function entryStorePath(entry: DatasetRegistryEntry | null): string {
+  return entry?.imported_store_path ?? entry?.preferred_store_path ?? "";
+}
+
 export class ViewerModel {
   readonly tauriRuntime: boolean;
 
@@ -101,6 +125,11 @@ export class ViewerModel {
   recentActivity = $state<ViewerActivity[]>([]);
   lastImportedInputPath = $state("");
   lastImportedStorePath = $state("");
+  workspaceEntries = $state.raw<DatasetRegistryEntry[]>([]);
+  activeEntryId = $state<string | null>(null);
+  selectedPresetId = $state<string | null>(null);
+  workspaceReady = $state(false);
+  restoringWorkspace = $state(false);
 
   #activityCounter = 0;
   #diagnosticsUnlisten: (() => void) | null = null;
@@ -133,6 +162,79 @@ export class ViewerModel {
       },
       24
     );
+  };
+
+  get activeDatasetEntry(): DatasetRegistryEntry | null {
+    return this.workspaceEntries.find((entry) => entry.entry_id === this.activeEntryId) ?? null;
+  }
+
+  setSelectedPresetId = (presetId: string | null): void => {
+    this.selectedPresetId = presetId?.trim() || null;
+    if (!this.workspaceReady) {
+      return;
+    }
+    void this.persistWorkspaceSession();
+  };
+
+  #applyWorkspaceSession = (session: WorkspaceSession): void => {
+    this.activeEntryId = session.active_entry_id;
+    this.selectedPresetId = session.selected_preset_id;
+    this.axis = session.active_axis;
+    this.index = session.active_index;
+  };
+
+  #applyWorkspaceEntry = (entry: DatasetRegistryEntry | null): void => {
+    if (!entry) {
+      return;
+    }
+
+    const sourcePath = entry.source_path ?? "";
+    const storePath = entryStorePath(entry);
+    this.inputPath = sourcePath;
+    this.outputStorePath = storePath;
+    this.activeStorePath = entry.imported_store_path ?? this.activeStorePath;
+    this.#outputPathSource = storePath ? "manual" : "auto";
+    this.error = null;
+    this.preflight = null;
+  };
+
+  #syncWorkspaceState = (entries: DatasetRegistryEntry[], session: WorkspaceSession): void => {
+    this.workspaceEntries = sortWorkspaceEntries(entries);
+    this.#applyWorkspaceSession(session);
+    this.#applyWorkspaceEntry(
+      this.workspaceEntries.find((entry) => entry.entry_id === session.active_entry_id) ?? null
+    );
+    this.workspaceReady = true;
+  };
+
+  refreshWorkspaceState = async (): Promise<void> => {
+    const response = await loadWorkspaceState();
+    this.#syncWorkspaceState(response.entries, response.session);
+  };
+
+  persistWorkspaceSession = async (): Promise<void> => {
+    if (!this.workspaceReady) {
+      return;
+    }
+
+    try {
+      const response = await saveWorkspaceSession({
+        schema_version: 1,
+        active_entry_id: this.activeEntryId,
+        active_store_path: trimPath(this.activeStorePath) || null,
+        active_axis: this.axis,
+        active_index: this.index,
+        selected_preset_id: this.selectedPresetId
+      });
+      this.#applyWorkspaceSession(response.session);
+    } catch (error) {
+      this.note(
+        "Failed to persist workspace session state.",
+        "backend",
+        "warn",
+        errorMessage(error, "Unknown workspace session error")
+      );
+    }
   };
 
   setInputPath = (inputPath: string): void => {
@@ -172,12 +274,71 @@ export class ViewerModel {
     this.note("Selected SEG-Y input path.", "ui", "info", normalizedPath);
   };
 
+  selectInputPath = async (inputPath: string): Promise<void> => {
+    this.setInputPath(inputPath);
+    const existingEntry = this.activeDatasetEntry;
+    const reuseActiveEntry = existingEntry?.source_path === trimPath(this.inputPath);
+
+    try {
+      const response = await upsertDatasetEntry({
+        schema_version: 1,
+        entry_id: reuseActiveEntry ? this.activeEntryId : null,
+        display_name: null,
+        source_path: trimPath(this.inputPath) || null,
+        preferred_store_path: trimPath(this.outputStorePath) || null,
+        imported_store_path: reuseActiveEntry ? existingEntry?.imported_store_path ?? null : null,
+        dataset: reuseActiveEntry ? existingEntry?.last_dataset ?? null : null,
+        make_active: true
+      });
+      this.activeEntryId = response.entry.entry_id;
+      this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
+      this.#applyWorkspaceSession(response.session);
+    } catch (error) {
+      this.note(
+        "Failed to register the selected SEG-Y path in the workspace.",
+        "backend",
+        "error",
+        errorMessage(error, "Unknown workspace registry error")
+      );
+    }
+  };
+
   setOutputStorePath = (outputStorePath: string): void => {
     const normalizedPath = trimPath(outputStorePath);
     this.outputStorePath = normalizedPath;
     this.error = null;
     this.#outputPathSource = "manual";
     this.note("Selected runtime store output path.", "ui", "info", normalizedPath);
+  };
+
+  selectOutputStorePath = async (outputStorePath: string): Promise<void> => {
+    this.setOutputStorePath(outputStorePath);
+    if (!this.activeEntryId && !trimPath(this.inputPath)) {
+      return;
+    }
+
+    try {
+      const response = await upsertDatasetEntry({
+        schema_version: 1,
+        entry_id: this.activeEntryId,
+        display_name: null,
+        source_path: trimPath(this.inputPath) || null,
+        preferred_store_path: trimPath(this.outputStorePath) || null,
+        imported_store_path: this.activeDatasetEntry?.imported_store_path ?? null,
+        dataset: this.activeDatasetEntry?.last_dataset ?? null,
+        make_active: true
+      });
+      this.activeEntryId = response.entry.entry_id;
+      this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
+      this.#applyWorkspaceSession(response.session);
+    } catch (error) {
+      this.note(
+        "Failed to persist the selected runtime store path.",
+        "backend",
+        "error",
+        errorMessage(error, "Unknown workspace registry error")
+      );
+    }
   };
 
   get importIsRedundant(): boolean {
@@ -251,6 +412,33 @@ export class ViewerModel {
     let cancelled = false;
 
     void (async () => {
+      const workspace = await loadWorkspaceState();
+      if (cancelled) {
+        return;
+      }
+
+      this.#syncWorkspaceState(workspace.entries, workspace.session);
+      if (workspace.session.active_store_path) {
+        this.restoringWorkspace = true;
+        this.note("Restoring previous workspace dataset.", "viewer", "info", workspace.session.active_store_path);
+        try {
+          await this.openDatasetAt(
+            workspace.session.active_store_path,
+            workspace.session.active_axis,
+            workspace.session.active_index
+          );
+        } catch (error) {
+          this.note(
+            "Failed to restore the previous active dataset automatically.",
+            "backend",
+            "warn",
+            errorMessage(error, "Unknown workspace restore error")
+          );
+        } finally {
+          this.restoringWorkspace = false;
+        }
+      }
+
       const status = await getDiagnosticsStatus();
       if (cancelled) {
         return;
@@ -294,6 +482,102 @@ export class ViewerModel {
         "error",
         error instanceof Error ? error.message : "Unknown verbosity error"
       );
+    }
+  };
+
+  activateDatasetEntry = async (entryId: string): Promise<void> => {
+    try {
+      const response = await setActiveDatasetEntry(entryId);
+      this.activeEntryId = response.entry.entry_id;
+      this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
+      this.#applyWorkspaceSession(response.session);
+      this.#applyWorkspaceEntry(response.entry);
+      this.note("Activated dataset entry from the workspace list.", "ui", "info", response.entry.display_name);
+
+      if (response.entry.imported_store_path) {
+        await this.openDatasetAt(
+          response.entry.imported_store_path,
+          this.axis,
+          this.index
+        );
+      }
+    } catch (error) {
+      this.error = errorMessage(error, "Failed to activate dataset entry.");
+      this.note("Failed to activate dataset entry.", "backend", "error", this.error);
+    }
+  };
+
+  removeWorkspaceEntry = async (entryId: string): Promise<void> => {
+    try {
+      const response = await removeDatasetEntry(entryId);
+      const removedActive = this.activeEntryId === entryId;
+      this.workspaceEntries = this.workspaceEntries.filter((entry) => entry.entry_id !== entryId);
+      this.#applyWorkspaceSession(response.session);
+      if (removedActive) {
+        this.inputPath = "";
+        this.outputStorePath = "";
+        this.activeStorePath = "";
+        this.dataset = null;
+        this.section = null;
+        this.preflight = null;
+      }
+      this.note("Removed dataset entry from the workspace list.", "ui", "warn", entryId);
+    } catch (error) {
+      this.error = errorMessage(error, "Failed to remove dataset entry.");
+      this.note("Failed to remove dataset entry.", "backend", "error", this.error);
+    }
+  };
+
+  openDatasetAt = async (
+    storePath: string,
+    axis: SectionAxis = "inline",
+    index = 0
+  ): Promise<void> => {
+    const normalizedStorePath = trimPath(storePath);
+    if (!normalizedStorePath) {
+      throw new Error("Store path is required.");
+    }
+
+    this.loading = true;
+    this.busyLabel = this.restoringWorkspace ? "Restoring dataset" : "Opening dataset";
+    this.error = null;
+    this.note("Opening runtime store.", "ui", "info", normalizedStorePath);
+
+    try {
+      const response = await openDataset(normalizedStorePath);
+      this.dataset = response.dataset;
+      this.activeStorePath = response.dataset.store_path;
+      this.outputStorePath = response.dataset.store_path;
+      this.#outputPathSource = "manual";
+      this.error = null;
+
+      const workspaceResponse = await upsertDatasetEntry({
+        schema_version: 1,
+        entry_id: this.activeEntryId,
+        display_name: response.dataset.descriptor.label,
+        source_path: trimPath(this.inputPath) || null,
+        preferred_store_path: response.dataset.store_path,
+        imported_store_path: response.dataset.store_path,
+        dataset: response.dataset,
+        make_active: true
+      });
+      this.activeEntryId = workspaceResponse.entry.entry_id;
+      this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, workspaceResponse.entry);
+      this.#applyWorkspaceSession(workspaceResponse.session);
+
+      this.note(
+        "Runtime store opened.",
+        "backend",
+        "info",
+        `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
+      );
+      await this.load(axis, index, response.dataset.store_path);
+    } catch (error) {
+      this.loading = false;
+      this.busyLabel = null;
+      this.error = errorMessage(error, "Unknown open-store error");
+      this.note("Opening runtime store failed.", "backend", "error", this.error);
+      throw error;
     }
   };
 
@@ -407,6 +691,19 @@ export class ViewerModel {
       this.lastImportedInputPath = inputPath;
       this.lastImportedStorePath = response.dataset.store_path;
       this.error = null;
+      const workspaceResponse = await upsertDatasetEntry({
+        schema_version: 1,
+        entry_id: this.activeEntryId,
+        display_name: response.dataset.descriptor.label,
+        source_path: inputPath,
+        preferred_store_path: response.dataset.store_path,
+        imported_store_path: response.dataset.store_path,
+        dataset: response.dataset,
+        make_active: true
+      });
+      this.activeEntryId = workspaceResponse.entry.entry_id;
+      this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, workspaceResponse.entry);
+      this.#applyWorkspaceSession(workspaceResponse.session);
       this.note(
         "Dataset import completed.",
         "backend",
@@ -429,45 +726,16 @@ export class ViewerModel {
 
   openDataset = async (): Promise<void> => {
     const storePath = this.outputStorePath.trim() || this.activeStorePath.trim();
-    this.loading = true;
-    this.busyLabel = "Opening dataset";
-    this.error = null;
-    this.note("Opening runtime store.", "ui", "info", storePath || null);
-
     if (!storePath) {
-      this.loading = false;
-      this.busyLabel = null;
       this.error = "Store path is required.";
       this.note("Open-store blocked because no runtime store path was provided.", "ui", "error");
       return;
     }
 
     try {
-      const response = await openDataset(storePath);
-      this.loading = false;
-      this.busyLabel = null;
-      this.dataset = response.dataset;
-      this.activeStorePath = response.dataset.store_path;
-      this.outputStorePath = response.dataset.store_path;
-      this.#outputPathSource = "manual";
-      this.error = null;
-      this.note(
-        "Runtime store opened.",
-        "backend",
-        "info",
-        `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
-      );
-      await this.load("inline", 0, response.dataset.store_path);
+      await this.openDatasetAt(storePath, "inline", 0);
     } catch (error) {
-      this.loading = false;
-      this.busyLabel = null;
-      this.error = error instanceof Error ? error.message : "Unknown open-store error";
-      this.note(
-        "Opening runtime store failed.",
-        "backend",
-        "error",
-        error instanceof Error ? error.message : "Unknown open-store error"
-      );
+      this.error = errorMessage(error, "Unknown open-store error");
     }
   };
 
@@ -498,6 +766,7 @@ export class ViewerModel {
       this.busyLabel = null;
       this.error = null;
       this.resetToken = `${axis}:${index}`;
+      await this.persistWorkspaceSession();
       this.note(
         "Section payload loaded.",
         "backend",

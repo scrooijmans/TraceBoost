@@ -56,6 +56,25 @@ The current backend processing design is:
 
 This keeps the backend deterministic and frontend-safe without introducing a scripting language as the source of truth.
 
+## Workspace Persistence
+
+The current desktop persistence split is:
+
+- `seis-runtime` / shared Ophiolite seismic runtime
+  - canonical seismic ingest/open/section/materialization logic
+- `traceboost-frontend/src-tauri`
+  - app-local dataset registry
+  - app-local workspace session snapshot
+  - persisted pipeline presets
+- `traceboost-frontend`
+  - reactive viewer/session state
+  - active dataset selection from the remembered registry
+  - restore of the last active dataset/section on startup
+- `geoviz`
+  - rendering only; it does not know about recent datasets or session persistence
+
+This keeps “remember what I was working on” as a desktop/workspace concern rather than forcing it into canonical seismic storage or chart models.
+
 ## Compatibility Notes
 
 - old standalone repos for contracts, I/O, and runtime have been deprecated in favor of this monorepo

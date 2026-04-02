@@ -109,6 +109,20 @@ export class ProcessingModel {
         this.previewState = "stale";
       }
     });
+
+    $effect(() => {
+      const persistedPresetId = this.viewerModel.selectedPresetId;
+      if (!persistedPresetId) {
+        return;
+      }
+
+      const preset = this.presets.find((candidate) => candidate.preset_id === persistedPresetId);
+      if (!preset || this.pipeline.preset_id === persistedPresetId) {
+        return;
+      }
+
+      this.replacePipeline(preset.pipeline);
+    });
   }
 
   mount = (): (() => void) => {
@@ -291,6 +305,7 @@ export class ProcessingModel {
 
   loadPreset = (preset: ProcessingPreset): void => {
     this.replacePipeline(preset.pipeline);
+    this.viewerModel.setSelectedPresetId(preset.preset_id);
     this.viewerModel.note("Loaded pipeline preset.", "ui", "info", preset.preset_id);
   };
 
@@ -310,6 +325,7 @@ export class ProcessingModel {
     try {
       const response = await savePipelinePreset(preset);
       this.pipeline = clonePipeline(response.preset.pipeline);
+      this.viewerModel.setSelectedPresetId(response.preset.preset_id);
       await this.refreshPresets();
       this.viewerModel.note("Saved pipeline preset.", "ui", "info", response.preset.preset_id);
     } catch (error) {
@@ -322,6 +338,9 @@ export class ProcessingModel {
     try {
       const deleted = await deletePipelinePreset(presetId);
       if (deleted) {
+        if (this.viewerModel.selectedPresetId === presetId) {
+          this.viewerModel.setSelectedPresetId(null);
+        }
         await this.refreshPresets();
         this.viewerModel.note("Deleted pipeline preset.", "ui", "warn", presetId);
       }

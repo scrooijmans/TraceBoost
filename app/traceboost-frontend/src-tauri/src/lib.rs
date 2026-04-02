@@ -1,15 +1,19 @@
 mod app_paths;
 mod diagnostics;
 mod processing;
+mod workspace;
 
 use seis_contracts_interop::{
     CancelProcessingJobRequest, CancelProcessingJobResponse, GetProcessingJobRequest,
     GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse,
-    PreviewProcessingRequest, PreviewProcessingResponse, RunProcessingRequest,
+    ListPipelinePresetsResponse, LoadWorkspaceStateResponse, OpenDatasetRequest,
+    OpenDatasetResponse, PreviewProcessingRequest, PreviewProcessingResponse,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunProcessingRequest,
     RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SurveyPreflightRequest, SurveyPreflightResponse, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
+    SetActiveDatasetEntryResponse, SurveyPreflightRequest, SurveyPreflightResponse,
+    DeletePipelinePresetRequest, DeletePipelinePresetResponse, UpsertDatasetEntryRequest,
+    UpsertDatasetEntryResponse,
 };
 use seis_runtime::{
     MaterializeOptions, SectionAxis, SectionView, materialize_processing_volume_with_progress,
@@ -24,6 +28,7 @@ use traceboost_app::{
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
 use crate::processing::{JobRecord, ProcessingState};
+use crate::workspace::WorkspaceState;
 
 #[tauri::command]
 fn preflight_import_command(
@@ -469,6 +474,45 @@ fn delete_pipeline_preset_command(
     })
 }
 
+#[tauri::command]
+fn load_workspace_state_command(
+    workspace: State<WorkspaceState>,
+) -> Result<LoadWorkspaceStateResponse, String> {
+    workspace.load_state()
+}
+
+#[tauri::command]
+fn upsert_dataset_entry_command(
+    workspace: State<WorkspaceState>,
+    request: UpsertDatasetEntryRequest,
+) -> Result<UpsertDatasetEntryResponse, String> {
+    workspace.upsert_entry(request)
+}
+
+#[tauri::command]
+fn remove_dataset_entry_command(
+    workspace: State<WorkspaceState>,
+    request: RemoveDatasetEntryRequest,
+) -> Result<RemoveDatasetEntryResponse, String> {
+    workspace.remove_entry(request)
+}
+
+#[tauri::command]
+fn set_active_dataset_entry_command(
+    workspace: State<WorkspaceState>,
+    request: SetActiveDatasetEntryRequest,
+) -> Result<SetActiveDatasetEntryResponse, String> {
+    workspace.set_active_entry(request)
+}
+
+#[tauri::command]
+fn save_workspace_session_command(
+    workspace: State<WorkspaceState>,
+    request: SaveWorkspaceSessionRequest,
+) -> Result<SaveWorkspaceSessionResponse, String> {
+    workspace.save_session(request)
+}
+
 fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessingRequest) {
     let _ = record.mark_running();
     let output_store_path = request
@@ -694,6 +738,10 @@ pub fn run() {
             let diagnostics =
                 DiagnosticsState::initialize(app_paths.logs_dir(), session_basename.clone())?;
             let processing = ProcessingState::initialize(app_paths.pipeline_presets_dir())?;
+            let workspace = WorkspaceState::initialize(
+                app_paths.dataset_registry_path(),
+                app_paths.workspace_session_path(),
+            )?;
             diagnostics.emit_session_event(
                 &app.handle().clone(),
                 "started",
@@ -709,6 +757,7 @@ pub fn run() {
             );
             app.manage(diagnostics);
             app.manage(processing);
+            app.manage(workspace);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -723,6 +772,11 @@ pub fn run() {
             list_pipeline_presets_command,
             save_pipeline_preset_command,
             delete_pipeline_preset_command,
+            load_workspace_state_command,
+            upsert_dataset_entry_command,
+            remove_dataset_entry_command,
+            set_active_dataset_entry_command,
+            save_workspace_session_command,
             get_diagnostics_status_command,
             set_diagnostics_verbosity_command,
             export_diagnostics_bundle_command

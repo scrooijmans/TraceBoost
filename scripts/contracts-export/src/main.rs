@@ -12,12 +12,17 @@ use seis_contracts_core::{
 };
 use seis_contracts_interop::{
     CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetSummary,
+    DatasetRegistryEntry, DatasetRegistryStatus, LoadWorkspaceStateResponse,
     DeletePipelinePresetRequest, DeletePipelinePresetResponse, GetProcessingJobRequest,
     GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
     ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
     PreviewProcessingRequest, PreviewProcessingResponse, PreviewResponse, RunProcessingRequest,
     RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
+    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, SuggestedImportAction,
+    SurveyPreflightRequest, SurveyPreflightResponse, RemoveDatasetEntryRequest,
+    RemoveDatasetEntryResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+    WorkspaceSession,
 };
 use seis_contracts_views::{
     PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
@@ -103,6 +108,18 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SavePipelinePresetResponse.ts",
         "DeletePipelinePresetRequest.ts",
         "DeletePipelinePresetResponse.ts",
+        "DatasetRegistryStatus.ts",
+        "DatasetRegistryEntry.ts",
+        "WorkspaceSession.ts",
+        "LoadWorkspaceStateResponse.ts",
+        "UpsertDatasetEntryRequest.ts",
+        "UpsertDatasetEntryResponse.ts",
+        "RemoveDatasetEntryRequest.ts",
+        "RemoveDatasetEntryResponse.ts",
+        "SetActiveDatasetEntryRequest.ts",
+        "SetActiveDatasetEntryResponse.ts",
+        "SaveWorkspaceSessionRequest.ts",
+        "SaveWorkspaceSessionResponse.ts",
         "ipc-schema-version.ts",
         "index.ts",
     ] {
@@ -159,9 +176,22 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SavePipelinePresetResponse::export_all_to(output_dir)?;
     DeletePipelinePresetRequest::export_all_to(output_dir)?;
     DeletePipelinePresetResponse::export_all_to(output_dir)?;
+    DatasetRegistryStatus::export_all_to(output_dir)?;
+    DatasetRegistryEntry::export_all_to(output_dir)?;
+    WorkspaceSession::export_all_to(output_dir)?;
+    LoadWorkspaceStateResponse::export_all_to(output_dir)?;
+    UpsertDatasetEntryRequest::export_all_to(output_dir)?;
+    UpsertDatasetEntryResponse::export_all_to(output_dir)?;
+    RemoveDatasetEntryRequest::export_all_to(output_dir)?;
+    RemoveDatasetEntryResponse::export_all_to(output_dir)?;
+    SetActiveDatasetEntryRequest::export_all_to(output_dir)?;
+    SetActiveDatasetEntryResponse::export_all_to(output_dir)?;
+    SaveWorkspaceSessionRequest::export_all_to(output_dir)?;
+    SaveWorkspaceSessionResponse::export_all_to(output_dir)?;
 
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingPreset.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
+    rewrite_generated_numeric_timestamps(&output_dir.join("DatasetRegistryEntry.ts"))?;
 
     fs::write(
         output_dir.join("ipc-schema-version.ts"),
@@ -232,6 +262,18 @@ export type { SavePipelinePresetRequest } from "./SavePipelinePresetRequest";
 export type { SavePipelinePresetResponse } from "./SavePipelinePresetResponse";
 export type { DeletePipelinePresetRequest } from "./DeletePipelinePresetRequest";
 export type { DeletePipelinePresetResponse } from "./DeletePipelinePresetResponse";
+export type { DatasetRegistryStatus } from "./DatasetRegistryStatus";
+export type { DatasetRegistryEntry } from "./DatasetRegistryEntry";
+export type { WorkspaceSession } from "./WorkspaceSession";
+export type { LoadWorkspaceStateResponse } from "./LoadWorkspaceStateResponse";
+export type { UpsertDatasetEntryRequest } from "./UpsertDatasetEntryRequest";
+export type { UpsertDatasetEntryResponse } from "./UpsertDatasetEntryResponse";
+export type { RemoveDatasetEntryRequest } from "./RemoveDatasetEntryRequest";
+export type { RemoveDatasetEntryResponse } from "./RemoveDatasetEntryResponse";
+export type { SetActiveDatasetEntryRequest } from "./SetActiveDatasetEntryRequest";
+export type { SetActiveDatasetEntryResponse } from "./SetActiveDatasetEntryResponse";
+export type { SaveWorkspaceSessionRequest } from "./SaveWorkspaceSessionRequest";
+export type { SaveWorkspaceSessionResponse } from "./SaveWorkspaceSessionResponse";
 export { IPC_SCHEMA_VERSION } from "./ipc-schema-version";
 "#;
 
@@ -293,6 +335,18 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SavePipelinePresetResponse": schema_for!(SavePipelinePresetResponse),
             "DeletePipelinePresetRequest": schema_for!(DeletePipelinePresetRequest),
             "DeletePipelinePresetResponse": schema_for!(DeletePipelinePresetResponse),
+            "DatasetRegistryStatus": schema_for!(DatasetRegistryStatus),
+            "DatasetRegistryEntry": schema_for!(DatasetRegistryEntry),
+            "WorkspaceSession": schema_for!(WorkspaceSession),
+            "LoadWorkspaceStateResponse": schema_for!(LoadWorkspaceStateResponse),
+            "UpsertDatasetEntryRequest": schema_for!(UpsertDatasetEntryRequest),
+            "UpsertDatasetEntryResponse": schema_for!(UpsertDatasetEntryResponse),
+            "RemoveDatasetEntryRequest": schema_for!(RemoveDatasetEntryRequest),
+            "RemoveDatasetEntryResponse": schema_for!(RemoveDatasetEntryResponse),
+            "SetActiveDatasetEntryRequest": schema_for!(SetActiveDatasetEntryRequest),
+            "SetActiveDatasetEntryResponse": schema_for!(SetActiveDatasetEntryResponse),
+            "SaveWorkspaceSessionRequest": schema_for!(SaveWorkspaceSessionRequest),
+            "SaveWorkspaceSessionResponse": schema_for!(SaveWorkspaceSessionResponse),
         }
     });
 

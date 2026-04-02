@@ -12,6 +12,10 @@ The backend now also supports the first processing flow:
 
 `open tbvol -> define versioned operator pipeline -> preview on current 2D section -> materialize derived tbvol on full volume -> persist lineage/preset`
 
+The desktop shell now also persists a lightweight workspace layer:
+
+`remember linked SEG-Y paths + imported stores + last active section/preset across launches`
+
 ## Stack
 
 - Rust 2024 workspace for contracts, I/O, runtime, and app/backend orchestration
@@ -65,6 +69,8 @@ The backend now also supports the first processing flow:
   - preflight a SEG-Y path
   - ingest to a runtime-store path
   - open an existing runtime store
+  - keep a persisted workspace list of linked SEG-Y/store entries
+  - restore the last active dataset, section position, and selected preset on relaunch
   - load inline/xline sections into the embedded `geoviz` chart
   - call backend commands for processing preview, processing jobs, and pipeline presets
 - a Tauri shell scaffold exists and is wired to the same backend commands
@@ -72,10 +78,9 @@ The backend now also supports the first processing flow:
 ## Immediate Roadmap
 
 1. Tighten the first working desktop path in `traceboost-frontend` and `src-tauri`.
-2. Add a small dataset/session registry so the app can remember recent runtime stores.
-3. Replace path text-entry UX with file/folder pickers through Tauri.
-4. Harden user-facing error handling and progress reporting around ingest/open/view flows.
-5. After the desktop shell is stable, expand into validation, refinement, and richer processing workflows.
+2. Expand the persisted workspace from one active dataset into richer multi-dataset session workflows.
+3. Harden user-facing error handling and progress reporting around ingest/open/view flows.
+4. After the desktop shell is stable, expand into validation, refinement, and richer processing workflows.
 
 ## Contributor Commands
 

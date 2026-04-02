@@ -6,6 +6,8 @@ use tauri::{AppHandle, Manager};
 pub struct AppPaths {
     logs_dir: PathBuf,
     pipeline_presets_dir: PathBuf,
+    dataset_registry_path: PathBuf,
+    workspace_session_path: PathBuf,
 }
 
 impl AppPaths {
@@ -19,9 +21,13 @@ impl AppPaths {
             .app_data_dir()
             .map_err(|error| error.to_string())?;
         let pipeline_presets_dir = app_data_dir.join("processing-pipelines");
+        let dataset_registry_path = app_data_dir.join("workspace").join("dataset-registry.json");
+        let workspace_session_path = app_data_dir.join("workspace").join("session.json");
         Ok(Self {
             logs_dir,
             pipeline_presets_dir,
+            dataset_registry_path,
+            workspace_session_path,
         })
     }
 
@@ -31,5 +37,13 @@ impl AppPaths {
 
     pub fn pipeline_presets_dir(&self) -> &Path {
         &self.pipeline_presets_dir
+    }
+
+    pub fn dataset_registry_path(&self) -> &Path {
+        &self.dataset_registry_path
+    }
+
+    pub fn workspace_session_path(&self) -> &Path {
+        &self.workspace_session_path
     }
 }

@@ -30,15 +30,17 @@
 - CLI commands that expose the same backend path for local development
 - frontend UI for:
   - SEG-Y input path entry
+  - remembered dataset registry with active selection
   - runtime-store path entry
   - preflight/import/open actions
   - inline/xline section viewing
+  - restore of the last active dataset/section on desktop relaunch
 - Tauri command wiring for the same workflow
 
 ## Roadmap
 
 1. Make the desktop shell the normal way to run the app, not just the browser dev host.
-2. Add recent-dataset/session management and file-picker UX.
+2. Expand recent-dataset/session management into richer multi-dataset workspace workflows.
 3. Improve progress reporting and user-facing error presentation during ingest and open.
 4. After the import/view path is solid, add validation and refinement workflows.
 

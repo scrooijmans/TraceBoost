@@ -1,0 +1,492 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use seis_contracts_interop::{
+    DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, IPC_SCHEMA_VERSION,
+    LoadWorkspaceStateResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
+    SetActiveDatasetEntryResponse, SectionAxis, UpsertDatasetEntryRequest,
+    UpsertDatasetEntryResponse, WorkspaceSession,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::processing::unix_timestamp_s;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DatasetRegistryDocument {
+    entries: Vec<DatasetRegistryEntry>,
+}
+
+pub struct WorkspaceState {
+    registry_path: PathBuf,
+    session_path: PathBuf,
+    entries: Mutex<Vec<DatasetRegistryEntry>>,
+    session: Mutex<WorkspaceSession>,
+}
+
+impl WorkspaceState {
+    pub fn initialize(
+        registry_path: impl AsRef<Path>,
+        session_path: impl AsRef<Path>,
+    ) -> Result<Self, String> {
+        let registry_path = registry_path.as_ref().to_path_buf();
+        let session_path = session_path.as_ref().to_path_buf();
+        if let Some(parent) = registry_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        if let Some(parent) = session_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+
+        let mut entries = load_registry(&registry_path)?;
+        entries.sort_by(|left, right| right.updated_at_unix_s.cmp(&left.updated_at_unix_s));
+        let session = load_session(&session_path)?;
+
+        Ok(Self {
+            registry_path,
+            session_path,
+            entries: Mutex::new(entries),
+            session: Mutex::new(session),
+        })
+    }
+
+    pub fn load_state(&self) -> Result<LoadWorkspaceStateResponse, String> {
+        let entries = self.snapshot_entries()?;
+        let session = self.snapshot_session()?;
+        Ok(LoadWorkspaceStateResponse {
+            schema_version: IPC_SCHEMA_VERSION,
+            entries,
+            session,
+        })
+    }
+
+    pub fn upsert_entry(
+        &self,
+        request: UpsertDatasetEntryRequest,
+    ) -> Result<UpsertDatasetEntryResponse, String> {
+        let now = unix_timestamp_s();
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("workspace entries mutex poisoned");
+        let mut session = self
+            .session
+            .lock()
+            .expect("workspace session mutex poisoned");
+
+        let match_index = request
+            .entry_id
+            .as_ref()
+            .and_then(|entry_id| entries.iter().position(|entry| &entry.entry_id == entry_id))
+            .or_else(|| find_matching_entry(&entries, &request));
+        let entry_count = entries.len();
+
+        let entry = if let Some(index) = match_index {
+            let entry = &mut entries[index];
+            if let Some(display_name) = request.display_name.as_ref().filter(|value| !value.trim().is_empty()) {
+                entry.display_name = display_name.trim().to_string();
+            }
+            if let Some(source_path) = request.source_path.as_ref().filter(|value| !value.trim().is_empty()) {
+                entry.source_path = Some(source_path.trim().to_string());
+            }
+            if let Some(preferred_store_path) = request
+                .preferred_store_path
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                entry.preferred_store_path = Some(preferred_store_path.trim().to_string());
+            }
+            if let Some(imported_store_path) = request
+                .imported_store_path
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                entry.imported_store_path = Some(imported_store_path.trim().to_string());
+                entry.last_imported_at_unix_s = Some(now);
+            }
+            if let Some(dataset) = request.dataset.as_ref() {
+                entry.last_dataset = Some(dataset.clone());
+                if entry.imported_store_path.is_none() {
+                    entry.imported_store_path = Some(dataset.store_path.clone());
+                }
+                entry.last_imported_at_unix_s = Some(now);
+            }
+            if entry.display_name.trim().is_empty() {
+                entry.display_name = derive_display_name(
+                    request.display_name.as_deref(),
+                    entry.last_dataset.as_ref(),
+                    entry.source_path.as_deref(),
+                    entry.imported_store_path
+                        .as_deref()
+                        .or(entry.preferred_store_path.as_deref()),
+                    entry_count + 1,
+                );
+            }
+            entry.updated_at_unix_s = now;
+            apply_status(entry);
+            entry.clone()
+        } else {
+            let display_name = derive_display_name(
+                request.display_name.as_deref(),
+                request.dataset.as_ref(),
+                request.source_path.as_deref(),
+                request
+                    .imported_store_path
+                    .as_deref()
+                    .or(request.preferred_store_path.as_deref()),
+                entry_count + 1,
+            );
+            let mut entry = DatasetRegistryEntry {
+                entry_id: format!("dataset-{now}-{:03}", entry_count + 1),
+                display_name,
+                source_path: normalize_optional_path(request.source_path.as_deref()),
+                preferred_store_path: normalize_optional_path(request.preferred_store_path.as_deref()),
+                imported_store_path: normalize_optional_path(request.imported_store_path.as_deref()),
+                last_dataset: request.dataset.clone(),
+                status: DatasetRegistryStatus::Linked,
+                last_opened_at_unix_s: None,
+                last_imported_at_unix_s: if request.dataset.is_some() || request.imported_store_path.is_some() {
+                    Some(now)
+                } else {
+                    None
+                },
+                updated_at_unix_s: now,
+            };
+            apply_status(&mut entry);
+            entries.push(entry.clone());
+            entry
+        };
+
+        if request.make_active {
+            set_session_active_entry(&mut session, &entry);
+        }
+
+        sort_entries(&mut entries);
+        persist_registry(&self.registry_path, &entries)?;
+        persist_session(&self.session_path, &session)?;
+
+        Ok(UpsertDatasetEntryResponse {
+            schema_version: IPC_SCHEMA_VERSION,
+            entry,
+            session: session.clone(),
+        })
+    }
+
+    pub fn remove_entry(
+        &self,
+        request: RemoveDatasetEntryRequest,
+    ) -> Result<RemoveDatasetEntryResponse, String> {
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("workspace entries mutex poisoned");
+        let mut session = self
+            .session
+            .lock()
+            .expect("workspace session mutex poisoned");
+        let original_len = entries.len();
+        entries.retain(|entry| entry.entry_id != request.entry_id);
+        let deleted = entries.len() != original_len;
+
+        if session.active_entry_id.as_deref() == Some(request.entry_id.as_str()) {
+            session.active_entry_id = None;
+            session.active_store_path = None;
+        }
+
+        persist_registry(&self.registry_path, &entries)?;
+        persist_session(&self.session_path, &session)?;
+
+        Ok(RemoveDatasetEntryResponse {
+            schema_version: IPC_SCHEMA_VERSION,
+            deleted,
+            session: session.clone(),
+        })
+    }
+
+    pub fn set_active_entry(
+        &self,
+        request: SetActiveDatasetEntryRequest,
+    ) -> Result<SetActiveDatasetEntryResponse, String> {
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("workspace entries mutex poisoned");
+        let mut session = self
+            .session
+            .lock()
+            .expect("workspace session mutex poisoned");
+
+        let index = entries
+            .iter()
+            .position(|entry| entry.entry_id == request.entry_id)
+            .ok_or_else(|| format!("Unknown dataset entry: {}", request.entry_id))?;
+
+        let now = unix_timestamp_s();
+        let entry = &mut entries[index];
+        entry.last_opened_at_unix_s = Some(now);
+        entry.updated_at_unix_s = now;
+        apply_status(entry);
+        let snapshot = entry.clone();
+        set_session_active_entry(&mut session, &snapshot);
+
+        sort_entries(&mut entries);
+        persist_registry(&self.registry_path, &entries)?;
+        persist_session(&self.session_path, &session)?;
+
+        Ok(SetActiveDatasetEntryResponse {
+            schema_version: IPC_SCHEMA_VERSION,
+            entry: snapshot,
+            session: session.clone(),
+        })
+    }
+
+    pub fn save_session(
+        &self,
+        request: SaveWorkspaceSessionRequest,
+    ) -> Result<SaveWorkspaceSessionResponse, String> {
+        let now = unix_timestamp_s();
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("workspace entries mutex poisoned");
+        let mut session = self
+            .session
+            .lock()
+            .expect("workspace session mutex poisoned");
+
+        *session = WorkspaceSession {
+            active_entry_id: request.active_entry_id.clone(),
+            active_store_path: normalize_optional_path(request.active_store_path.as_deref()),
+            active_axis: request.active_axis,
+            active_index: request.active_index,
+            selected_preset_id: normalize_optional_string(request.selected_preset_id.as_deref()),
+        };
+
+        if let Some(active_entry_id) = session.active_entry_id.as_ref() {
+            if let Some(entry) = entries.iter_mut().find(|entry| &entry.entry_id == active_entry_id) {
+                entry.last_opened_at_unix_s = Some(now);
+                entry.updated_at_unix_s = now;
+                if entry.imported_store_path.is_none() {
+                    entry.imported_store_path = session.active_store_path.clone();
+                }
+                apply_status(entry);
+            }
+            sort_entries(&mut entries);
+            persist_registry(&self.registry_path, &entries)?;
+        }
+
+        persist_session(&self.session_path, &session)?;
+
+        Ok(SaveWorkspaceSessionResponse {
+            schema_version: IPC_SCHEMA_VERSION,
+            session: session.clone(),
+        })
+    }
+
+    fn snapshot_entries(&self) -> Result<Vec<DatasetRegistryEntry>, String> {
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("workspace entries mutex poisoned")
+            .clone();
+        for entry in &mut entries {
+            apply_status(entry);
+        }
+        sort_entries(&mut entries);
+        Ok(entries)
+    }
+
+    fn snapshot_session(&self) -> Result<WorkspaceSession, String> {
+        Ok(self
+            .session
+            .lock()
+            .expect("workspace session mutex poisoned")
+            .clone())
+    }
+}
+
+fn find_matching_entry(
+    entries: &[DatasetRegistryEntry],
+    request: &UpsertDatasetEntryRequest,
+) -> Option<usize> {
+    let source_path = normalize_optional_path(request.source_path.as_deref());
+    let imported_store_path = normalize_optional_path(request.imported_store_path.as_deref());
+    let preferred_store_path = normalize_optional_path(request.preferred_store_path.as_deref());
+
+    entries.iter().position(|entry| {
+        source_path
+            .as_ref()
+            .is_some_and(|value| entry.source_path.as_ref() == Some(value))
+            || imported_store_path
+                .as_ref()
+                .is_some_and(|value| entry.imported_store_path.as_ref() == Some(value))
+            || preferred_store_path
+                .as_ref()
+                .is_some_and(|value| entry.preferred_store_path.as_ref() == Some(value))
+    })
+}
+
+fn load_registry(path: &Path) -> Result<Vec<DatasetRegistryEntry>, String> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let document =
+        serde_json::from_slice::<DatasetRegistryDocument>(&bytes).map_err(|error| error.to_string())?;
+    Ok(document.entries)
+}
+
+fn load_session(path: &Path) -> Result<WorkspaceSession, String> {
+    if !path.exists() {
+        return Ok(default_session());
+    }
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    serde_json::from_slice::<WorkspaceSession>(&bytes).map_err(|error| error.to_string())
+}
+
+fn persist_registry(path: &Path, entries: &[DatasetRegistryEntry]) -> Result<(), String> {
+    let document = DatasetRegistryDocument {
+        entries: entries.to_vec(),
+    };
+    let json = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
+    fs::write(path, json).map_err(|error| error.to_string())
+}
+
+fn persist_session(path: &Path, session: &WorkspaceSession) -> Result<(), String> {
+    let json = serde_json::to_vec_pretty(session).map_err(|error| error.to_string())?;
+    fs::write(path, json).map_err(|error| error.to_string())
+}
+
+fn default_session() -> WorkspaceSession {
+    WorkspaceSession {
+        active_entry_id: None,
+        active_store_path: None,
+        active_axis: SectionAxis::Inline,
+        active_index: 0,
+        selected_preset_id: None,
+    }
+}
+
+fn set_session_active_entry(session: &mut WorkspaceSession, entry: &DatasetRegistryEntry) {
+    session.active_entry_id = Some(entry.entry_id.clone());
+    session.active_store_path = entry
+        .imported_store_path
+        .clone()
+        .or_else(|| entry.preferred_store_path.clone());
+}
+
+fn derive_display_name(
+    explicit_name: Option<&str>,
+    dataset: Option<&DatasetSummary>,
+    source_path: Option<&str>,
+    store_path: Option<&str>,
+    sequence: usize,
+) -> String {
+    explicit_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| dataset.map(|dataset| dataset.descriptor.label.clone()))
+        .or_else(|| source_path.and_then(path_basename))
+        .or_else(|| store_path.and_then(path_basename))
+        .unwrap_or_else(|| format!("Dataset {sequence}"))
+}
+
+fn path_basename(path: &str) -> Option<String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_string())
+}
+
+fn normalize_optional_string(value: Option<&str>) -> Option<String> {
+    value.map(str::trim).filter(|value| !value.is_empty()).map(ToOwned::to_owned)
+}
+
+fn normalize_optional_path(value: Option<&str>) -> Option<String> {
+    normalize_optional_string(value)
+}
+
+fn apply_status(entry: &mut DatasetRegistryEntry) {
+    entry.status = resolve_status(entry);
+}
+
+fn resolve_status(entry: &DatasetRegistryEntry) -> DatasetRegistryStatus {
+    if entry
+        .source_path
+        .as_deref()
+        .is_some_and(|value| !Path::new(value).exists())
+    {
+        return DatasetRegistryStatus::MissingSource;
+    }
+
+    if entry
+        .imported_store_path
+        .as_deref()
+        .is_some_and(|value| !Path::new(value).exists())
+    {
+        return DatasetRegistryStatus::MissingStore;
+    }
+
+    if entry.imported_store_path.is_some() {
+        return DatasetRegistryStatus::Imported;
+    }
+
+    DatasetRegistryStatus::Linked
+}
+
+fn sort_entries(entries: &mut [DatasetRegistryEntry]) {
+    entries.sort_by(|left, right| right.updated_at_unix_s.cmp(&left.updated_at_unix_s));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_file(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("traceboost-workspace-test-{}", unix_timestamp_s()));
+        fs::create_dir_all(&base).expect("create temp workspace dir");
+        base.join(name)
+    }
+
+    #[test]
+    fn upsert_and_restore_workspace_state() {
+        let registry = temp_file("registry.json");
+        let session = temp_file("session.json");
+        let state = WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
+
+        let response = state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: None,
+                display_name: Some("Demo survey".to_string()),
+                source_path: Some("C:/data/demo.segy".to_string()),
+                preferred_store_path: Some("C:/data/demo.tbvol".to_string()),
+                imported_store_path: None,
+                dataset: None,
+                make_active: true,
+            })
+            .expect("upsert entry");
+        assert_eq!(response.entry.display_name, "Demo survey");
+
+        state
+            .save_session(SaveWorkspaceSessionRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                active_entry_id: Some(response.entry.entry_id.clone()),
+                active_store_path: Some("C:/data/demo.tbvol".to_string()),
+                active_axis: SectionAxis::Xline,
+                active_index: 17,
+                selected_preset_id: Some("demo-preset".to_string()),
+            })
+            .expect("save session");
+
+        let restored = WorkspaceState::initialize(&registry, &session)
+            .expect("reinitialize workspace state")
+            .load_state()
+            .expect("load state");
+        assert_eq!(restored.entries.len(), 1);
+        assert_eq!(restored.session.active_entry_id, Some(response.entry.entry_id));
+        assert_eq!(restored.session.active_index, 17);
+    }
+}

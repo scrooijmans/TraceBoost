@@ -22,7 +22,7 @@
   async function handleSelectSegy() {
     const path = await pickSegyFile();
     if (path) {
-      viewerModel.setInputPath(path);
+      await viewerModel.selectInputPath(path);
       return;
     }
 
@@ -32,11 +32,15 @@
   async function handleSelectOutput() {
     const path = await pickOutputFolder();
     if (path) {
-      viewerModel.setOutputStorePath(path);
+      await viewerModel.selectOutputStorePath(path);
       return;
     }
 
     viewerModel.note("Runtime store output selection did not produce a usable path.", "ui", "warn");
+  }
+
+  function statusLabel(status: string): string {
+    return status.replace(/_/g, " ");
   }
 </script>
 
@@ -80,6 +84,33 @@
       {#if viewerModel.inputPath}
         <div class="selected-path" title={viewerModel.inputPath}>
           {basename(viewerModel.inputPath)}
+        </div>
+      {/if}
+
+      {#if viewerModel.workspaceEntries.length}
+        <div class="workspace-list">
+          <div class="workspace-list-title">Remembered datasets</div>
+          {#each viewerModel.workspaceEntries as entry (entry.entry_id)}
+            <button
+              class:active={viewerModel.activeEntryId === entry.entry_id}
+              class="workspace-entry"
+              onclick={() => void viewerModel.activateDatasetEntry(entry.entry_id)}
+              disabled={viewerModel.loading}
+            >
+              <span class="workspace-entry-copy">
+                <strong>{entry.display_name}</strong>
+                <small>{basename(entry.source_path ?? entry.imported_store_path ?? entry.preferred_store_path ?? entry.entry_id)}</small>
+              </span>
+              <span class={`workspace-badge status-${entry.status}`}>{statusLabel(entry.status)}</span>
+            </button>
+            <button
+              class="workspace-remove"
+              onclick={() => void viewerModel.removeWorkspaceEntry(entry.entry_id)}
+              disabled={viewerModel.loading}
+            >
+              Remove
+            </button>
+          {/each}
         </div>
       {/if}
     </div>
@@ -473,6 +504,93 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .workspace-list {
+    margin-top: 12px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .workspace-list-title {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .workspace-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    text-align: left;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .workspace-entry.active {
+    border-color: rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.08);
+  }
+
+  .workspace-entry-copy {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  .workspace-entry-copy strong,
+  .workspace-entry-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-entry-copy strong {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .workspace-entry-copy small {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.48);
+  }
+
+  .workspace-badge {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.66);
+  }
+
+  .workspace-badge.status-imported {
+    border-color: rgba(74, 222, 128, 0.35);
+    color: #8df0b4;
+  }
+
+  .workspace-badge.status-missing_store,
+  .workspace-badge.status-missing_source {
+    border-color: rgba(245, 158, 11, 0.35);
+    color: #fcd34d;
+  }
+
+  .workspace-remove {
+    justify-self: end;
+    margin-top: -2px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    cursor: pointer;
   }
 
   .step-hint {
