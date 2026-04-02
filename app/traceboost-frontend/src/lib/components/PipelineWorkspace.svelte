@@ -3,6 +3,7 @@
 <script lang="ts">
   import PipelineOperatorEditor from "./PipelineOperatorEditor.svelte";
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
+  import PipelineSessionList from "./PipelineSessionList.svelte";
   import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
 
@@ -31,6 +32,17 @@
   </div>
 
   <div class="workspace-grid">
+    <PipelineSessionList
+      pipelines={processingModel.sessionPipelineItems}
+      activePipelineId={processingModel.activeSessionPipelineId}
+      onSelect={processingModel.activateSessionPipeline}
+      onCreate={processingModel.createSessionPipeline}
+      onDuplicate={processingModel.duplicateActiveSessionPipeline}
+      onRemove={processingModel.removeActiveSessionPipeline}
+      getLabel={processingModel.sessionPipelineLabel}
+      canRemove={processingModel.canRemoveSessionPipeline}
+    />
+
     <PipelineSequenceList
       pipeline={processingModel.pipeline}
       selectedIndex={processingModel.selectedStepIndex}
@@ -137,7 +149,7 @@
   .workspace-grid {
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.1fr);
+    grid-template-columns: minmax(220px, 0.7fr) minmax(280px, 0.95fr) minmax(340px, 1.1fr);
     gap: 14px;
     flex: 1;
   }

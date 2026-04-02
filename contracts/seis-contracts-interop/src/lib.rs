@@ -9,6 +9,7 @@ pub use ophiolite_seismic::{
 };
 
 use schemars::JsonSchema;
+use seis_contracts_core::ProcessingPipeline;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -24,6 +25,15 @@ pub enum DatasetRegistryStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
 #[ts(export)]
+pub struct WorkspacePipelineEntry {
+    pub pipeline_id: String,
+    pub pipeline: ProcessingPipeline,
+    #[ts(type = "number")]
+    pub updated_at_unix_s: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
 pub struct DatasetRegistryEntry {
     pub entry_id: String,
     pub display_name: String,
@@ -31,6 +41,10 @@ pub struct DatasetRegistryEntry {
     pub preferred_store_path: Option<String>,
     pub imported_store_path: Option<String>,
     pub last_dataset: Option<DatasetSummary>,
+    #[serde(default)]
+    pub session_pipelines: Vec<WorkspacePipelineEntry>,
+    #[serde(default)]
+    pub active_session_pipeline_id: Option<String>,
     pub status: DatasetRegistryStatus,
     pub last_opened_at_unix_s: Option<u64>,
     pub last_imported_at_unix_s: Option<u64>,
@@ -65,6 +79,10 @@ pub struct UpsertDatasetEntryRequest {
     pub preferred_store_path: Option<String>,
     pub imported_store_path: Option<String>,
     pub dataset: Option<DatasetSummary>,
+    #[serde(default)]
+    pub session_pipelines: Option<Vec<WorkspacePipelineEntry>>,
+    #[serde(default)]
+    pub active_session_pipeline_id: Option<String>,
     pub make_active: bool,
 }
 

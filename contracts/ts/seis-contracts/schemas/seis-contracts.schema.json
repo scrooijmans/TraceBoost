@@ -231,6 +231,81 @@
           ],
           "type": "object"
         },
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
+          ],
+          "type": "object"
+        },
         "VolumeDescriptor": {
           "properties": {
             "chunk_shape": {
@@ -272,9 +347,37 @@
             "shape"
           ],
           "type": "object"
+        },
+        "WorkspacePipelineEntry": {
+          "properties": {
+            "pipeline": {
+              "$ref": "#/definitions/ProcessingPipeline"
+            },
+            "pipeline_id": {
+              "type": "string"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pipeline",
+            "pipeline_id",
+            "updated_at_unix_s"
+          ],
+          "type": "object"
         }
       },
       "properties": {
+        "active_session_pipeline_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "display_name": {
           "type": "string"
         },
@@ -318,6 +421,13 @@
             "string",
             "null"
           ]
+        },
+        "session_pipelines": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/WorkspacePipelineEntry"
+          },
+          "type": "array"
         },
         "source_path": {
           "type": [
@@ -914,6 +1024,13 @@
         },
         "DatasetRegistryEntry": {
           "properties": {
+            "active_session_pipeline_id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_name": {
               "type": "string"
             },
@@ -957,6 +1074,13 @@
                 "string",
                 "null"
               ]
+            },
+            "session_pipelines": {
+              "default": [],
+              "items": {
+                "$ref": "#/definitions/WorkspacePipelineEntry"
+              },
+              "type": "array"
             },
             "source_path": {
               "type": [
@@ -1002,6 +1126,81 @@
           "required": [
             "descriptor",
             "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
           ],
           "type": "object"
         },
@@ -1051,6 +1250,27 @@
             "label",
             "sample_interval_ms",
             "shape"
+          ],
+          "type": "object"
+        },
+        "WorkspacePipelineEntry": {
+          "properties": {
+            "pipeline": {
+              "$ref": "#/definitions/ProcessingPipeline"
+            },
+            "pipeline_id": {
+              "type": "string"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pipeline",
+            "pipeline_id",
+            "updated_at_unix_s"
           ],
           "type": "object"
         },
@@ -4279,6 +4499,13 @@
         },
         "DatasetRegistryEntry": {
           "properties": {
+            "active_session_pipeline_id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_name": {
               "type": "string"
             },
@@ -4322,6 +4549,13 @@
                 "string",
                 "null"
               ]
+            },
+            "session_pipelines": {
+              "default": [],
+              "items": {
+                "$ref": "#/definitions/WorkspacePipelineEntry"
+              },
+              "type": "array"
             },
             "source_path": {
               "type": [
@@ -4367,6 +4601,81 @@
           "required": [
             "descriptor",
             "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
           ],
           "type": "object"
         },
@@ -4416,6 +4725,27 @@
             "label",
             "sample_interval_ms",
             "shape"
+          ],
+          "type": "object"
+        },
+        "WorkspacePipelineEntry": {
+          "properties": {
+            "pipeline": {
+              "$ref": "#/definitions/ProcessingPipeline"
+            },
+            "pipeline_id": {
+              "type": "string"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pipeline",
+            "pipeline_id",
+            "updated_at_unix_s"
           ],
           "type": "object"
         },
@@ -4601,6 +4931,81 @@
           ],
           "type": "object"
         },
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
+          ],
+          "type": "object"
+        },
         "VolumeDescriptor": {
           "properties": {
             "chunk_shape": {
@@ -4642,9 +5047,37 @@
             "shape"
           ],
           "type": "object"
+        },
+        "WorkspacePipelineEntry": {
+          "properties": {
+            "pipeline": {
+              "$ref": "#/definitions/ProcessingPipeline"
+            },
+            "pipeline_id": {
+              "type": "string"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pipeline",
+            "pipeline_id",
+            "updated_at_unix_s"
+          ],
+          "type": "object"
         }
       },
       "properties": {
+        "active_session_pipeline_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "dataset": {
           "anyOf": [
             {
@@ -4687,6 +5120,16 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "session_pipelines": {
+          "default": null,
+          "items": {
+            "$ref": "#/definitions/WorkspacePipelineEntry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "source_path": {
           "type": [
             "string",
@@ -4709,6 +5152,13 @@
         },
         "DatasetRegistryEntry": {
           "properties": {
+            "active_session_pipeline_id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_name": {
               "type": "string"
             },
@@ -4752,6 +5202,13 @@
                 "string",
                 "null"
               ]
+            },
+            "session_pipelines": {
+              "default": [],
+              "items": {
+                "$ref": "#/definitions/WorkspacePipelineEntry"
+              },
+              "type": "array"
             },
             "source_path": {
               "type": [
@@ -4797,6 +5254,81 @@
           "required": [
             "descriptor",
             "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
           ],
           "type": "object"
         },
@@ -4846,6 +5378,27 @@
             "label",
             "sample_interval_ms",
             "shape"
+          ],
+          "type": "object"
+        },
+        "WorkspacePipelineEntry": {
+          "properties": {
+            "pipeline": {
+              "$ref": "#/definitions/ProcessingPipeline"
+            },
+            "pipeline_id": {
+              "type": "string"
+            },
+            "updated_at_unix_s": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pipeline",
+            "pipeline_id",
+            "updated_at_unix_s"
           ],
           "type": "object"
         },
@@ -4953,6 +5506,106 @@
         "shape"
       ],
       "title": "VolumeDescriptor",
+      "type": "object"
+    },
+    "WorkspacePipelineEntry": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "pipeline": {
+          "$ref": "#/definitions/ProcessingPipeline"
+        },
+        "pipeline_id": {
+          "type": "string"
+        },
+        "updated_at_unix_s": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pipeline",
+        "pipeline_id",
+        "updated_at_unix_s"
+      ],
+      "title": "WorkspacePipelineEntry",
       "type": "object"
     },
     "WorkspaceSession": {

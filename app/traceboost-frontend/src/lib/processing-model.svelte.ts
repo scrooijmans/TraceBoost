@@ -6,7 +6,8 @@ import type {
   ProcessingPipeline,
   ProcessingPreset,
   RunProcessingRequest,
-  SectionView
+  SectionView,
+  WorkspacePipelineEntry
 } from "@traceboost/seis-contracts";
 import {
   cancelProcessingJob,
@@ -67,6 +68,10 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function pipelineTimestamp(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
 export interface ProcessingModelOptions {
   viewerModel: ViewerModel;
 }
@@ -75,6 +80,8 @@ export class ProcessingModel {
   readonly viewerModel: ViewerModel;
 
   pipeline = $state<ProcessingPipeline>(createEmptyPipeline());
+  sessionPipelines = $state.raw<WorkspacePipelineEntry[]>([]);
+  activeSessionPipelineId = $state<string | null>(null);
   selectedStepIndex = $state(0);
   editingParams = $state(false);
   previewState = $state<PreviewState>("raw");
@@ -90,6 +97,8 @@ export class ProcessingModel {
 
   #jobPollTimer: number | null = null;
   #presetCounter = 0;
+  #sessionPipelineCounter = 0;
+  #hydratedDatasetEntryId: string | null = null;
 
   constructor(options: ProcessingModelOptions) {
     this.viewerModel = options.viewerModel;
@@ -123,6 +132,50 @@ export class ProcessingModel {
 
       this.replacePipeline(preset.pipeline);
     });
+
+    $effect(() => {
+      const activeEntryId = this.viewerModel.activeEntryId;
+      const activeEntry = this.viewerModel.activeDatasetEntry;
+
+      if (!activeEntryId || !activeEntry) {
+        this.#hydratedDatasetEntryId = null;
+        if (!this.sessionPipelines.length) {
+          const fallback = this.createSessionPipelineEntry("Pipeline 1");
+          this.sessionPipelines = [fallback];
+          this.activeSessionPipelineId = fallback.pipeline_id;
+          this.pipeline = clonePipeline(fallback.pipeline);
+        }
+        return;
+      }
+
+       if (this.#hydratedDatasetEntryId === activeEntryId) {
+        return;
+      }
+      this.#hydratedDatasetEntryId = activeEntryId;
+
+      const nextSessionPipelines =
+        activeEntry.session_pipelines.length > 0
+          ? activeEntry.session_pipelines.map((entry) => ({
+              pipeline_id: entry.pipeline_id,
+              pipeline: clonePipeline(entry.pipeline),
+              updated_at_unix_s: entry.updated_at_unix_s
+            }))
+          : [this.createSessionPipelineEntry("Pipeline 1")];
+      const activePipelineId =
+        activeEntry.active_session_pipeline_id &&
+        nextSessionPipelines.some((entry) => entry.pipeline_id === activeEntry.active_session_pipeline_id)
+          ? activeEntry.active_session_pipeline_id
+          : nextSessionPipelines[0]?.pipeline_id ?? null;
+      const activePipeline =
+        nextSessionPipelines.find((entry) => entry.pipeline_id === activePipelineId) ?? nextSessionPipelines[0];
+
+      this.sessionPipelines = nextSessionPipelines;
+      this.activeSessionPipelineId = activePipeline?.pipeline_id ?? null;
+      this.pipeline = clonePipeline(activePipeline?.pipeline ?? createEmptyPipeline());
+      this.selectedStepIndex = 0;
+      this.editingParams = false;
+      this.clearPreviewState();
+    });
   }
 
   mount = (): (() => void) => {
@@ -137,6 +190,14 @@ export class ProcessingModel {
 
   get selectedOperation(): ProcessingOperation | null {
     return this.pipeline.operations[this.selectedStepIndex] ?? null;
+  }
+
+  get activeSessionPipeline(): WorkspacePipelineEntry | null {
+    return this.sessionPipelines.find((entry) => entry.pipeline_id === this.activeSessionPipelineId) ?? null;
+  }
+
+  get sessionPipelineItems(): WorkspacePipelineEntry[] {
+    return this.sessionPipelines;
   }
 
   get hasOperations(): boolean {
@@ -178,6 +239,14 @@ export class ProcessingModel {
     return pipelineName(this.pipeline);
   }
 
+  get canRemoveSessionPipeline(): boolean {
+    return this.sessionPipelines.length > 1;
+  }
+
+  sessionPipelineLabel = (entry: WorkspacePipelineEntry, index: number): string => {
+    return pipelineName(entry.pipeline) || `Pipeline ${index + 1}`;
+  };
+
   refreshPresets = async (): Promise<void> => {
     this.loadingPresets = true;
     try {
@@ -190,6 +259,133 @@ export class ProcessingModel {
       this.loadingPresets = false;
     }
   };
+
+  createSessionPipeline = (): void => {
+    const nextEntry = this.createSessionPipelineEntry(`Pipeline ${this.sessionPipelines.length + 1}`);
+    this.sessionPipelines = [...this.sessionPipelines, nextEntry];
+    this.activeSessionPipelineId = nextEntry.pipeline_id;
+    this.pipeline = clonePipeline(nextEntry.pipeline);
+    this.selectedStepIndex = 0;
+    this.editingParams = false;
+    this.clearPreviewState();
+    void this.persistSessionPipelines();
+  };
+
+  duplicateActiveSessionPipeline = (): void => {
+    const source = this.activeSessionPipeline;
+    const duplicate = this.createSessionPipelineEntry(
+      `${pipelineName(source?.pipeline ?? this.pipeline)} copy`,
+      {
+        ...clonePipeline(source?.pipeline ?? this.pipeline),
+        preset_id: null,
+        name: `${pipelineName(source?.pipeline ?? this.pipeline)} copy`
+      }
+    );
+    this.sessionPipelines = [...this.sessionPipelines, duplicate];
+    this.activeSessionPipelineId = duplicate.pipeline_id;
+    this.pipeline = clonePipeline(duplicate.pipeline);
+    this.selectedStepIndex = 0;
+    this.editingParams = false;
+    this.clearPreviewState();
+    void this.persistSessionPipelines();
+  };
+
+  activateSessionPipeline = (pipelineId: string): void => {
+    const entry = this.sessionPipelines.find((candidate) => candidate.pipeline_id === pipelineId);
+    if (!entry) {
+      return;
+    }
+
+    this.activeSessionPipelineId = pipelineId;
+    this.pipeline = clonePipeline(entry.pipeline);
+    this.selectedStepIndex = 0;
+    this.editingParams = false;
+    this.clearPreviewState();
+    void this.persistSessionPipelines();
+  };
+
+  removeActiveSessionPipeline = (): void => {
+    const activePipelineId = this.activeSessionPipelineId;
+    if (!activePipelineId) {
+      return;
+    }
+
+    if (this.sessionPipelines.length <= 1) {
+      const replacement = this.createSessionPipelineEntry("Pipeline 1");
+      this.sessionPipelines = [replacement];
+      this.activeSessionPipelineId = replacement.pipeline_id;
+      this.pipeline = clonePipeline(replacement.pipeline);
+      this.selectedStepIndex = 0;
+      this.editingParams = false;
+      this.clearPreviewState();
+      void this.persistSessionPipelines();
+      return;
+    }
+
+    const activeIndex = this.sessionPipelines.findIndex((entry) => entry.pipeline_id === activePipelineId);
+    const nextSessionPipelines = this.sessionPipelines.filter((entry) => entry.pipeline_id !== activePipelineId);
+    const fallbackEntry = nextSessionPipelines[Math.max(0, activeIndex - 1)] ?? nextSessionPipelines[0];
+    this.sessionPipelines = nextSessionPipelines;
+    this.activeSessionPipelineId = fallbackEntry.pipeline_id;
+    this.pipeline = clonePipeline(fallbackEntry.pipeline);
+    this.selectedStepIndex = 0;
+    this.editingParams = false;
+    this.clearPreviewState();
+    void this.persistSessionPipelines();
+  };
+
+  private createSessionPipelineEntry(
+    suggestedName: string,
+    template: ProcessingPipeline = createEmptyPipeline()
+  ): WorkspacePipelineEntry {
+    this.#sessionPipelineCounter += 1;
+    const pipeline = clonePipeline(template);
+    pipeline.name = pipeline.name?.trim() || suggestedName;
+    return {
+      pipeline_id: `session-pipeline-${Date.now()}-${this.#sessionPipelineCounter}`,
+      pipeline,
+      updated_at_unix_s: pipelineTimestamp()
+    };
+  }
+
+  private persistSessionPipelines(): Promise<void> {
+    return this.viewerModel.updateActiveEntryPipelines(
+      this.sessionPipelines.map((entry) => ({
+        pipeline_id: entry.pipeline_id,
+        updated_at_unix_s: entry.updated_at_unix_s,
+        pipeline: clonePipeline(entry.pipeline)
+      })),
+      this.activeSessionPipelineId
+    );
+  }
+
+  private updateActiveSessionPipeline(nextPipeline: ProcessingPipeline): void {
+    const activePipelineId = this.activeSessionPipelineId;
+    const snapshot = clonePipeline(nextPipeline);
+    this.pipeline = snapshot;
+
+    if (!activePipelineId) {
+      return;
+    }
+
+    this.sessionPipelines = this.sessionPipelines.map((entry) =>
+      entry.pipeline_id === activePipelineId
+        ? {
+            pipeline_id: entry.pipeline_id,
+            pipeline: clonePipeline(snapshot),
+            updated_at_unix_s: pipelineTimestamp()
+          }
+        : entry
+    );
+    void this.persistSessionPipelines();
+  }
+
+  private clearPreviewState(): void {
+    this.previewState = "raw";
+    this.previewSection = null;
+    this.previewLabel = null;
+    this.previewedSectionKey = null;
+  }
 
   selectStep = (index: number): void => {
     if (this.pipeline.operations.length === 0) {
@@ -220,7 +416,7 @@ export class ProcessingModel {
     const insertIndex = this.pipeline.operations.length === 0 ? 0 : this.selectedStepIndex + 1;
     next.operations.splice(insertIndex, 0, cloneOperation(operation));
     next.revision += 1;
-    this.pipeline = next;
+    this.updateActiveSessionPipeline(next);
     this.selectedStepIndex = insertIndex;
     this.editingParams = true;
     this.invalidatePreview();
@@ -233,7 +429,7 @@ export class ProcessingModel {
     const next = clonePipeline(this.pipeline);
     next.operations.splice(this.selectedStepIndex, 1);
     next.revision += 1;
-    this.pipeline = next;
+    this.updateActiveSessionPipeline(next);
     this.selectedStepIndex = Math.max(0, Math.min(this.selectedStepIndex, next.operations.length - 1));
     this.editingParams = false;
     this.invalidatePreview();
@@ -247,7 +443,7 @@ export class ProcessingModel {
     const [operation] = next.operations.splice(this.selectedStepIndex, 1);
     next.operations.splice(this.selectedStepIndex - 1, 0, operation);
     next.revision += 1;
-    this.pipeline = next;
+    this.updateActiveSessionPipeline(next);
     this.selectedStepIndex -= 1;
     this.invalidatePreview();
   };
@@ -260,7 +456,7 @@ export class ProcessingModel {
     const [operation] = next.operations.splice(this.selectedStepIndex, 1);
     next.operations.splice(this.selectedStepIndex + 1, 0, operation);
     next.revision += 1;
-    this.pipeline = next;
+    this.updateActiveSessionPipeline(next);
     this.selectedStepIndex += 1;
     this.invalidatePreview();
   };
@@ -274,10 +470,10 @@ export class ProcessingModel {
   };
 
   setPipelineName = (value: string): void => {
-    this.pipeline = {
+    this.updateActiveSessionPipeline({
       ...clonePipeline(this.pipeline),
       name: value.trim() || null
-    };
+    });
   };
 
   setSelectedAmplitudeScalarFactor = (value: number): void => {
@@ -292,12 +488,12 @@ export class ProcessingModel {
     }
     operation.amplitude_scalar.factor = value;
     next.revision += 1;
-    this.pipeline = next;
+    this.updateActiveSessionPipeline(next);
     this.invalidatePreview();
   };
 
   replacePipeline = (pipeline: ProcessingPipeline): void => {
-    this.pipeline = clonePipeline(pipeline);
+    this.updateActiveSessionPipeline(clonePipeline(pipeline));
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.invalidatePreview();
@@ -324,7 +520,7 @@ export class ProcessingModel {
     };
     try {
       const response = await savePipelinePreset(preset);
-      this.pipeline = clonePipeline(response.preset.pipeline);
+      this.updateActiveSessionPipeline(clonePipeline(response.preset.pipeline));
       this.viewerModel.setSelectedPresetId(response.preset.preset_id);
       await this.refreshPresets();
       this.viewerModel.note("Saved pipeline preset.", "ui", "info", response.preset.preset_id);

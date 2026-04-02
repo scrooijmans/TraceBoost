@@ -112,6 +112,13 @@ impl WorkspaceState {
                 }
                 entry.last_imported_at_unix_s = Some(now);
             }
+            if let Some(session_pipelines) = request.session_pipelines.as_ref() {
+                entry.session_pipelines = session_pipelines.clone();
+            }
+            if request.active_session_pipeline_id.is_some() || request.session_pipelines.is_some() {
+                entry.active_session_pipeline_id =
+                    normalize_optional_string(request.active_session_pipeline_id.as_deref());
+            }
             if entry.display_name.trim().is_empty() {
                 entry.display_name = derive_display_name(
                     request.display_name.as_deref(),
@@ -144,6 +151,10 @@ impl WorkspaceState {
                 preferred_store_path: normalize_optional_path(request.preferred_store_path.as_deref()),
                 imported_store_path: normalize_optional_path(request.imported_store_path.as_deref()),
                 last_dataset: request.dataset.clone(),
+                session_pipelines: request.session_pipelines.clone().unwrap_or_default(),
+                active_session_pipeline_id: normalize_optional_string(
+                    request.active_session_pipeline_id.as_deref(),
+                ),
                 status: DatasetRegistryStatus::Linked,
                 last_opened_at_unix_s: None,
                 last_imported_at_unix_s: if request.dataset.is_some() || request.imported_store_path.is_some() {
@@ -312,7 +323,6 @@ fn find_matching_entry(
 ) -> Option<usize> {
     let source_path = normalize_optional_path(request.source_path.as_deref());
     let imported_store_path = normalize_optional_path(request.imported_store_path.as_deref());
-    let preferred_store_path = normalize_optional_path(request.preferred_store_path.as_deref());
 
     entries.iter().position(|entry| {
         source_path
@@ -321,9 +331,6 @@ fn find_matching_entry(
             || imported_store_path
                 .as_ref()
                 .is_some_and(|value| entry.imported_store_path.as_ref() == Some(value))
-            || preferred_store_path
-                .as_ref()
-                .is_some_and(|value| entry.preferred_store_path.as_ref() == Some(value))
     })
 }
 
@@ -445,7 +452,11 @@ mod tests {
     use super::*;
 
     fn temp_file(name: &str) -> PathBuf {
-        let base = std::env::temp_dir().join(format!("traceboost-workspace-test-{}", unix_timestamp_s()));
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("traceboost-workspace-test-{unique}"));
         fs::create_dir_all(&base).expect("create temp workspace dir");
         base.join(name)
     }
@@ -465,6 +476,8 @@ mod tests {
                 preferred_store_path: Some("C:/data/demo.tbvol".to_string()),
                 imported_store_path: None,
                 dataset: None,
+                session_pipelines: None,
+                active_session_pipeline_id: None,
                 make_active: true,
             })
             .expect("upsert entry");
@@ -488,5 +501,45 @@ mod tests {
         assert_eq!(restored.entries.len(), 1);
         assert_eq!(restored.session.active_entry_id, Some(response.entry.entry_id));
         assert_eq!(restored.session.active_index, 17);
+    }
+
+    #[test]
+    fn preferred_store_path_does_not_merge_distinct_sources() {
+        let registry = temp_file("registry.json");
+        let session = temp_file("session.json");
+        let state = WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
+
+        state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: None,
+                display_name: Some("First survey".to_string()),
+                source_path: Some("C:/data/first.segy".to_string()),
+                preferred_store_path: Some("C:/data/shared.tbvol".to_string()),
+                imported_store_path: None,
+                dataset: None,
+                session_pipelines: None,
+                active_session_pipeline_id: None,
+                make_active: true,
+            })
+            .expect("insert first entry");
+
+        state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: None,
+                display_name: Some("Second survey".to_string()),
+                source_path: Some("C:/data/second.segy".to_string()),
+                preferred_store_path: Some("C:/data/shared.tbvol".to_string()),
+                imported_store_path: None,
+                dataset: None,
+                session_pipelines: None,
+                active_session_pipeline_id: None,
+                make_active: true,
+            })
+            .expect("insert second entry");
+
+        let restored = state.load_state().expect("load state");
+        assert_eq!(restored.entries.len(), 2);
     }
 }

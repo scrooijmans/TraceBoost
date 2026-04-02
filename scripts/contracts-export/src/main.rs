@@ -22,7 +22,7 @@ use seis_contracts_interop::{
     SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, SuggestedImportAction,
     SurveyPreflightRequest, SurveyPreflightResponse, RemoveDatasetEntryRequest,
     RemoveDatasetEntryResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
-    WorkspaceSession,
+    WorkspacePipelineEntry, WorkspaceSession,
 };
 use seis_contracts_views::{
     PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
@@ -109,6 +109,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "DeletePipelinePresetRequest.ts",
         "DeletePipelinePresetResponse.ts",
         "DatasetRegistryStatus.ts",
+        "WorkspacePipelineEntry.ts",
         "DatasetRegistryEntry.ts",
         "WorkspaceSession.ts",
         "LoadWorkspaceStateResponse.ts",
@@ -177,6 +178,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     DeletePipelinePresetRequest::export_all_to(output_dir)?;
     DeletePipelinePresetResponse::export_all_to(output_dir)?;
     DatasetRegistryStatus::export_all_to(output_dir)?;
+    WorkspacePipelineEntry::export_all_to(output_dir)?;
     DatasetRegistryEntry::export_all_to(output_dir)?;
     WorkspaceSession::export_all_to(output_dir)?;
     LoadWorkspaceStateResponse::export_all_to(output_dir)?;
@@ -192,6 +194,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingPreset.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("DatasetRegistryEntry.ts"))?;
+    rewrite_generated_numeric_timestamps(&output_dir.join("WorkspacePipelineEntry.ts"))?;
 
     fs::write(
         output_dir.join("ipc-schema-version.ts"),
@@ -263,6 +266,7 @@ export type { SavePipelinePresetResponse } from "./SavePipelinePresetResponse";
 export type { DeletePipelinePresetRequest } from "./DeletePipelinePresetRequest";
 export type { DeletePipelinePresetResponse } from "./DeletePipelinePresetResponse";
 export type { DatasetRegistryStatus } from "./DatasetRegistryStatus";
+export type { WorkspacePipelineEntry } from "./WorkspacePipelineEntry";
 export type { DatasetRegistryEntry } from "./DatasetRegistryEntry";
 export type { WorkspaceSession } from "./WorkspaceSession";
 export type { LoadWorkspaceStateResponse } from "./LoadWorkspaceStateResponse";
@@ -336,6 +340,7 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "DeletePipelinePresetRequest": schema_for!(DeletePipelinePresetRequest),
             "DeletePipelinePresetResponse": schema_for!(DeletePipelinePresetResponse),
             "DatasetRegistryStatus": schema_for!(DatasetRegistryStatus),
+            "WorkspacePipelineEntry": schema_for!(WorkspacePipelineEntry),
             "DatasetRegistryEntry": schema_for!(DatasetRegistryEntry),
             "WorkspaceSession": schema_for!(WorkspaceSession),
             "LoadWorkspaceStateResponse": schema_for!(LoadWorkspaceStateResponse),

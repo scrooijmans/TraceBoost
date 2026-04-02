@@ -50,6 +50,7 @@ export type { SavePipelinePresetResponse } from "./SavePipelinePresetResponse";
 export type { DeletePipelinePresetRequest } from "./DeletePipelinePresetRequest";
 export type { DeletePipelinePresetResponse } from "./DeletePipelinePresetResponse";
 export type { DatasetRegistryStatus } from "./DatasetRegistryStatus";
+export type { WorkspacePipelineEntry } from "./WorkspacePipelineEntry";
 export type { DatasetRegistryEntry } from "./DatasetRegistryEntry";
 export type { WorkspaceSession } from "./WorkspaceSession";
 export type { LoadWorkspaceStateResponse } from "./LoadWorkspaceStateResponse";

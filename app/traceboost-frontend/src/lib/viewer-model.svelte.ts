@@ -9,6 +9,7 @@ import type {
   SectionView,
   SectionViewportChanged,
   SurveyPreflightResponse,
+  WorkspacePipelineEntry,
   WorkspaceSession
 } from "@traceboost/seis-contracts";
 import type { DiagnosticsEvent, DiagnosticsStatus } from "./bridge";
@@ -198,6 +199,16 @@ export class ViewerModel {
     this.preflight = null;
   };
 
+  #clearLoadedDataset = (): void => {
+    this.activeStorePath = "";
+    this.dataset = null;
+    this.section = null;
+    this.lastProbe = null;
+    this.lastViewport = null;
+    this.lastInteraction = null;
+    this.resetToken = `${this.axis}:${this.index}`;
+  };
+
   #syncWorkspaceState = (entries: DatasetRegistryEntry[], session: WorkspaceSession): void => {
     this.workspaceEntries = sortWorkspaceEntries(entries);
     this.#applyWorkspaceSession(session);
@@ -205,6 +216,40 @@ export class ViewerModel {
       this.workspaceEntries.find((entry) => entry.entry_id === session.active_entry_id) ?? null
     );
     this.workspaceReady = true;
+  };
+
+  updateActiveEntryPipelines = async (
+    sessionPipelines: WorkspacePipelineEntry[],
+    activeSessionPipelineId: string | null
+  ): Promise<void> => {
+    const activeEntry = this.activeDatasetEntry;
+    if (!activeEntry) {
+      return;
+    }
+
+    try {
+      const response = await upsertDatasetEntry({
+        schema_version: 1,
+        entry_id: activeEntry.entry_id,
+        display_name: activeEntry.display_name,
+        source_path: activeEntry.source_path,
+        preferred_store_path: activeEntry.preferred_store_path,
+        imported_store_path: activeEntry.imported_store_path,
+        dataset: activeEntry.last_dataset,
+        session_pipelines: sessionPipelines,
+        active_session_pipeline_id: activeSessionPipelineId,
+        make_active: true
+      });
+      this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, response.entry);
+      this.#applyWorkspaceSession(response.session);
+    } catch (error) {
+      this.note(
+        "Failed to persist session pipelines for the active dataset.",
+        "backend",
+        "warn",
+        errorMessage(error, "Unknown pipeline workspace error")
+      );
+    }
   };
 
   refreshWorkspaceState = async (): Promise<void> => {
@@ -276,18 +321,33 @@ export class ViewerModel {
 
   selectInputPath = async (inputPath: string): Promise<void> => {
     this.setInputPath(inputPath);
+    const normalizedInputPath = trimPath(this.inputPath);
     const existingEntry = this.activeDatasetEntry;
-    const reuseActiveEntry = existingEntry?.source_path === trimPath(this.inputPath);
+    const reuseActiveEntry = existingEntry?.source_path === normalizedInputPath;
+    const matchingEntry =
+      this.workspaceEntries.find((entry) => entry.source_path === normalizedInputPath) ?? null;
+
+    if (!reuseActiveEntry) {
+      const suggestedStorePath = entryStorePath(matchingEntry) || deriveStorePathFromInput(normalizedInputPath);
+      this.outputStorePath = suggestedStorePath;
+      this.#outputPathSource = matchingEntry && entryStorePath(matchingEntry) ? "manual" : "auto";
+      this.#clearLoadedDataset();
+    }
 
     try {
       const response = await upsertDatasetEntry({
         schema_version: 1,
-        entry_id: reuseActiveEntry ? this.activeEntryId : null,
+        entry_id: reuseActiveEntry ? this.activeEntryId : matchingEntry?.entry_id ?? null,
         display_name: null,
-        source_path: trimPath(this.inputPath) || null,
+        source_path: normalizedInputPath || null,
         preferred_store_path: trimPath(this.outputStorePath) || null,
         imported_store_path: reuseActiveEntry ? existingEntry?.imported_store_path ?? null : null,
         dataset: reuseActiveEntry ? existingEntry?.last_dataset ?? null : null,
+        session_pipelines: reuseActiveEntry ? existingEntry?.session_pipelines ?? [] : matchingEntry?.session_pipelines ?? null,
+        active_session_pipeline_id:
+          reuseActiveEntry
+            ? existingEntry?.active_session_pipeline_id ?? null
+            : matchingEntry?.active_session_pipeline_id ?? null,
         make_active: true
       });
       this.activeEntryId = response.entry.entry_id;
@@ -326,6 +386,8 @@ export class ViewerModel {
         preferred_store_path: trimPath(this.outputStorePath) || null,
         imported_store_path: this.activeDatasetEntry?.imported_store_path ?? null,
         dataset: this.activeDatasetEntry?.last_dataset ?? null,
+        session_pipelines: this.activeDatasetEntry?.session_pipelines ?? null,
+        active_session_pipeline_id: this.activeDatasetEntry?.active_session_pipeline_id ?? null,
         make_active: true
       });
       this.activeEntryId = response.entry.entry_id;
@@ -516,9 +578,7 @@ export class ViewerModel {
       if (removedActive) {
         this.inputPath = "";
         this.outputStorePath = "";
-        this.activeStorePath = "";
-        this.dataset = null;
-        this.section = null;
+        this.#clearLoadedDataset();
         this.preflight = null;
       }
       this.note("Removed dataset entry from the workspace list.", "ui", "warn", entryId);
@@ -559,6 +619,8 @@ export class ViewerModel {
         preferred_store_path: response.dataset.store_path,
         imported_store_path: response.dataset.store_path,
         dataset: response.dataset,
+        session_pipelines: this.activeDatasetEntry?.session_pipelines ?? null,
+        active_session_pipeline_id: this.activeDatasetEntry?.active_session_pipeline_id ?? null,
         make_active: true
       });
       this.activeEntryId = workspaceResponse.entry.entry_id;
@@ -699,6 +761,8 @@ export class ViewerModel {
         preferred_store_path: response.dataset.store_path,
         imported_store_path: response.dataset.store_path,
         dataset: response.dataset,
+        session_pipelines: this.activeDatasetEntry?.session_pipelines ?? null,
+        active_session_pipeline_id: this.activeDatasetEntry?.active_session_pipeline_id ?? null,
         make_active: true
       });
       this.activeEntryId = workspaceResponse.entry.entry_id;

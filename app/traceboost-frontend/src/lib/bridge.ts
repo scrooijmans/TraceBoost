@@ -319,8 +319,7 @@ export async function upsertDatasetEntry(
       : entries.findIndex(
           (entry) =>
             (trimmedSource && entry.source_path === trimmedSource) ||
-            (trimmedImportedStore && entry.imported_store_path === trimmedImportedStore) ||
-            (trimmedPreferredStore && entry.preferred_store_path === trimmedPreferredStore)
+            (trimmedImportedStore && entry.imported_store_path === trimmedImportedStore)
         );
   const now = Math.floor(Date.now() / 1000);
   const entry: DatasetRegistryEntry =
@@ -334,6 +333,9 @@ export async function upsertDatasetEntry(
           preferred_store_path: trimmedPreferredStore ?? entries[existingIndex].preferred_store_path,
           imported_store_path: trimmedImportedStore ?? entries[existingIndex].imported_store_path,
           last_dataset: request.dataset ?? entries[existingIndex].last_dataset,
+          session_pipelines: request.session_pipelines ?? entries[existingIndex].session_pipelines,
+          active_session_pipeline_id:
+            request.active_session_pipeline_id ?? entries[existingIndex].active_session_pipeline_id,
           last_imported_at_unix_s:
             request.dataset || trimmedImportedStore ? now : entries[existingIndex].last_imported_at_unix_s,
           updated_at_unix_s: now,
@@ -351,6 +353,8 @@ export async function upsertDatasetEntry(
           preferred_store_path: trimmedPreferredStore,
           imported_store_path: trimmedImportedStore,
           last_dataset: request.dataset ?? null,
+          session_pipelines: request.session_pipelines ?? [],
+          active_session_pipeline_id: request.active_session_pipeline_id ?? null,
           status: "linked",
           last_opened_at_unix_s: null,
           last_imported_at_unix_s: request.dataset || trimmedImportedStore ? now : null,
