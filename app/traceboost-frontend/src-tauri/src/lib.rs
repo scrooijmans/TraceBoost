@@ -1,16 +1,29 @@
 mod app_paths;
 mod diagnostics;
+mod processing;
 
 use seis_contracts_interop::{
-    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, OpenDatasetRequest,
-    OpenDatasetResponse, SurveyPreflightRequest, SurveyPreflightResponse,
+    CancelProcessingJobRequest, CancelProcessingJobResponse, GetProcessingJobRequest,
+    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse,
+    PreviewProcessingRequest, PreviewProcessingResponse, RunProcessingRequest,
+    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    SurveyPreflightRequest, SurveyPreflightResponse, DeletePipelinePresetRequest,
+    DeletePipelinePresetResponse,
 };
-use seis_runtime::{SectionAxis, SectionView, open_store};
+use seis_runtime::{
+    MaterializeOptions, SectionAxis, SectionView, materialize_processing_volume_with_progress,
+    open_store,
+};
 use tauri::{AppHandle, Manager, State};
-use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset};
+use traceboost_app::{
+    default_output_store_path, import_dataset, open_dataset_summary, preflight_dataset,
+    preview_processing,
+};
 
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
+use crate::processing::{JobRecord, ProcessingState};
 
 #[tauri::command]
 fn preflight_import_command(
@@ -289,6 +302,306 @@ fn load_section_command(
 }
 
 #[tauri::command]
+fn preview_processing_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    request: PreviewProcessingRequest,
+) -> Result<PreviewProcessingResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "preview_processing",
+        "Generating processing preview",
+        Some(build_fields([
+            ("storePath", json_value(&request.store_path)),
+            ("axis", json_value(format!("{:?}", request.section.axis).to_ascii_lowercase())),
+            ("index", json_value(request.section.index)),
+            (
+                "operatorCount",
+                json_value(request.pipeline.operations.len()),
+            ),
+            ("stage", json_value("preview_section")),
+        ])),
+    );
+
+    let result = preview_processing(request);
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Processing preview ready",
+                Some(build_fields([
+                    ("previewReady", json_value(response.preview.preview_ready)),
+                    ("traces", json_value(response.preview.section.traces)),
+                    ("samples", json_value(response.preview.section.samples)),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Processing preview failed",
+                Some(build_fields([("error", json_value(&message))])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn run_processing_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    processing: State<ProcessingState>,
+    request: RunProcessingRequest,
+) -> Result<RunProcessingResponse, String> {
+    let output_store_path = request
+        .output_store_path
+        .clone()
+        .unwrap_or_else(|| {
+            default_output_store_path(&request.store_path, &request.pipeline)
+                .display()
+                .to_string()
+        });
+    let queued = processing.enqueue_job(
+        request.store_path.clone(),
+        Some(output_store_path.clone()),
+        request.pipeline.clone(),
+    );
+    let job_id = queued.job_id.clone();
+    let record = processing.job_record(&job_id)?;
+
+    diagnostics.emit_session_event(
+        &app,
+        "processing_job_queued",
+        log::Level::Info,
+        "Processing job queued",
+        Some(build_fields([
+            ("jobId", json_value(&job_id)),
+            ("storePath", json_value(&request.store_path)),
+            ("outputStorePath", json_value(&output_store_path)),
+            (
+                "operatorCount",
+                json_value(request.pipeline.operations.len()),
+            ),
+        ])),
+    );
+
+    let worker_app = app.clone();
+    let worker_request = RunProcessingRequest {
+        output_store_path: Some(output_store_path.clone()),
+        ..request
+    };
+    std::thread::spawn(move || {
+        run_processing_job(&worker_app, &record, worker_request);
+    });
+
+    Ok(RunProcessingResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        job: queued,
+    })
+}
+
+#[tauri::command]
+fn get_processing_job_command(
+    processing: State<ProcessingState>,
+    request: GetProcessingJobRequest,
+) -> Result<GetProcessingJobResponse, String> {
+    Ok(GetProcessingJobResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        job: processing.job_status(&request.job_id)?,
+    })
+}
+
+#[tauri::command]
+fn cancel_processing_job_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    processing: State<ProcessingState>,
+    request: CancelProcessingJobRequest,
+) -> Result<CancelProcessingJobResponse, String> {
+    let job = processing.cancel_job(&request.job_id)?;
+    diagnostics.emit_session_event(
+        &app,
+        "processing_job_cancel_requested",
+        log::Level::Warn,
+        "Processing job cancellation requested",
+        Some(build_fields([("jobId", json_value(&request.job_id))])),
+    );
+    Ok(CancelProcessingJobResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        job,
+    })
+}
+
+#[tauri::command]
+fn list_pipeline_presets_command(
+    processing: State<ProcessingState>,
+) -> Result<ListPipelinePresetsResponse, String> {
+    Ok(ListPipelinePresetsResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        presets: processing.list_presets()?,
+    })
+}
+
+#[tauri::command]
+fn save_pipeline_preset_command(
+    processing: State<ProcessingState>,
+    request: SavePipelinePresetRequest,
+) -> Result<SavePipelinePresetResponse, String> {
+    Ok(SavePipelinePresetResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        preset: processing.save_preset(request.preset)?,
+    })
+}
+
+#[tauri::command]
+fn delete_pipeline_preset_command(
+    processing: State<ProcessingState>,
+    request: DeletePipelinePresetRequest,
+) -> Result<DeletePipelinePresetResponse, String> {
+    Ok(DeletePipelinePresetResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        deleted: processing.delete_preset(&request.preset_id)?,
+    })
+}
+
+fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessingRequest) {
+    let _ = record.mark_running();
+    let output_store_path = request
+        .output_store_path
+        .clone()
+        .unwrap_or_else(|| default_output_store_path(&request.store_path, &request.pipeline).display().to_string());
+    if let Err(error) = prepare_processing_output_store(
+        &request.store_path,
+        &output_store_path,
+        request.overwrite_existing,
+    ) {
+        let final_status = record.mark_failed(error);
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "processing_job_failed",
+                log::Level::Error,
+                "Processing job failed",
+                Some(build_fields([
+                    ("jobId", json_value(&final_status.job_id)),
+                    (
+                        "error",
+                        json_value(final_status.error_message.clone().unwrap_or_default()),
+                    ),
+                ])),
+            );
+        }
+        return;
+    }
+    let result = materialize_processing_volume_with_progress(
+        &request.store_path,
+        &output_store_path,
+        &request.pipeline,
+        MaterializeOptions::default(),
+        |completed, total| {
+            if record.cancel_requested() {
+                return Err(seis_runtime::SeisRefineError::Message(
+                    "processing cancelled".to_string(),
+                ));
+            }
+            let _ = record.mark_progress(completed, total);
+            Ok(())
+        },
+    );
+
+    match result {
+        Ok(_) => {
+            let final_status = record.mark_completed(output_store_path.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "processing_job_completed",
+                    log::Level::Info,
+                    "Processing job completed",
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        ("outputStorePath", json_value(&output_store_path)),
+                    ])),
+                );
+            }
+        }
+        Err(error) => {
+            let final_status = if record.cancel_requested() {
+                record.mark_cancelled()
+            } else {
+                record.mark_failed(error.to_string())
+            };
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "processing_job_failed",
+                    if matches!(final_status.state, seis_runtime::ProcessingJobState::Cancelled) {
+                        log::Level::Warn
+                    } else {
+                        log::Level::Error
+                    },
+                    if matches!(final_status.state, seis_runtime::ProcessingJobState::Cancelled) {
+                        "Processing job cancelled"
+                    } else {
+                        "Processing job failed"
+                    },
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "state",
+                            json_value(format!("{:?}", final_status.state).to_ascii_lowercase()),
+                        ),
+                        (
+                            "error",
+                            json_value(final_status.error_message.clone().unwrap_or_default()),
+                        ),
+                    ])),
+                );
+            }
+        }
+    }
+}
+
+fn prepare_processing_output_store(
+    input_store_path: &str,
+    output_store_path: &str,
+    overwrite_existing: bool,
+) -> Result<(), String> {
+    let input_path = std::path::Path::new(input_store_path);
+    let output_path = std::path::Path::new(output_store_path);
+    let input_canonical = input_path
+        .canonicalize()
+        .unwrap_or_else(|_| input_path.to_path_buf());
+    let output_canonical = output_path
+        .canonicalize()
+        .unwrap_or_else(|_| output_path.to_path_buf());
+    if input_canonical == output_canonical {
+        return Err("Output store path cannot overwrite the input store.".to_string());
+    }
+    if !output_path.exists() {
+        return Ok(());
+    }
+    if !overwrite_existing {
+        return Err(format!(
+            "Output processing store already exists: {}",
+            output_path.display()
+        ));
+    }
+    let metadata = std::fs::symlink_metadata(output_path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_dir() {
+        std::fs::remove_dir_all(output_path).map_err(|error| error.to_string())?;
+    } else {
+        std::fs::remove_file(output_path).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn get_diagnostics_status_command(
     diagnostics: State<DiagnosticsState>,
 ) -> Result<diagnostics::DiagnosticsStatus, String> {
@@ -380,6 +693,7 @@ pub fn run() {
             let app_paths = AppPaths::resolve(&app.handle().clone())?;
             let diagnostics =
                 DiagnosticsState::initialize(app_paths.logs_dir(), session_basename.clone())?;
+            let processing = ProcessingState::initialize(app_paths.pipeline_presets_dir())?;
             diagnostics.emit_session_event(
                 &app.handle().clone(),
                 "started",
@@ -394,6 +708,7 @@ pub fn run() {
                 ])),
             );
             app.manage(diagnostics);
+            app.manage(processing);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -401,6 +716,13 @@ pub fn run() {
             import_dataset_command,
             open_dataset_command,
             load_section_command,
+            preview_processing_command,
+            run_processing_command,
+            get_processing_job_command,
+            cancel_processing_job_command,
+            list_pipeline_presets_command,
+            save_pipeline_preset_command,
+            delete_pipeline_preset_command,
             get_diagnostics_status_command,
             set_diagnostics_verbosity_command,
             export_diagnostics_bundle_command

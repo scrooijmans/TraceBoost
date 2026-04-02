@@ -18,7 +18,11 @@ TraceBoost runtime now wraps the shared Ophiolite seismic runtime and exposes th
 - reopen/describe existing stores
 - `VolumeDescriptor` and `DatasetSummary`-ready metadata for app surfaces
 - section-view generation for inline/xline browsing
-- validation and processing entry points that can expand later
+- processing entry points for:
+  - versioned operator pipelines
+  - whole-section preview
+  - derived-volume materialization
+  - lineage persisted into derived `tbvol` manifests
 
 Shared fixtures live in `test-data/`.
 

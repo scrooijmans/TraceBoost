@@ -5,12 +5,14 @@
   import WorkflowSidebar from "./lib/components/WorkflowSidebar.svelte";
   import ViewerMain from "./lib/components/ViewerMain.svelte";
   import { isTauriEnvironment } from "./lib/bridge";
+  import { ProcessingModel, setProcessingModelContext } from "./lib/processing-model.svelte";
   import { setViewerModelContext, ViewerModel } from "./lib/viewer-model.svelte";
 
   let showSidebar = $state(true);
   let viewerChart = $state.raw<{ fitToData?: () => void } | null>(null);
 
   const viewerModel = setViewerModelContext(new ViewerModel({ tauriRuntime: isTauriEnvironment() }));
+  const processingModel = setProcessingModelContext(new ProcessingModel({ viewerModel }));
 
   function hideSidebar(): void {
     showSidebar = false;
@@ -20,7 +22,14 @@
     showSidebar = true;
   }
 
-  onMount(viewerModel.mountShell);
+  onMount(() => {
+    const disposeViewer = viewerModel.mountShell();
+    const disposeProcessing = processingModel.mount();
+    return () => {
+      disposeProcessing();
+      disposeViewer();
+    };
+  });
 </script>
 
 <svelte:head>

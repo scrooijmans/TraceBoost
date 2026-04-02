@@ -1,9 +1,18 @@
 import type {
+  CancelProcessingJobResponse,
+  GetProcessingJobResponse,
   ImportDatasetResponse,
+  ListPipelinePresetsResponse,
   OpenDatasetResponse,
+  PreviewProcessingResponse,
+  ProcessingPreset,
+  RunProcessingResponse,
+  SavePipelinePresetResponse,
   SectionAxis,
   SectionView,
-  SurveyPreflightResponse
+  SurveyPreflightResponse,
+  PreviewProcessingRequest,
+  RunProcessingRequest
 } from "@traceboost/seis-contracts";
 
 export interface DiagnosticsStatus {
@@ -106,6 +115,94 @@ export async function fetchSectionView(
     `/api/section?storePath=${encodeURIComponent(storePath)}&axis=${encodeURIComponent(axis)}&index=${encodeURIComponent(index)}`
   );
   return readJson<SectionView>(response);
+}
+
+export async function previewProcessing(
+  request: PreviewProcessingRequest
+): Promise<PreviewProcessingResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<PreviewProcessingResponse>("preview_processing_command", { request });
+  }
+
+  return postJson<PreviewProcessingResponse>("/api/processing/preview", request as Record<string, unknown>);
+}
+
+export async function runProcessing(
+  request: RunProcessingRequest
+): Promise<RunProcessingResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<RunProcessingResponse>("run_processing_command", { request });
+  }
+
+  return postJson<RunProcessingResponse>("/api/processing/run", request as Record<string, unknown>);
+}
+
+export async function getProcessingJob(jobId: string): Promise<GetProcessingJobResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<GetProcessingJobResponse>("get_processing_job_command", {
+      request: { schema_version: 1, job_id: jobId }
+    });
+  }
+
+  return postJson<GetProcessingJobResponse>("/api/processing/job", { schema_version: 1, job_id: jobId });
+}
+
+export async function cancelProcessingJob(jobId: string): Promise<CancelProcessingJobResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<CancelProcessingJobResponse>("cancel_processing_job_command", {
+      request: { schema_version: 1, job_id: jobId }
+    });
+  }
+
+  return postJson<CancelProcessingJobResponse>("/api/processing/cancel", {
+    schema_version: 1,
+    job_id: jobId
+  });
+}
+
+export async function listPipelinePresets(): Promise<ListPipelinePresetsResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ListPipelinePresetsResponse>("list_pipeline_presets_command", {});
+  }
+
+  const response = await fetch("/api/processing/presets");
+  return readJson<ListPipelinePresetsResponse>(response);
+}
+
+export async function savePipelinePreset(
+  preset: ProcessingPreset
+): Promise<SavePipelinePresetResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<SavePipelinePresetResponse>("save_pipeline_preset_command", {
+      request: { schema_version: 1, preset }
+    });
+  }
+
+  return postJson<SavePipelinePresetResponse>("/api/processing/presets/save", {
+    schema_version: 1,
+    preset
+  });
+}
+
+export async function deletePipelinePreset(presetId: string): Promise<boolean> {
+  if (isTauriEnvironment()) {
+    const response = await invokeTauri<{ schema_version: number; deleted: boolean }>(
+      "delete_pipeline_preset_command",
+      {
+        request: { schema_version: 1, preset_id: presetId }
+      }
+    );
+    return response.deleted;
+  }
+
+  const response = await postJson<{ schema_version: number; deleted: boolean }>(
+    "/api/processing/presets/delete",
+    {
+      schema_version: 1,
+      preset_id: presetId
+    }
+  );
+  return response.deleted;
 }
 
 export async function getDiagnosticsStatus(): Promise<DiagnosticsStatus | null> {

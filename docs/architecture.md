@@ -14,7 +14,7 @@ The active backend/product architecture is:
 - `runtime/`
   - TraceBoost compatibility wrapper over the shared Ophiolite seismic runtime
 - `app/`
-  - product-facing application workflow and future Tauri-facing crates
+  - product-facing application workflow and Tauri-facing desktop command surface
 
 `geoviz` remains outside this repository as the visualization SDK boundary.
 
@@ -43,6 +43,18 @@ The target ecosystem boundary is:
 - `seis-io`
 - `seis-runtime`
 - `traceboost-app`
+
+## Processing Flow
+
+The current backend processing design is:
+
+- canonical processing model is a typed, versioned `ProcessingPipeline`
+- preview requests run synchronously against the currently requested inline/xline section
+- full-volume apply runs as a background job and always writes a new derived `tbvol`
+- reusable operator sequences are persisted as pipeline presets
+- derived stores persist full processing lineage, including the exact pipeline revision and operations used
+
+This keeps the backend deterministic and frontend-safe without introducing a scripting language as the source of truth.
 
 ## Compatibility Notes
 

@@ -1,6 +1,10 @@
 pub use ophiolite_seismic::{
-    DatasetSummary, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PreviewCommand, PreviewResponse,
+    CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetSummary,
+    DeletePipelinePresetRequest, DeletePipelinePresetResponse, GetProcessingJobRequest,
+    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
+    PreviewProcessingRequest, PreviewProcessingResponse, PreviewResponse, RunProcessingRequest,
+    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
     SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
 };
 

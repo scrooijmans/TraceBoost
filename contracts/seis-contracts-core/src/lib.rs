@@ -1,4 +1,5 @@
 pub use ophiolite_seismic::{
-    DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
-    SectionTileRequest, VolumeDescriptor,
+    DatasetId, InterpretationPoint, ProcessingJobProgress, ProcessingJobState,
+    ProcessingJobStatus, ProcessingOperation, ProcessingPipeline, ProcessingPreset, SectionAxis,
+    SectionRequest, SectionTileRequest, VolumeDescriptor,
 };

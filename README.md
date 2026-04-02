@@ -8,6 +8,10 @@ The current product milestone is:
 
 `select SEG-Y -> preflight/ingest -> open runtime store -> view inline/xline sections in the app shell`
 
+The backend now also supports the first processing flow:
+
+`open tbvol -> define versioned operator pipeline -> preview on current 2D section -> materialize derived tbvol on full volume -> persist lineage/preset`
+
 ## Stack
 
 - Rust 2024 workspace for contracts, I/O, runtime, and app/backend orchestration
@@ -56,11 +60,13 @@ The current product milestone is:
   - `import-dataset`
   - `open-dataset`
   - `view-section`
+  - processing preview/materialization helpers over versioned operator pipelines
 - `traceboost-frontend` can:
   - preflight a SEG-Y path
   - ingest to a runtime-store path
   - open an existing runtime store
   - load inline/xline sections into the embedded `geoviz` chart
+  - call backend commands for processing preview, processing jobs, and pipeline presets
 - a Tauri shell scaffold exists and is wired to the same backend commands
 
 ## Immediate Roadmap

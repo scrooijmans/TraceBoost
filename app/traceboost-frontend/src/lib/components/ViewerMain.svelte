@@ -2,6 +2,8 @@
 
 <script lang="ts">
   import { SeismicSectionChart } from "@geoviz/svelte";
+  import PipelineWorkspace from "./PipelineWorkspace.svelte";
+  import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
 
   let {
@@ -15,6 +17,7 @@
   } = $props();
 
   const viewerModel = getViewerModelContext();
+  const processingModel = getProcessingModelContext();
 </script>
 
 {#if !showSidebar}
@@ -26,46 +29,63 @@
 {/if}
 
 <main class="viewer-shell">
-  {#if viewerModel.section}
-    <SeismicSectionChart
-      bind:this={chartRef}
-      chartId="traceboost-main"
-      viewId={`${viewerModel.axis}:${viewerModel.index}`}
-      section={viewerModel.section}
-      displayTransform={viewerModel.displayTransform}
-      loading={viewerModel.loading}
-      errorMessage={viewerModel.error}
-      resetToken={viewerModel.resetToken}
-      onProbeChange={viewerModel.setProbe}
-      onViewportChange={viewerModel.setViewport}
-      onInteractionChange={viewerModel.setInteraction}
-    />
-  {:else}
-    <div class="welcome-card">
-      <svg
-        class="welcome-icon"
-        viewBox="0 0 24 24"
-        width="64"
-        height="64"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1"
-      >
-        <path
-          d="M3 20 L6 8 L9 14 L12 4 L15 16 L18 10 L21 20"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        <line x1="3" y1="20" x2="21" y2="20" />
-      </svg>
-      <h2>Select a SEG-Y File</h2>
-      <p>
-        Use the sidebar to select a SEG-Y file, run a preflight check, set an output folder, then
-        import or open a runtime store to view seismic sections.
-      </p>
-      <span class="welcome-version">TraceBoost v0.1.0</span>
+  <div class="workspace-split">
+    <div class="top-pane">
+      <PipelineWorkspace />
     </div>
-  {/if}
+
+    <div class="bottom-pane">
+      {#if processingModel.displaySection}
+        <div class="chart-status">
+          <span class:preview={processingModel.displaySectionMode === "preview"} class="mode-badge">
+            {processingModel.displaySectionMode}
+          </span>
+          {#if processingModel.previewLabel && processingModel.displaySectionMode === "preview"}
+            <span class="mode-copy">{processingModel.previewLabel}</span>
+          {/if}
+        </div>
+
+        <SeismicSectionChart
+          bind:this={chartRef}
+          chartId="traceboost-main"
+          viewId={`${viewerModel.axis}:${viewerModel.index}:${processingModel.displaySectionMode}`}
+          section={processingModel.displaySection}
+          displayTransform={viewerModel.displayTransform}
+          loading={viewerModel.loading || processingModel.previewBusy}
+          errorMessage={viewerModel.error}
+          resetToken={processingModel.displayResetToken}
+          onProbeChange={viewerModel.setProbe}
+          onViewportChange={viewerModel.setViewport}
+          onInteractionChange={viewerModel.setInteraction}
+        />
+      {:else}
+        <div class="welcome-card">
+          <svg
+            class="welcome-icon"
+            viewBox="0 0 24 24"
+            width="64"
+            height="64"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1"
+          >
+            <path
+              d="M3 20 L6 8 L9 14 L12 4 L15 16 L18 10 L21 20"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <line x1="3" y1="20" x2="21" y2="20" />
+          </svg>
+          <h2>Select a SEG-Y File</h2>
+          <p>
+            Use the sidebar to select a SEG-Y file, run a preflight check, set an output folder, then
+            import or open a runtime store to view seismic sections and build processing pipelines.
+          </p>
+          <span class="welcome-version">TraceBoost v0.1.0</span>
+        </div>
+      {/if}
+    </div>
+  </div>
 </main>
 
 <style>
@@ -90,15 +110,59 @@
   }
 
   .viewer-shell {
-    padding: 20px;
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
+  }
+
+  .workspace-split {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: minmax(320px, 40vh) minmax(360px, 60vh);
+  }
+
+  .top-pane {
+    min-height: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(circle at top left, rgba(74, 222, 128, 0.08), transparent 40%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 70%);
+  }
+
+  .bottom-pane {
+    min-height: 0;
+    padding: 14px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .chart-status {
+    display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 10px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .mode-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+  }
+
+  .mode-badge.preview {
+    border-color: rgba(74, 222, 128, 0.45);
+    color: #8df0b4;
   }
 
   .viewer-shell :global(.geoviz-svelte-chart-shell) {
-    height: calc(100vh - 40px);
+    height: 100%;
     width: 100%;
     border-radius: 16px;
     overflow: hidden;
@@ -112,6 +176,7 @@
     background: #0c1f2d;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 20px;
+    margin: auto;
   }
 
   .welcome-icon {
@@ -135,5 +200,16 @@
   .welcome-version {
     font-size: 12px;
     color: rgba(255, 255, 255, 0.25);
+  }
+
+  @media (max-width: 900px) {
+    .workspace-split {
+      grid-template-rows: minmax(360px, auto) minmax(320px, 1fr);
+    }
+
+    .bottom-pane {
+      padding-inline: 14px;
+      padding-bottom: 14px;
+    }
   }
 </style>

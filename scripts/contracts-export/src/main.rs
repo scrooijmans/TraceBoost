@@ -1,15 +1,22 @@
+#![recursion_limit = "256"]
+
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use schemars::schema_for;
 use seis_contracts_core::{
-    DatasetId, InterpretationPoint, ProcessingParameters, SectionAxis, SectionRequest,
-    SectionTileRequest, VolumeDescriptor,
+    DatasetId, InterpretationPoint, ProcessingJobProgress, ProcessingJobState,
+    ProcessingJobStatus, ProcessingOperation, ProcessingPipeline, ProcessingPreset, SectionAxis,
+    SectionRequest, SectionTileRequest, VolumeDescriptor,
 };
 use seis_contracts_interop::{
-    DatasetSummary, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PreviewCommand, PreviewResponse,
+    CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetSummary,
+    DeletePipelinePresetRequest, DeletePipelinePresetResponse, GetProcessingJobRequest,
+    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
+    PreviewProcessingRequest, PreviewProcessingResponse, PreviewResponse, RunProcessingRequest,
+    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
     SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
 };
 use seis_contracts_views::{
@@ -51,7 +58,12 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionAxis.ts",
         "SectionRequest.ts",
         "SectionTileRequest.ts",
-        "ProcessingParameters.ts",
+        "ProcessingOperation.ts",
+        "ProcessingPipeline.ts",
+        "ProcessingJobState.ts",
+        "ProcessingJobProgress.ts",
+        "ProcessingJobStatus.ts",
+        "ProcessingPreset.ts",
         "InterpretationPoint.ts",
         "SectionColorMap.ts",
         "SectionRenderMode.ts",
@@ -78,6 +90,19 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "OpenDatasetResponse.ts",
         "PreviewCommand.ts",
         "PreviewResponse.ts",
+        "PreviewProcessingRequest.ts",
+        "PreviewProcessingResponse.ts",
+        "RunProcessingRequest.ts",
+        "RunProcessingResponse.ts",
+        "GetProcessingJobRequest.ts",
+        "GetProcessingJobResponse.ts",
+        "CancelProcessingJobRequest.ts",
+        "CancelProcessingJobResponse.ts",
+        "ListPipelinePresetsResponse.ts",
+        "SavePipelinePresetRequest.ts",
+        "SavePipelinePresetResponse.ts",
+        "DeletePipelinePresetRequest.ts",
+        "DeletePipelinePresetResponse.ts",
         "ipc-schema-version.ts",
         "index.ts",
     ] {
@@ -89,7 +114,12 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
 
     VolumeDescriptor::export_all_to(output_dir)?;
     SectionTileRequest::export_all_to(output_dir)?;
-    ProcessingParameters::export_all_to(output_dir)?;
+    ProcessingOperation::export_all_to(output_dir)?;
+    ProcessingPipeline::export_all_to(output_dir)?;
+    ProcessingJobState::export_all_to(output_dir)?;
+    ProcessingJobProgress::export_all_to(output_dir)?;
+    ProcessingJobStatus::export_all_to(output_dir)?;
+    ProcessingPreset::export_all_to(output_dir)?;
     InterpretationPoint::export_all_to(output_dir)?;
     SectionColorMap::export_all_to(output_dir)?;
     SectionRenderMode::export_all_to(output_dir)?;
@@ -116,6 +146,22 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     OpenDatasetResponse::export_all_to(output_dir)?;
     PreviewCommand::export_all_to(output_dir)?;
     PreviewResponse::export_all_to(output_dir)?;
+    PreviewProcessingRequest::export_all_to(output_dir)?;
+    PreviewProcessingResponse::export_all_to(output_dir)?;
+    RunProcessingRequest::export_all_to(output_dir)?;
+    RunProcessingResponse::export_all_to(output_dir)?;
+    GetProcessingJobRequest::export_all_to(output_dir)?;
+    GetProcessingJobResponse::export_all_to(output_dir)?;
+    CancelProcessingJobRequest::export_all_to(output_dir)?;
+    CancelProcessingJobResponse::export_all_to(output_dir)?;
+    ListPipelinePresetsResponse::export_all_to(output_dir)?;
+    SavePipelinePresetRequest::export_all_to(output_dir)?;
+    SavePipelinePresetResponse::export_all_to(output_dir)?;
+    DeletePipelinePresetRequest::export_all_to(output_dir)?;
+    DeletePipelinePresetResponse::export_all_to(output_dir)?;
+
+    rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingPreset.ts"))?;
+    rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
 
     fs::write(
         output_dir.join("ipc-schema-version.ts"),
@@ -127,6 +173,13 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn rewrite_generated_numeric_timestamps(path: &Path) -> Result<(), Box<dyn Error>> {
+    let source = fs::read_to_string(path)?;
+    let rewritten = source.replace(": bigint", ": number");
+    fs::write(path, rewritten)?;
+    Ok(())
+}
+
 fn write_generated_index(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     let index = r#"// Generated by `cargo run -p contracts-export`
 export type { DatasetId } from "./DatasetId";
@@ -134,7 +187,12 @@ export type { VolumeDescriptor } from "./VolumeDescriptor";
 export type { SectionAxis } from "./SectionAxis";
 export type { SectionRequest } from "./SectionRequest";
 export type { SectionTileRequest } from "./SectionTileRequest";
-export type { ProcessingParameters } from "./ProcessingParameters";
+export type { ProcessingOperation } from "./ProcessingOperation";
+export type { ProcessingPipeline } from "./ProcessingPipeline";
+export type { ProcessingJobState } from "./ProcessingJobState";
+export type { ProcessingJobProgress } from "./ProcessingJobProgress";
+export type { ProcessingJobStatus } from "./ProcessingJobStatus";
+export type { ProcessingPreset } from "./ProcessingPreset";
 export type { InterpretationPoint } from "./InterpretationPoint";
 export type { SectionColorMap } from "./SectionColorMap";
 export type { SectionRenderMode } from "./SectionRenderMode";
@@ -161,6 +219,19 @@ export type { OpenDatasetRequest } from "./OpenDatasetRequest";
 export type { OpenDatasetResponse } from "./OpenDatasetResponse";
 export type { PreviewCommand } from "./PreviewCommand";
 export type { PreviewResponse } from "./PreviewResponse";
+export type { PreviewProcessingRequest } from "./PreviewProcessingRequest";
+export type { PreviewProcessingResponse } from "./PreviewProcessingResponse";
+export type { RunProcessingRequest } from "./RunProcessingRequest";
+export type { RunProcessingResponse } from "./RunProcessingResponse";
+export type { GetProcessingJobRequest } from "./GetProcessingJobRequest";
+export type { GetProcessingJobResponse } from "./GetProcessingJobResponse";
+export type { CancelProcessingJobRequest } from "./CancelProcessingJobRequest";
+export type { CancelProcessingJobResponse } from "./CancelProcessingJobResponse";
+export type { ListPipelinePresetsResponse } from "./ListPipelinePresetsResponse";
+export type { SavePipelinePresetRequest } from "./SavePipelinePresetRequest";
+export type { SavePipelinePresetResponse } from "./SavePipelinePresetResponse";
+export type { DeletePipelinePresetRequest } from "./DeletePipelinePresetRequest";
+export type { DeletePipelinePresetResponse } from "./DeletePipelinePresetResponse";
 export { IPC_SCHEMA_VERSION } from "./ipc-schema-version";
 "#;
 
@@ -177,7 +248,12 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SectionAxis": schema_for!(SectionAxis),
             "SectionRequest": schema_for!(SectionRequest),
             "SectionTileRequest": schema_for!(SectionTileRequest),
-            "ProcessingParameters": schema_for!(ProcessingParameters),
+            "ProcessingOperation": schema_for!(ProcessingOperation),
+            "ProcessingPipeline": schema_for!(ProcessingPipeline),
+            "ProcessingJobState": schema_for!(ProcessingJobState),
+            "ProcessingJobProgress": schema_for!(ProcessingJobProgress),
+            "ProcessingJobStatus": schema_for!(ProcessingJobStatus),
+            "ProcessingPreset": schema_for!(ProcessingPreset),
             "InterpretationPoint": schema_for!(InterpretationPoint),
             "SectionColorMap": schema_for!(SectionColorMap),
             "SectionRenderMode": schema_for!(SectionRenderMode),
@@ -204,6 +280,19 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "OpenDatasetResponse": schema_for!(OpenDatasetResponse),
             "PreviewCommand": schema_for!(PreviewCommand),
             "PreviewResponse": schema_for!(PreviewResponse),
+            "PreviewProcessingRequest": schema_for!(PreviewProcessingRequest),
+            "PreviewProcessingResponse": schema_for!(PreviewProcessingResponse),
+            "RunProcessingRequest": schema_for!(RunProcessingRequest),
+            "RunProcessingResponse": schema_for!(RunProcessingResponse),
+            "GetProcessingJobRequest": schema_for!(GetProcessingJobRequest),
+            "GetProcessingJobResponse": schema_for!(GetProcessingJobResponse),
+            "CancelProcessingJobRequest": schema_for!(CancelProcessingJobRequest),
+            "CancelProcessingJobResponse": schema_for!(CancelProcessingJobResponse),
+            "ListPipelinePresetsResponse": schema_for!(ListPipelinePresetsResponse),
+            "SavePipelinePresetRequest": schema_for!(SavePipelinePresetRequest),
+            "SavePipelinePresetResponse": schema_for!(SavePipelinePresetResponse),
+            "DeletePipelinePresetRequest": schema_for!(DeletePipelinePresetRequest),
+            "DeletePipelinePresetResponse": schema_for!(DeletePipelinePresetResponse),
         }
     });
 
