@@ -192,6 +192,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@ophiolite/contracts": path.resolve(
+        __dirname,
+        "../../../ophiolite/contracts/ts/ophiolite-contracts/src/index.ts"
+      ),
       "@geoviz/data-models": path.resolve(__dirname, "../../../geoviz/packages/data-models/src/index.ts"),
       "@geoviz/chart-core": path.resolve(__dirname, "../../../geoviz/packages/chart-core/src/index.ts"),
       "@geoviz/renderer": path.resolve(__dirname, "../../../geoviz/packages/renderer/src/index.ts"),

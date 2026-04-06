@@ -106,6 +106,8 @@ bun install
 bun run dev
 ```
 
+The frontend resolves sibling source from both `../geoviz` and `../ophiolite` during local development. Keep those repositories checked out next to `TraceBoost`.
+
 Run the desktop shell:
 
 ```powershell

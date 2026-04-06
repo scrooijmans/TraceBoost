@@ -6,6 +6,7 @@
     "moduleResolution": "Bundler",
     "baseUrl": ".",
     "paths": {
+      "@ophiolite/contracts": ["../../../ophiolite/contracts/ts/ophiolite-contracts/src/index.ts"],
       "@geoviz/data-models": ["../../../geoviz/packages/data-models/src/index.ts"],
       "@geoviz/chart-core": ["../../../geoviz/packages/chart-core/src/index.ts"],
       "@geoviz/renderer": ["../../../geoviz/packages/renderer/src/index.ts"],

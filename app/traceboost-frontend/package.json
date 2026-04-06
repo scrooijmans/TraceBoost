@@ -14,6 +14,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@ophiolite/contracts": "file:../../../ophiolite/contracts/ts/ophiolite-contracts",
     "@geoviz/svelte": "file:../../../geoviz/packages/svelte",
     "@geoviz/svelte-toolbar": "file:../../../geoviz/packages/svelte-toolbar",
     "@tauri-apps/api": "^2.0.0",

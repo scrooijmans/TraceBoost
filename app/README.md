@@ -10,6 +10,7 @@
 - Tauri 2 in `traceboost-frontend/src-tauri`
 - generated contracts from `contracts/ts/seis-contracts`
 - external `@geoviz/svelte` for section rendering
+- sibling `@ophiolite/contracts` for generated gather and well-panel DTOs consumed through `geoviz`
 
 ## Current Contents
 

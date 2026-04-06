@@ -6,6 +6,8 @@
       "name": "@traceboost/traceboost-frontend",
       "dependencies": {
         "@geoviz/svelte": "file:../../../geoviz/packages/svelte",
+        "@geoviz/svelte-toolbar": "file:../../../geoviz/packages/svelte-toolbar",
+        "@ophiolite/contracts": "file:../../../ophiolite/contracts/ts/ophiolite-contracts",
         "@tauri-apps/api": "^2.0.0",
         "@tauri-apps/plugin-dialog": "^2.6.0",
         "@traceboost/seis-contracts": "file:../../contracts/ts/seis-contracts",
@@ -76,6 +78,8 @@
 
     "@geoviz/svelte": ["@geoviz/svelte@file:../../../geoviz/packages/svelte", { "dependencies": { "@geoviz/data-models": "file:../data-models", "@geoviz/domain-geoscience": "file:../domain-geoscience", "@geoviz/renderer": "file:../renderer", "@traceboost/seis-contracts": "file:../../../TraceBoost/contracts/ts/seis-contracts" }, "peerDependencies": { "svelte": "^5.0.0" } }],
 
+    "@geoviz/svelte-toolbar": ["@geoviz/svelte-toolbar@file:../../../geoviz/packages/svelte-toolbar", { "peerDependencies": { "svelte": "^5.0.0" } }],
+
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@jridgewell/remapping": ["@jridgewell/remapping@2.3.5", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ=="],
@@ -85,6 +89,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@ophiolite/contracts": ["@ophiolite/contracts@file:../../../ophiolite/contracts/ts/ophiolite-contracts", {}],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.60.1", "", { "os": "android", "cpu": "arm" }, "sha512-d6FinEBLdIiK+1uACUttJKfgZREXrF0Qc2SmLII7W2AD8FfiZ9Wjd+rD/iRuf5s5dWrr1GgwXCvPqOuDquOowA=="],
 
