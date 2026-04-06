@@ -134,8 +134,47 @@ function saveLocalSession(session: WorkspaceSession): void {
   window.localStorage.setItem(WORKSPACE_SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
+function fileStem(filePath: string | null | undefined): string {
+  const normalized = filePath?.trim() ?? "";
+  if (!normalized) {
+    return "";
+  }
+  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  const filename = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+  return filename.replace(/\.[^.]+$/, "");
+}
+
+function stripGeneratedHashSuffix(value: string): string {
+  return value.replace(/-[0-9a-f]{16}$/i, "");
+}
+
+function userVisibleDatasetName(entry: DatasetRegistryEntry): string {
+  const sourceStem = fileStem(entry.source_path);
+  if (sourceStem) {
+    return sourceStem;
+  }
+  const trimmedDisplayName = entry.display_name?.trim() ?? "";
+  if (trimmedDisplayName) {
+    return stripGeneratedHashSuffix(trimmedDisplayName);
+  }
+  const storeStem = fileStem(entry.imported_store_path ?? entry.preferred_store_path);
+  if (storeStem) {
+    return stripGeneratedHashSuffix(storeStem);
+  }
+  return entry.entry_id;
+}
+
 function sortEntries(entries: DatasetRegistryEntry[]): DatasetRegistryEntry[] {
-  return [...entries].sort((left, right) => right.updated_at_unix_s - left.updated_at_unix_s);
+  return [...entries].sort((left, right) => {
+    const byName = userVisibleDatasetName(left).localeCompare(userVisibleDatasetName(right), undefined, {
+      sensitivity: "base",
+      numeric: true
+    });
+    if (byName !== 0) {
+      return byName;
+    }
+    return left.entry_id.localeCompare(right.entry_id, undefined, { sensitivity: "base", numeric: true });
+  });
 }
 
 function resolveEntryStatus(entry: DatasetRegistryEntry): DatasetRegistryStatus {

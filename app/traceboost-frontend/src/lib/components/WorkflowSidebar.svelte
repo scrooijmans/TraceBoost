@@ -16,8 +16,27 @@
     return filePath.split(/[\\/]/).pop() ?? filePath;
   }
 
+  function fileStem(filePath: string | null | undefined): string {
+    const filename = basename(filePath ?? "");
+    return filename.replace(/\.[^.]+$/, "");
+  }
+
+  function stripGeneratedHashSuffix(value: string): string {
+    return value.replace(/-[0-9a-f]{16}$/i, "");
+  }
+
   function datasetLabel(displayName: string, fallbackPath: string | null | undefined, entryId: string): string {
-    return displayName.trim() || basename(fallbackPath ?? entryId);
+    const preferredPathLabel = fileStem(fallbackPath);
+    if (preferredPathLabel) {
+      return stripGeneratedHashSuffix(preferredPathLabel);
+    }
+
+    const trimmedDisplayName = displayName.trim();
+    if (trimmedDisplayName) {
+      return stripGeneratedHashSuffix(trimmedDisplayName);
+    }
+
+    return entryId;
   }
 </script>
 
@@ -55,28 +74,29 @@
     {#if viewerModel.workspaceEntries.length}
       <div class="volume-list">
         {#each viewerModel.workspaceEntries as entry (entry.entry_id)}
+          {@const visibleLabel = datasetLabel(
+            entry.display_name,
+            entry.source_path ?? entry.imported_store_path ?? entry.preferred_store_path,
+            entry.entry_id
+          )}
           <div class="volume-row">
             <button
               class:active={viewerModel.activeEntryId === entry.entry_id}
               class="volume-entry"
               onclick={() => void viewerModel.activateDatasetEntry(entry.entry_id)}
               disabled={viewerModel.loading}
-              title={entry.display_name}
+              title={visibleLabel}
             >
               <span class="volume-entry-label">
-                {datasetLabel(
-                  entry.display_name,
-                  entry.imported_store_path ?? entry.source_path ?? entry.preferred_store_path,
-                  entry.entry_id
-                )}
+                {visibleLabel}
               </span>
             </button>
             <button
               class="volume-remove"
               onclick={() => void viewerModel.removeWorkspaceEntry(entry.entry_id)}
               disabled={viewerModel.loading}
-              aria-label={`Remove ${entry.display_name}`}
-              title={`Remove ${entry.display_name}`}
+              aria-label={`Remove ${visibleLabel}`}
+              title={`Remove ${visibleLabel}`}
             >
               ×
             </button>

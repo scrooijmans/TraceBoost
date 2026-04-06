@@ -87,12 +87,35 @@ fn ingest_writes_a_store_and_manifest() {
     assert!(handle.manifest_path().exists());
     assert_eq!(handle.manifest.volume.shape, [5, 5, 50]);
     assert_eq!(handle.manifest.tile_shape, [2, 3, 50]);
-    assert_eq!(handle.manifest.volume.source.geometry.inline_field.start_byte, 189);
     assert_eq!(
-        handle.manifest.volume.source.geometry.crossline_field.start_byte,
+        handle
+            .manifest
+            .volume
+            .source
+            .geometry
+            .inline_field
+            .start_byte,
+        189
+    );
+    assert_eq!(
+        handle
+            .manifest
+            .volume
+            .source
+            .geometry
+            .crossline_field
+            .start_byte,
         193
     );
-    assert!(handle.manifest.volume.source.geometry.third_axis_field.is_none());
+    assert!(
+        handle
+            .manifest
+            .volume
+            .source
+            .geometry
+            .third_axis_field
+            .is_none()
+    );
 
     let array = load_array(&handle).unwrap();
     assert_eq!(array.shape(), &[5, 5, 50]);

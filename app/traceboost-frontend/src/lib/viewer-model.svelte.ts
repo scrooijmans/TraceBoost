@@ -49,6 +49,14 @@ interface OpenDatasetOptions {
   sourcePath?: string | null;
   sessionPipelines?: WorkspacePipelineEntry[] | null;
   activeSessionPipelineId?: string | null;
+  makeActive?: boolean;
+  loadSection?: boolean;
+}
+
+interface ImportDatasetOptions extends OpenDatasetOptions {
+  inputPath?: string;
+  outputStorePath?: string;
+  reuseExistingStore?: boolean;
 }
 
 export type CompareCompatibilityReason =
@@ -91,11 +99,30 @@ function capEntries<T>(entries: T[], next: T, limit: number): T[] {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return (error as { message: string }).message;
+  }
+  return fallback;
 }
 
 function isExistingStoreError(message: string): boolean {
   return message.toLowerCase().includes("store root already exists:");
+}
+
+function describePreflight(preflight: SurveyPreflightResponse): string {
+  const gather = preflight.gather_axis_kind ? `, gather axis ${preflight.gather_axis_kind}` : "";
+  return `${preflight.classification} (${preflight.stacking_state}, ${preflight.layout}${gather})`;
 }
 
 function trimPath(value: string): string {
@@ -127,8 +154,64 @@ function fileExtension(filePath: string): string {
   return extensionIndex >= 0 ? filename.slice(extensionIndex).toLowerCase() : "";
 }
 
+function fileStem(filePath: string | null | undefined): string {
+  const normalized = trimPath(filePath ?? "");
+  if (!normalized) {
+    return "";
+  }
+  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  const filename = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+  return filename.replace(/\.[^.]+$/, "");
+}
+
+function stripGeneratedHashSuffix(value: string): string {
+  return value.replace(/-[0-9a-f]{16}$/i, "");
+}
+
+function userVisibleDatasetName(
+  displayName: string | null | undefined,
+  sourcePath: string | null | undefined,
+  storePath: string | null | undefined,
+  fallbackId: string
+): string {
+  const sourceStem = fileStem(sourcePath);
+  if (sourceStem) {
+    return sourceStem;
+  }
+
+  const trimmedDisplayName = trimPath(displayName ?? "");
+  if (trimmedDisplayName) {
+    return stripGeneratedHashSuffix(trimmedDisplayName);
+  }
+
+  const storeStem = fileStem(storePath);
+  if (storeStem) {
+    return stripGeneratedHashSuffix(storeStem);
+  }
+
+  return fallbackId;
+}
+
 function sortWorkspaceEntries(entries: DatasetRegistryEntry[]): DatasetRegistryEntry[] {
-  return [...entries].sort((left, right) => right.updated_at_unix_s - left.updated_at_unix_s);
+  return [...entries].sort((left, right) => {
+    const leftName = userVisibleDatasetName(
+      left.display_name,
+      left.source_path,
+      left.imported_store_path ?? left.preferred_store_path,
+      left.entry_id
+    );
+    const rightName = userVisibleDatasetName(
+      right.display_name,
+      right.source_path,
+      right.imported_store_path ?? right.preferred_store_path,
+      right.entry_id
+    );
+    const byName = leftName.localeCompare(rightName, undefined, { sensitivity: "base", numeric: true });
+    if (byName !== 0) {
+      return byName;
+    }
+    return left.entry_id.localeCompare(right.entry_id, undefined, { sensitivity: "base", numeric: true });
+  });
 }
 
 function mergeWorkspaceEntry(
@@ -315,6 +398,16 @@ export class ViewerModel {
     return this.workspaceEntries.find((entry) => entry.entry_id === this.activeEntryId) ?? null;
   }
 
+  get activeDatasetDisplayName(): string {
+    const activeEntry = this.activeDatasetEntry;
+    return userVisibleDatasetName(
+      activeEntry?.display_name ?? this.dataset?.descriptor.label ?? null,
+      activeEntry?.source_path ?? null,
+      activeEntry?.imported_store_path ?? activeEntry?.preferred_store_path ?? this.activeStorePath ?? null,
+      activeEntry?.entry_id ?? this.dataset?.descriptor.id ?? "dataset"
+    );
+  }
+
   get comparePrimaryDataset(): DatasetSummary | null {
     return this.dataset ?? this.activeDatasetEntry?.last_dataset ?? null;
   }
@@ -343,7 +436,12 @@ export class ViewerModel {
 
       return {
         entryId: entry.entry_id,
-        displayName: entry.display_name,
+        displayName: userVisibleDatasetName(
+          entry.display_name,
+          entry.source_path,
+          entry.imported_store_path ?? entry.preferred_store_path,
+          entry.entry_id
+        ),
         storePath,
         datasetId: candidateDataset?.descriptor.id ?? null,
         compareFamily: datasetCompareFamily(candidateDataset),
@@ -365,7 +463,7 @@ export class ViewerModel {
     return {
       primaryStorePath,
       primaryDatasetId: primary?.descriptor.id ?? null,
-      primaryLabel: primary?.descriptor.label ?? null,
+      primaryLabel: this.activeDatasetDisplayName,
       compareFamily: primaryCompareFamily,
       fingerprint: primaryFingerprint,
       candidates,
@@ -691,6 +789,8 @@ export class ViewerModel {
     }
 
     const extension = fileExtension(normalizedPath);
+    const hasActiveDataset = Boolean(this.dataset && trimPath(this.activeStorePath));
+    const shouldActivateOpenedVolume = !hasActiveDataset;
     if (extension === ".tbvol") {
       const matchingEntry =
         this.workspaceEntries.find(
@@ -701,7 +801,9 @@ export class ViewerModel {
         entryId: matchingEntry?.entry_id ?? null,
         sourcePath: matchingEntry?.source_path ?? null,
         sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
-        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null
+        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null,
+        makeActive: shouldActivateOpenedVolume,
+        loadSection: shouldActivateOpenedVolume
       });
       return;
     }
@@ -721,7 +823,9 @@ export class ViewerModel {
         entryId: matchingEntry?.entry_id ?? null,
         sourcePath: normalizedPath,
         sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
-        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null
+        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null,
+        makeActive: shouldActivateOpenedVolume,
+        loadSection: shouldActivateOpenedVolume
       });
       return;
     }
@@ -738,7 +842,7 @@ export class ViewerModel {
 
       if (preflight.suggested_action !== "direct_dense_ingest") {
         throw new Error(
-          `This SEG-Y survey cannot be opened automatically yet. Classification: ${preflight.classification}. Suggested action: ${preflight.suggested_action}.`
+          `This SEG-Y survey cannot be opened automatically yet. Resolved layout: ${describePreflight(preflight)}. Suggested action: ${preflight.suggested_action}.`
         );
       }
 
@@ -747,11 +851,17 @@ export class ViewerModel {
         (await defaultImportStorePath(normalizedPath));
       this.loading = false;
       this.busyLabel = null;
-      this.activeEntryId = matchingEntry?.entry_id ?? null;
-      this.inputPath = normalizedPath;
-      this.outputStorePath = outputStorePath;
-      this.#outputPathSource = "manual";
-      await this.importDataset();
+      await this.importDataset({
+        inputPath: normalizedPath,
+        outputStorePath,
+        entryId: matchingEntry?.entry_id ?? null,
+        sourcePath: normalizedPath,
+        sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
+        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null,
+        makeActive: shouldActivateOpenedVolume,
+        loadSection: shouldActivateOpenedVolume,
+        reuseExistingStore: true
+      });
     } catch (error) {
       this.loading = false;
       this.busyLabel = null;
@@ -1084,40 +1194,65 @@ export class ViewerModel {
     const nextActiveSessionPipelineId: string | null = hasOwnOption("activeSessionPipelineId")
       ? options.activeSessionPipelineId ?? null
       : this.activeDatasetEntry?.active_session_pipeline_id ?? null;
+    const makeActive = options.makeActive ?? true;
+    const loadSection = options.loadSection ?? makeActive;
 
     try {
       const response = await openDataset(normalizedStorePath);
-      this.dataset = response.dataset;
-      this.activeStorePath = response.dataset.store_path;
-      this.outputStorePath = response.dataset.store_path;
-      this.#outputPathSource = "manual";
-      this.inputPath = trimPath(nextSourcePath);
-      this.error = null;
 
       const workspaceResponse = await upsertDatasetEntry({
         schema_version: 1,
         entry_id: nextEntryId,
-        display_name: response.dataset.descriptor.label,
+        display_name: userVisibleDatasetName(
+          response.dataset.descriptor.label,
+          trimPath(nextSourcePath) || null,
+          response.dataset.store_path,
+          nextEntryId ?? response.dataset.descriptor.id
+        ),
         source_path: trimPath(nextSourcePath) || null,
         preferred_store_path: response.dataset.store_path,
         imported_store_path: response.dataset.store_path,
         dataset: response.dataset,
         session_pipelines: nextSessionPipelines,
         active_session_pipeline_id: nextActiveSessionPipelineId,
-        make_active: true
+        make_active: makeActive
       });
-      this.activeEntryId = workspaceResponse.entry.entry_id;
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, workspaceResponse.entry);
-      this.#applyWorkspaceSession(workspaceResponse.session);
       this.refreshCompareSelection();
 
-      this.note(
-        "Runtime store opened.",
-        "backend",
-        "info",
-        `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
-      );
-      await this.load(axis, index, response.dataset.store_path);
+      if (makeActive) {
+        this.dataset = response.dataset;
+        this.activeStorePath = response.dataset.store_path;
+        this.outputStorePath = response.dataset.store_path;
+        this.#outputPathSource = "manual";
+        this.inputPath = trimPath(nextSourcePath);
+        this.error = null;
+        this.activeEntryId = workspaceResponse.entry.entry_id;
+        this.#applyWorkspaceSession(workspaceResponse.session);
+
+        this.note(
+          "Runtime store opened.",
+          "backend",
+          "info",
+          `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
+        );
+        if (loadSection) {
+          await this.load(axis, index, response.dataset.store_path);
+        } else {
+          this.loading = false;
+          this.busyLabel = null;
+        }
+      } else {
+        this.loading = false;
+        this.busyLabel = null;
+        this.error = null;
+        this.note(
+          "Volume added to the workspace without changing the active seismic view.",
+          "backend",
+          "info",
+          `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
+        );
+      }
     } catch (error) {
       this.loading = false;
       this.busyLabel = null;
@@ -1163,7 +1298,7 @@ export class ViewerModel {
       this.preflight = preflight;
       this.error = null;
       this.note(
-        `Preflight completed as ${preflight.classification}.`,
+        `Preflight completed as ${describePreflight(preflight)}.`,
         "backend",
         preflight.suggested_action === "direct_dense_ingest" ? "info" : "warn",
         `Suggested action: ${preflight.suggested_action}`
@@ -1181,9 +1316,24 @@ export class ViewerModel {
     }
   };
 
-  importDataset = async (): Promise<void> => {
-    const inputPath = this.inputPath.trim();
-    const outputStorePath = this.outputStorePath.trim();
+  importDataset = async (options: ImportDatasetOptions = {}): Promise<void> => {
+    const hasOwnOption = (key: keyof ImportDatasetOptions): boolean =>
+      Object.prototype.hasOwnProperty.call(options, key);
+    const inputPath = trimPath(hasOwnOption("inputPath") ? options.inputPath ?? "" : this.inputPath);
+    const outputStorePath = trimPath(
+      hasOwnOption("outputStorePath") ? options.outputStorePath ?? "" : this.outputStorePath
+    );
+    const nextEntryId: string | null = hasOwnOption("entryId") ? options.entryId ?? null : this.activeEntryId;
+    const nextSourcePath = hasOwnOption("sourcePath") ? options.sourcePath ?? inputPath : inputPath;
+    const nextSessionPipelines: WorkspacePipelineEntry[] | null = hasOwnOption("sessionPipelines")
+      ? cloneSessionPipelines(options.sessionPipelines)
+      : this.activeDatasetEntry?.session_pipelines ?? null;
+    const nextActiveSessionPipelineId: string | null = hasOwnOption("activeSessionPipelineId")
+      ? options.activeSessionPipelineId ?? null
+      : this.activeDatasetEntry?.active_session_pipeline_id ?? null;
+    const makeActive = options.makeActive ?? true;
+    const loadSection = options.loadSection ?? makeActive;
+    const reuseExistingStore = options.reuseExistingStore ?? false;
     this.loading = true;
     this.busyLabel = "Importing survey";
     this.error = null;
@@ -1211,6 +1361,27 @@ export class ViewerModel {
         const message = errorMessage(error, "Unknown import error");
         if (!isExistingStoreError(message)) {
           throw error;
+        }
+
+        if (reuseExistingStore) {
+          this.loading = false;
+          this.busyLabel = null;
+          this.error = null;
+          this.note(
+            "An imported runtime store already exists for this SEG-Y file; reusing it instead of re-importing.",
+            "backend",
+            "info",
+            outputStorePath
+          );
+          await this.openDatasetAt(outputStorePath, "inline", 0, {
+            entryId: nextEntryId,
+            sourcePath: nextSourcePath,
+            sessionPipelines: nextSessionPipelines,
+            activeSessionPipelineId: nextActiveSessionPipelineId,
+            makeActive,
+            loadSection
+          });
+          return;
         }
 
         this.loading = false;
@@ -1244,36 +1415,54 @@ export class ViewerModel {
 
       this.loading = false;
       this.busyLabel = null;
-      this.dataset = response.dataset;
-      this.activeStorePath = response.dataset.store_path;
-      this.outputStorePath = response.dataset.store_path;
-      this.#outputPathSource = "manual";
       this.lastImportedInputPath = inputPath;
       this.lastImportedStorePath = response.dataset.store_path;
-      this.error = null;
       const workspaceResponse = await upsertDatasetEntry({
         schema_version: 1,
-        entry_id: this.activeEntryId,
-        display_name: response.dataset.descriptor.label,
-        source_path: inputPath,
+        entry_id: nextEntryId,
+        display_name: userVisibleDatasetName(
+          response.dataset.descriptor.label,
+          trimPath(nextSourcePath) || null,
+          response.dataset.store_path,
+          nextEntryId ?? response.dataset.descriptor.id
+        ),
+        source_path: trimPath(nextSourcePath) || null,
         preferred_store_path: response.dataset.store_path,
         imported_store_path: response.dataset.store_path,
         dataset: response.dataset,
-        session_pipelines: this.activeDatasetEntry?.session_pipelines ?? null,
-        active_session_pipeline_id: this.activeDatasetEntry?.active_session_pipeline_id ?? null,
-        make_active: true
+        session_pipelines: nextSessionPipelines,
+        active_session_pipeline_id: nextActiveSessionPipelineId,
+        make_active: makeActive
       });
-      this.activeEntryId = workspaceResponse.entry.entry_id;
       this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, workspaceResponse.entry);
-      this.#applyWorkspaceSession(workspaceResponse.session);
       this.refreshCompareSelection();
-      this.note(
-        "Dataset import completed.",
-        "backend",
-        "info",
-        `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
-      );
-      await this.load("inline", 0, response.dataset.store_path);
+      if (makeActive) {
+        this.dataset = response.dataset;
+        this.activeStorePath = response.dataset.store_path;
+        this.outputStorePath = response.dataset.store_path;
+        this.#outputPathSource = "manual";
+        this.inputPath = inputPath;
+        this.error = null;
+        this.activeEntryId = workspaceResponse.entry.entry_id;
+        this.#applyWorkspaceSession(workspaceResponse.session);
+        this.note(
+          "Dataset import completed.",
+          "backend",
+          "info",
+          `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
+        );
+        if (loadSection) {
+          await this.load("inline", 0, response.dataset.store_path);
+        }
+      } else {
+        this.error = null;
+        this.note(
+          "Survey import completed and the volume was added to the workspace without changing the active seismic view.",
+          "backend",
+          "info",
+          `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
+        );
+      }
     } catch (error) {
       this.loading = false;
       this.busyLabel = null;

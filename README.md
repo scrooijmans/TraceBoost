@@ -8,6 +8,8 @@ The current product milestone is:
 
 `select SEG-Y -> preflight/ingest -> open runtime store -> view inline/xline sections in the app shell`
 
+TraceBoost remains post-stack-first today, but preflight now distinguishes resolved seismic layout metadata such as post-stack vs prestack so unsupported surveys can be identified explicitly before ingest.
+
 The backend now also supports the first processing flow:
 
 `open tbvol -> define versioned operator pipeline -> preview on current 2D section -> materialize derived tbvol on full volume -> persist lineage/preset`
@@ -55,7 +57,7 @@ The desktop shell now also persists a lightweight workspace layer:
 - shared Rust and TypeScript contracts exist for:
   - dataset descriptions
   - section requests/responses
-  - survey preflight
+  - survey preflight including resolved stacking/layout metadata
   - dataset import/open flows
 - `seis-io` can inspect SEG-Y files, load headers, analyze geometry, and feed ingest paths
 - `seis-runtime` re-exports the shared Ophiolite seismic runtime used to preflight SEG-Y, ingest into `tbvol`, reopen stores, describe datasets, and generate section views

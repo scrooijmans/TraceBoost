@@ -15,5 +15,6 @@ Regenerate from the repo root with:
 ```
 
 Consumers such as `geoviz` should treat this package as the frontend contract
-surface for app/runtime IPC payloads, shared dataset/view models, and desktop
-workspace/session DTOs.
+surface for app/runtime IPC payloads, shared dataset/view models, desktop
+workspace/session DTOs, and survey preflight metadata such as resolved stacking
+and layout classification.

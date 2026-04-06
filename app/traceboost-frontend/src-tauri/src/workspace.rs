@@ -5,8 +5,8 @@ use std::sync::Mutex;
 use seis_contracts_interop::{
     DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, IPC_SCHEMA_VERSION,
     LoadWorkspaceStateResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SectionAxis, UpsertDatasetEntryRequest,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SectionAxis,
+    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, UpsertDatasetEntryRequest,
     UpsertDatasetEntryResponse, WorkspaceSession,
 };
 use serde::{Deserialize, Serialize};
@@ -90,10 +90,18 @@ impl WorkspaceState {
 
         let entry = if let Some(index) = match_index {
             let entry = &mut entries[index];
-            if let Some(display_name) = request.display_name.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(display_name) = request
+                .display_name
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 entry.display_name = display_name.trim().to_string();
             }
-            if let Some(source_path) = request.source_path.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(source_path) = request
+                .source_path
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 entry.source_path = Some(source_path.trim().to_string());
             }
             if let Some(preferred_store_path) = request
@@ -130,7 +138,8 @@ impl WorkspaceState {
                     request.display_name.as_deref(),
                     entry.last_dataset.as_ref(),
                     entry.source_path.as_deref(),
-                    entry.imported_store_path
+                    entry
+                        .imported_store_path
                         .as_deref()
                         .or(entry.preferred_store_path.as_deref()),
                     entry_count + 1,
@@ -154,8 +163,12 @@ impl WorkspaceState {
                 entry_id: format!("dataset-{now}-{:03}", entry_count + 1),
                 display_name,
                 source_path: normalize_optional_path(request.source_path.as_deref()),
-                preferred_store_path: normalize_optional_path(request.preferred_store_path.as_deref()),
-                imported_store_path: normalize_optional_path(request.imported_store_path.as_deref()),
+                preferred_store_path: normalize_optional_path(
+                    request.preferred_store_path.as_deref(),
+                ),
+                imported_store_path: normalize_optional_path(
+                    request.imported_store_path.as_deref(),
+                ),
                 last_dataset: request.dataset.clone(),
                 session_pipelines: request.session_pipelines.clone().unwrap_or_default(),
                 active_session_pipeline_id: normalize_optional_string(
@@ -163,7 +176,9 @@ impl WorkspaceState {
                 ),
                 status: DatasetRegistryStatus::Linked,
                 last_opened_at_unix_s: None,
-                last_imported_at_unix_s: if request.dataset.is_some() || request.imported_store_path.is_some() {
+                last_imported_at_unix_s: if request.dataset.is_some()
+                    || request.imported_store_path.is_some()
+                {
                     Some(now)
                 } else {
                     None
@@ -281,7 +296,10 @@ impl WorkspaceState {
         };
 
         if let Some(active_entry_id) = session.active_entry_id.as_ref() {
-            if let Some(entry) = entries.iter_mut().find(|entry| &entry.entry_id == active_entry_id) {
+            if let Some(entry) = entries
+                .iter_mut()
+                .find(|entry| &entry.entry_id == active_entry_id)
+            {
                 entry.last_opened_at_unix_s = Some(now);
                 entry.updated_at_unix_s = now;
                 if entry.imported_store_path.is_none() {
@@ -381,7 +399,6 @@ fn persist_session(path: &Path, session: &WorkspaceSession) -> Result<(), String
     fs::write(path, json).map_err(|error| error.to_string())
 }
 
-
 fn default_session() -> WorkspaceSession {
     WorkspaceSession {
         active_entry_id: None,
@@ -425,7 +442,10 @@ fn path_basename(path: &str) -> Option<String> {
 }
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
-    value.map(str::trim).filter(|value| !value.is_empty()).map(ToOwned::to_owned)
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn normalize_optional_path(value: Option<&str>) -> Option<String> {
@@ -482,7 +502,8 @@ mod tests {
     fn upsert_and_restore_workspace_state() {
         let registry = temp_file("registry.json");
         let session = temp_file("session.json");
-        let state = WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
+        let state =
+            WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
 
         let response = state
             .upsert_entry(UpsertDatasetEntryRequest {
@@ -516,7 +537,10 @@ mod tests {
             .load_state()
             .expect("load state");
         assert_eq!(restored.entries.len(), 1);
-        assert_eq!(restored.session.active_entry_id, Some(response.entry.entry_id));
+        assert_eq!(
+            restored.session.active_entry_id,
+            Some(response.entry.entry_id)
+        );
         assert_eq!(restored.session.active_index, 17);
     }
 
@@ -524,7 +548,8 @@ mod tests {
     fn preferred_store_path_does_not_merge_distinct_sources() {
         let registry = temp_file("registry.json");
         let session = temp_file("session.json");
-        let state = WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
+        let state =
+            WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
 
         state
             .upsert_entry(UpsertDatasetEntryRequest {
@@ -593,8 +618,11 @@ mod tests {
             ]
         });
 
-        fs::write(&registry, serde_json::to_vec_pretty(&legacy).expect("serialize legacy registry"))
-            .expect("write legacy registry");
+        fs::write(
+            &registry,
+            serde_json::to_vec_pretty(&legacy).expect("serialize legacy registry"),
+        )
+        .expect("write legacy registry");
 
         let restored = WorkspaceState::initialize(&registry, &session)
             .expect("initialize workspace state")

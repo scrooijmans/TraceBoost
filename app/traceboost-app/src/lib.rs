@@ -24,6 +24,10 @@ pub fn preflight_dataset(
         trace_count: preflight.inspection.trace_count,
         samples_per_trace: preflight.inspection.samples_per_trace as usize,
         classification: preflight.geometry.classification,
+        stacking_state: preflight.geometry.stacking_state,
+        organization: preflight.geometry.organization,
+        layout: preflight.geometry.layout,
+        gather_axis_kind: preflight.geometry.gather_axis_kind,
         suggested_action: suggested_action(preflight.recommended_action),
         observed_trace_count: preflight.geometry.observed_trace_count,
         expected_trace_count: preflight.geometry.expected_trace_count,
@@ -151,9 +155,7 @@ pub fn default_output_store_path(
     pipeline: &ProcessingPipeline,
 ) -> PathBuf {
     let input_store_path = input_store_path.as_ref();
-    let parent = input_store_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let parent = input_store_path.parent().unwrap_or_else(|| Path::new("."));
     let stem = input_store_path
         .file_stem()
         .and_then(|value| value.to_str())

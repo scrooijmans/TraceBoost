@@ -5955,7 +5955,16 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "gather_axis_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "input_path": {
+          "type": "string"
+        },
+        "layout": {
           "type": "string"
         },
         "notes": {
@@ -5969,6 +5978,9 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "organization": {
+          "type": "string"
+        },
         "samples_per_trace": {
           "format": "uint",
           "minimum": 0.0,
@@ -5978,6 +5990,9 @@
           "format": "uint32",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "stacking_state": {
+          "type": "string"
         },
         "suggested_action": {
           "$ref": "#/definitions/SuggestedImportAction"
@@ -5993,10 +6008,13 @@
         "completeness_ratio",
         "expected_trace_count",
         "input_path",
+        "layout",
         "notes",
         "observed_trace_count",
+        "organization",
         "samples_per_trace",
         "schema_version",
+        "stacking_state",
         "suggested_action",
         "trace_count"
       ],

@@ -217,7 +217,7 @@
         <h2>{processingModel.pipelineTitle}</h2>
         <p>
           {viewerModel.dataset
-            ? `Working on ${viewerModel.dataset.descriptor.label} at ${viewerModel.axis}:${viewerModel.index}`
+            ? `Working on ${viewerModel.activeDatasetDisplayName} at ${viewerModel.axis}:${viewerModel.index}`
             : "Open a runtime store to preview processing on the current section."}
         </p>
       </div>
@@ -228,6 +228,8 @@
         onSelect={processingModel.activateSessionPipeline}
         onCreate={processingModel.createSessionPipeline}
         onDuplicate={processingModel.duplicateActiveSessionPipeline}
+        onCopy={processingModel.copyActiveSessionPipeline}
+        onPaste={processingModel.pasteCopiedSessionPipeline}
         onRemove={processingModel.removeActiveSessionPipeline}
         getLabel={processingModel.sessionPipelineLabel}
         canRemove={processingModel.canRemoveSessionPipeline}
@@ -420,7 +422,6 @@
                 </svg>
               </button>
               <div class="compare-cycle-copy">
-                <strong>{viewerModel.activeForegroundCompareCandidate?.displayName ?? viewerModel.dataset?.descriptor.label}</strong>
                 <small>
                   {viewerModel.compatibleCompareCandidates.findIndex(
                     (candidate) => candidate.storePath === viewerModel.comparePrimaryStorePath
@@ -448,7 +449,7 @@
             style:bottom={chartOverlayBottom}
           >
             <div class="compare-label-line">
-              <strong>{viewerModel.activeForegroundCompareCandidate?.displayName ?? viewerModel.dataset?.descriptor.label}</strong>
+              <strong>{viewerModel.activeForegroundCompareCandidate?.displayName ?? viewerModel.activeDatasetDisplayName}</strong>
             </div>
 
             {#if viewerModel.activeBackgroundCompareCandidate}
@@ -842,16 +843,10 @@
     text-align: center;
   }
 
-  .compare-cycle-copy strong,
   .compare-cycle-copy small {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .compare-cycle-copy strong {
-    font-size: 12px;
-    color: #f0f4f6;
   }
 
   .compare-cycle-copy small {

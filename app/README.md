@@ -24,6 +24,7 @@
 
 - app/backend helpers for:
   - survey preflight
+    - includes resolved stacking/layout metadata for unsupported prestack detection
   - dataset import
   - dataset open/summary
   - section loading

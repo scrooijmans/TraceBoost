@@ -142,9 +142,7 @@ pub struct SaveWorkspaceSessionResponse {
     pub session: WorkspaceSession,
 }
 
-pub fn encode_preview_command(
-    command: &PreviewCommand,
-) -> serde_json::Result<String> {
+pub fn encode_preview_command(command: &PreviewCommand) -> serde_json::Result<String> {
     serde_json::to_string(command)
 }
 

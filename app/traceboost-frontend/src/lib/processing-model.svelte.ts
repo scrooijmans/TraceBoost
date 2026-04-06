@@ -123,6 +123,7 @@ export class ProcessingModel {
   #sessionPipelineCounter = 0;
   #hydratedDatasetEntryId: string | null = null;
   #runOutputPathRequestId = 0;
+  #copiedSessionPipeline: ProcessingPipeline | null = null;
 
   constructor(options: ProcessingModelOptions) {
     this.viewerModel = options.viewerModel;
@@ -144,27 +145,13 @@ export class ProcessingModel {
     });
 
     $effect(() => {
-      const persistedPresetId = this.viewerModel.selectedPresetId;
-      if (!persistedPresetId) {
-        return;
-      }
-
-      const preset = this.presets.find((candidate) => candidate.preset_id === persistedPresetId);
-      if (!preset || this.pipeline.preset_id === persistedPresetId) {
-        return;
-      }
-
-      this.replacePipeline(preset.pipeline);
-    });
-
-    $effect(() => {
       const activeEntryId = this.viewerModel.activeEntryId;
       const activeEntry = this.viewerModel.activeDatasetEntry;
 
       if (!activeEntryId || !activeEntry) {
         this.#hydratedDatasetEntryId = null;
         if (!this.sessionPipelines.length) {
-          const fallback = this.createSessionPipelineEntry("Pipeline 1");
+          const fallback = this.createSessionPipelineEntry(this.nextEmptySessionPipelineName());
           this.sessionPipelines = [fallback];
           this.activeSessionPipelineId = fallback.pipeline_id;
           this.pipeline = clonePipeline(fallback.pipeline);
@@ -343,10 +330,11 @@ export class ProcessingModel {
   };
 
   createSessionPipeline = (): void => {
-    const nextEntry = this.createSessionPipelineEntry(`Pipeline ${this.sessionPipelines.length + 1}`);
+    const nextEntry = this.createSessionPipelineEntry(this.nextEmptySessionPipelineName());
     this.sessionPipelines = [...this.sessionPipelines, nextEntry];
     this.activeSessionPipelineId = nextEntry.pipeline_id;
     this.pipeline = clonePipeline(nextEntry.pipeline);
+    this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
@@ -355,17 +343,14 @@ export class ProcessingModel {
 
   duplicateActiveSessionPipeline = (): void => {
     const source = this.activeSessionPipeline;
-    const duplicate = this.createSessionPipelineEntry(
-      `${pipelineName(source?.pipeline ?? this.pipeline)} copy`,
-      {
-        ...clonePipeline(source?.pipeline ?? this.pipeline),
-        preset_id: null,
-        name: `${pipelineName(source?.pipeline ?? this.pipeline)} copy`
-      }
-    );
+    if (!source) {
+      return;
+    }
+    const duplicate = this.createCopiedSessionPipelineEntry(source.pipeline);
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
+    this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
@@ -380,6 +365,7 @@ export class ProcessingModel {
 
     this.activeSessionPipelineId = pipelineId;
     this.pipeline = clonePipeline(entry.pipeline);
+    this.viewerModel.setSelectedPresetId(entry.pipeline.preset_id ?? null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
@@ -393,7 +379,7 @@ export class ProcessingModel {
     }
 
     if (this.sessionPipelines.length <= 1) {
-      const replacement = this.createSessionPipelineEntry("Pipeline 1");
+      const replacement = this.createSessionPipelineEntry(this.nextEmptySessionPipelineName());
       this.sessionPipelines = [replacement];
       this.activeSessionPipelineId = replacement.pipeline_id;
       this.pipeline = clonePipeline(replacement.pipeline);
@@ -410,6 +396,7 @@ export class ProcessingModel {
     this.sessionPipelines = nextSessionPipelines;
     this.activeSessionPipelineId = fallbackEntry.pipeline_id;
     this.pipeline = clonePipeline(fallbackEntry.pipeline);
+    this.viewerModel.setSelectedPresetId(fallbackEntry.pipeline.preset_id ?? null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
@@ -429,6 +416,48 @@ export class ProcessingModel {
       updated_at_unix_s: pipelineTimestamp()
     };
   }
+
+  private nextEmptySessionPipelineName(): string {
+    const existingNames = this.sessionPipelines.map((entry) => pipelineName(entry.pipeline).trim().toLowerCase());
+    if (!existingNames.includes("pipeline")) {
+      return "Pipeline";
+    }
+
+    let index = 2;
+    while (existingNames.includes(`pipeline ${index}`)) {
+      index += 1;
+    }
+    return `Pipeline ${index}`;
+  }
+
+  private createCopiedSessionPipelineEntry(source: ProcessingPipeline): WorkspacePipelineEntry {
+    const pipeline = clonePipeline(source);
+    pipeline.preset_id = null;
+    pipeline.name = `${pipelineName(source)}_copy`;
+    return this.createSessionPipelineEntry(pipeline.name, pipeline);
+  }
+
+  copyActiveSessionPipeline = (): void => {
+    const activePipeline = this.activeSessionPipeline?.pipeline ?? this.pipeline;
+    this.#copiedSessionPipeline = clonePipeline(activePipeline);
+    this.viewerModel.note("Copied active session pipeline.", "ui", "info", pipelineName(activePipeline));
+  };
+
+  pasteCopiedSessionPipeline = (): void => {
+    if (!this.#copiedSessionPipeline) {
+      return;
+    }
+
+    const duplicate = this.createCopiedSessionPipelineEntry(this.#copiedSessionPipeline);
+    this.sessionPipelines = [...this.sessionPipelines, duplicate];
+    this.activeSessionPipelineId = duplicate.pipeline_id;
+    this.pipeline = clonePipeline(duplicate.pipeline);
+    this.viewerModel.setSelectedPresetId(null);
+    this.selectedStepIndex = 0;
+    this.editingParams = false;
+    this.clearPreviewState();
+    void this.persistSessionPipelines();
+  };
 
   private persistSessionPipelines(): Promise<void> {
     return this.viewerModel.updateActiveEntryPipelines(
@@ -584,7 +613,7 @@ export class ProcessingModel {
   loadPreset = (preset: ProcessingPreset): void => {
     this.replacePipeline(preset.pipeline);
     this.viewerModel.setSelectedPresetId(preset.preset_id);
-    this.viewerModel.note("Loaded pipeline preset.", "ui", "info", preset.preset_id);
+    this.viewerModel.note("Applied library template to the active pipeline.", "ui", "info", preset.preset_id);
   };
 
   savePreset = async (): Promise<void> => {
@@ -605,10 +634,10 @@ export class ProcessingModel {
       this.updateActiveSessionPipeline(clonePipeline(response.preset.pipeline));
       this.viewerModel.setSelectedPresetId(response.preset.preset_id);
       await this.refreshPresets();
-      this.viewerModel.note("Saved pipeline preset.", "ui", "info", response.preset.preset_id);
+      this.viewerModel.note("Saved pipeline as a library template.", "ui", "info", response.preset.preset_id);
     } catch (error) {
-      this.error = errorMessage(error, "Failed to save pipeline preset.");
-      this.viewerModel.note("Failed to save pipeline preset.", "backend", "error", this.error);
+      this.error = errorMessage(error, "Failed to save library template.");
+      this.viewerModel.note("Failed to save library template.", "backend", "error", this.error);
     }
   };
 
@@ -620,11 +649,11 @@ export class ProcessingModel {
           this.viewerModel.setSelectedPresetId(null);
         }
         await this.refreshPresets();
-        this.viewerModel.note("Deleted pipeline preset.", "ui", "warn", presetId);
+        this.viewerModel.note("Deleted library template.", "ui", "warn", presetId);
       }
     } catch (error) {
-      this.error = errorMessage(error, "Failed to delete pipeline preset.");
-      this.viewerModel.note("Failed to delete pipeline preset.", "backend", "error", this.error);
+      this.error = errorMessage(error, "Failed to delete library template.");
+      this.viewerModel.note("Failed to delete library template.", "backend", "error", this.error);
     }
   };
 

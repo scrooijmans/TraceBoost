@@ -20,7 +20,7 @@
       <h2>{processingModel.pipelineTitle}</h2>
       <p>
         {viewerModel.dataset
-          ? `Working on ${viewerModel.dataset.descriptor.label} at ${viewerModel.axis}:${viewerModel.index}`
+          ? `Working on ${viewerModel.activeDatasetDisplayName} at ${viewerModel.axis}:${viewerModel.index}`
           : "Open a runtime store to preview processing on the current section."}
       </p>
     </div>
@@ -38,6 +38,8 @@
       onSelect={processingModel.activateSessionPipeline}
       onCreate={processingModel.createSessionPipeline}
       onDuplicate={processingModel.duplicateActiveSessionPipeline}
+      onCopy={processingModel.copyActiveSessionPipeline}
+      onPaste={processingModel.pasteCopiedSessionPipeline}
       onRemove={processingModel.removeActiveSessionPipeline}
       getLabel={processingModel.sessionPipelineLabel}
       canRemove={processingModel.canRemoveSessionPipeline}

@@ -79,6 +79,25 @@
   } = $props();
 
   let selectedPresetId = $state("");
+
+  function normalizeTemplateId(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  const currentLibraryTemplateId = $derived(
+    normalizeTemplateId(pipeline.preset_id ?? pipeline.name ?? "")
+  );
+  const currentLibraryTemplateExists = $derived(
+    !!currentLibraryTemplateId &&
+      presets.some((preset) => preset.preset_id === currentLibraryTemplateId)
+  );
+  const saveLibraryButtonLabel = $derived(
+    currentLibraryTemplateExists ? "Update Library Template" : "Save As Library Template"
+  );
 </script>
 
 <section class="editor-panel">
@@ -89,7 +108,7 @@
         <p>{previewState === "preview" ? `Preview active: ${previewLabel ?? "processed"}` : previewState === "stale" ? "Preview stale" : "Showing raw section"}</p>
       </div>
       <div class="action-row">
-        <button class="chip" onclick={onSavePreset}>Save Preset</button>
+        <button class="chip" onclick={onSavePreset}>{saveLibraryButtonLabel}</button>
         <button class="chip" onclick={onPreview} disabled={!canPreview || previewBusy}>
           {previewBusy ? "Previewing..." : "Preview"}
         </button>
@@ -177,7 +196,7 @@
 
   <div class="preset-row">
     <select bind:value={selectedPresetId} disabled={loadingPresets || !presets.length}>
-      <option value="">Load preset...</option>
+      <option value="">Apply library template...</option>
       {#each presets as preset (preset.preset_id)}
         <option value={preset.preset_id}>{preset.pipeline.name ?? preset.preset_id}</option>
       {/each}
@@ -190,10 +209,10 @@
         if (preset) onLoadPreset(preset);
       }}
     >
-      Load
+      Apply
     </button>
     <button class="chip danger" disabled={!selectedPresetId} onclick={() => onDeletePreset(selectedPresetId)}>
-      Delete
+      Delete Template
     </button>
     <button class="chip" disabled={previewState === "raw"} onclick={onShowRaw}>Show Raw</button>
   </div>

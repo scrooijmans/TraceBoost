@@ -3245,6 +3245,7 @@ version = "0.1.0"
 dependencies = [
  "ibm1047",
  "memmap2",
+ "ophiolite-seismic",
  "rayon",
 ]
 

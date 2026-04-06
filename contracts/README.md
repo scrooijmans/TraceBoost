@@ -25,6 +25,7 @@ The contracts layer defines the typed payloads that cross:
 - section-axis and section-view contracts
 - preview/view request-response contracts
 - survey preflight request-response contracts
+  - includes resolved stacking/layout metadata so apps can distinguish post-stack vs prestack before ingest
 - dataset import request-response contracts
 - dataset open/summary request-response contracts
 - dataset registry and workspace-session payloads for the desktop shell

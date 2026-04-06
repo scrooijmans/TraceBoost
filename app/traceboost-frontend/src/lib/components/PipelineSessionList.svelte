@@ -9,6 +9,8 @@
     onSelect,
     onCreate,
     onDuplicate,
+    onCopy,
+    onPaste,
     onRemove,
     getLabel,
     canRemove
@@ -18,10 +20,29 @@
     onSelect: (pipelineId: string) => void;
     onCreate: () => void;
     onDuplicate: () => void;
+    onCopy: () => void;
+    onPaste: () => void;
     onRemove: () => void;
     getLabel: (entry: WorkspacePipelineEntry, index: number) => string;
     canRemove: boolean;
   } = $props();
+
+  function handleKeyDown(event: KeyboardEvent): void {
+    if (!(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key === "c" && activePipelineId) {
+      event.preventDefault();
+      onCopy();
+    }
+
+    if (key === "v") {
+      event.preventDefault();
+      onPaste();
+    }
+  }
 </script>
 
 <section class="session-panel">
@@ -36,7 +57,7 @@
     </div>
   </header>
 
-  <div class="pipeline-list">
+  <div class="pipeline-list" role="listbox" tabindex="0" onkeydown={handleKeyDown} aria-label="Session pipelines">
     {#each pipelines as entry, index (entry.pipeline_id)}
       <button
         class:selected={entry.pipeline_id === activePipelineId}

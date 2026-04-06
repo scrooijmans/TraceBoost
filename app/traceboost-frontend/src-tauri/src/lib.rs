@@ -4,16 +4,15 @@ mod processing;
 mod workspace;
 
 use seis_contracts_interop::{
-    CancelProcessingJobRequest, CancelProcessingJobResponse, GetProcessingJobRequest,
-    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ListPipelinePresetsResponse, LoadWorkspaceStateResponse, OpenDatasetRequest,
-    OpenDatasetResponse, PreviewProcessingRequest, PreviewProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunProcessingRequest,
-    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SurveyPreflightRequest, SurveyPreflightResponse,
-    DeletePipelinePresetRequest, DeletePipelinePresetResponse, UpsertDatasetEntryRequest,
-    UpsertDatasetEntryResponse,
+    CancelProcessingJobRequest, CancelProcessingJobResponse, DeletePipelinePresetRequest,
+    DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
+    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, ListPipelinePresetsResponse,
+    LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewProcessingRequest,
+    PreviewProcessingResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
+    RunProcessingRequest, RunProcessingResponse, SavePipelinePresetRequest,
+    SavePipelinePresetResponse, SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
+    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, SurveyPreflightRequest,
+    SurveyPreflightResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
 };
 use seis_runtime::{
     MaterializeOptions, SectionAxis, SectionView, materialize_processing_volume_with_progress,
@@ -28,10 +27,7 @@ use tauri::{
     AppHandle, Emitter, Manager, State,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
-use traceboost_app::{
-    import_dataset, open_dataset_summary, preflight_dataset,
-    preview_processing,
-};
+use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset, preview_processing};
 
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
@@ -81,7 +77,9 @@ fn pipeline_output_slug(pipeline: &seis_runtime::ProcessingPipeline) -> String {
             seis_runtime::ProcessingOperation::AmplitudeScalar { factor } => {
                 format!("amplitude-scalar-{}", format_factor(*factor))
             }
-            seis_runtime::ProcessingOperation::TraceRmsNormalize => "trace-rms-normalize".to_string(),
+            seis_runtime::ProcessingOperation::TraceRmsNormalize => {
+                "trace-rms-normalize".to_string()
+            }
         };
         parts.push(part);
     }
@@ -134,9 +132,11 @@ fn default_processing_store_path(
     let pipeline_stem = pipeline_output_slug(pipeline);
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let base_name = format!("{source_stem}.{pipeline_stem}.{timestamp}");
-    Ok(unique_store_candidate(app_paths.derived_volumes_dir(), &base_name)
-        .display()
-        .to_string())
+    Ok(
+        unique_store_candidate(app_paths.derived_volumes_dir(), &base_name)
+            .display()
+            .to_string(),
+    )
 }
 
 fn import_store_path_for_input(app_paths: &AppPaths, input_path: &str) -> Result<String, String> {
@@ -183,7 +183,13 @@ fn default_processing_store_path_command(
 }
 
 fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let open_volume = MenuItem::with_id(app, FILE_OPEN_VOLUME_MENU_ID, "&Open Volume...", true, None::<&str>)?;
+    let open_volume = MenuItem::with_id(
+        app,
+        FILE_OPEN_VOLUME_MENU_ID,
+        "&Open Volume...",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let close_window = PredefinedMenuItem::close_window(app, None)?;
 
@@ -241,6 +247,9 @@ fn preflight_import_command(
                 Some(build_fields([
                     ("stage", json_value("summarize")),
                     ("classification", json_value(&response.classification)),
+                    ("stackingState", json_value(&response.stacking_state)),
+                    ("organization", json_value(&response.organization)),
+                    ("layout", json_value(&response.layout)),
                     ("traceCount", json_value(response.trace_count)),
                     ("samplesPerTrace", json_value(response.samples_per_trace)),
                     ("completenessRatio", json_value(response.completeness_ratio)),
@@ -486,7 +495,10 @@ fn preview_processing_command(
         "Generating processing preview",
         Some(build_fields([
             ("storePath", json_value(&request.store_path)),
-            ("axis", json_value(format!("{:?}", request.section.axis).to_ascii_lowercase())),
+            (
+                "axis",
+                json_value(format!("{:?}", request.section.axis).to_ascii_lowercase()),
+            ),
             ("index", json_value(request.section.index)),
             (
                 "operatorCount",
@@ -532,14 +544,15 @@ fn run_processing_command(
     request: RunProcessingRequest,
 ) -> Result<RunProcessingResponse, String> {
     let app_paths = AppPaths::resolve(&app)?;
-    let output_store_path = request
-        .output_store_path
-        .clone()
-        .unwrap_or(default_processing_store_path(
-            &app_paths,
-            &request.store_path,
-            &request.pipeline,
-        )?);
+    let output_store_path =
+        request
+            .output_store_path
+            .clone()
+            .unwrap_or(default_processing_store_path(
+                &app_paths,
+                &request.store_path,
+                &request.pipeline,
+            )?);
     let queued = processing.enqueue_job(
         request.store_path.clone(),
         Some(output_store_path.clone()),
@@ -700,13 +713,10 @@ fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessin
         }
     };
     let _ = record.mark_running();
-    let output_store_path = request
-        .output_store_path
-        .clone()
-        .unwrap_or_else(|| {
-            default_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
-                .unwrap_or_else(|_| "derived-output.tbvol".to_string())
-        });
+    let output_store_path = request.output_store_path.clone().unwrap_or_else(|| {
+        default_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
+            .unwrap_or_else(|_| "derived-output.tbvol".to_string())
+    });
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
         &output_store_path,
@@ -772,12 +782,18 @@ fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessin
                 diagnostics.emit_session_event(
                     app,
                     "processing_job_failed",
-                    if matches!(final_status.state, seis_runtime::ProcessingJobState::Cancelled) {
+                    if matches!(
+                        final_status.state,
+                        seis_runtime::ProcessingJobState::Cancelled
+                    ) {
                         log::Level::Warn
                     } else {
                         log::Level::Error
                     },
-                    if matches!(final_status.state, seis_runtime::ProcessingJobState::Cancelled) {
+                    if matches!(
+                        final_status.state,
+                        seis_runtime::ProcessingJobState::Cancelled
+                    ) {
                         "Processing job cancelled"
                     } else {
                         "Processing job failed"
