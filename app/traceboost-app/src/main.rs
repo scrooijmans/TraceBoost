@@ -179,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     sparse_survey_policy: if regularize_sparse {
                         SparseSurveyPolicy::RegularizeToDense { fill_value }
                     } else {
-                        SparseSurveyPolicy::Reject
+                        SparseSurveyPolicy::default()
                     },
                     ..IngestOptions::default()
                 },

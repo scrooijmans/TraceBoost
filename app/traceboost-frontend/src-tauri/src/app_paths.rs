@@ -7,7 +7,9 @@ pub struct AppPaths {
     logs_dir: PathBuf,
     pipeline_presets_dir: PathBuf,
     imported_volumes_dir: PathBuf,
+    imported_gathers_dir: PathBuf,
     derived_volumes_dir: PathBuf,
+    derived_gathers_dir: PathBuf,
     dataset_registry_path: PathBuf,
     workspace_session_path: PathBuf,
 }
@@ -24,14 +26,18 @@ impl AppPaths {
             .map_err(|error| error.to_string())?;
         let pipeline_presets_dir = app_data_dir.join("processing-pipelines");
         let imported_volumes_dir = app_data_dir.join("volumes");
+        let imported_gathers_dir = app_data_dir.join("gathers");
         let derived_volumes_dir = app_data_dir.join("derived-volumes");
+        let derived_gathers_dir = app_data_dir.join("derived-gathers");
         let dataset_registry_path = app_data_dir.join("workspace").join("dataset-registry.json");
         let workspace_session_path = app_data_dir.join("workspace").join("session.json");
         Ok(Self {
             logs_dir,
             pipeline_presets_dir,
             imported_volumes_dir,
+            imported_gathers_dir,
             derived_volumes_dir,
+            derived_gathers_dir,
             dataset_registry_path,
             workspace_session_path,
         })
@@ -49,8 +55,16 @@ impl AppPaths {
         &self.imported_volumes_dir
     }
 
+    pub fn imported_gathers_dir(&self) -> &Path {
+        &self.imported_gathers_dir
+    }
+
     pub fn derived_volumes_dir(&self) -> &Path {
         &self.derived_volumes_dir
+    }
+
+    pub fn derived_gathers_dir(&self) -> &Path {
+        &self.derived_gathers_dir
     }
 
     pub fn dataset_registry_path(&self) -> &Path {

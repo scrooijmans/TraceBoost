@@ -1,6 +1,7 @@
 pub use ophiolite_seismic::{
-    PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
-    SectionInteractionChanged, SectionMetadata, SectionPolarity, SectionPrimaryMode, SectionProbe,
-    SectionProbeChanged, SectionRenderMode, SectionUnits, SectionView, SectionViewport,
-    SectionViewportChanged,
+    GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
+    GatherViewportChanged, PreviewView, SectionColorMap, SectionCoordinate,
+    SectionDisplayDefaults, SectionInteractionChanged, SectionMetadata, SectionPolarity,
+    SectionPrimaryMode, SectionProbe, SectionProbeChanged, SectionRenderMode, SectionUnits,
+    SectionView, SectionViewport, SectionViewportChanged,
 };

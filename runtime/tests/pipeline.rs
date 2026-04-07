@@ -226,6 +226,30 @@ fn ingest_can_regularize_sparse_poststack_with_occupancy_mask() {
 }
 
 #[test]
+fn ingest_defaults_to_regularize_sparse_poststack() {
+    let temp = tempdir().unwrap();
+    let sparse_path = temp.path().join("small-sparse-default.sgy");
+    let store_root = temp.path().join("small-sparse-default.tbvol");
+    remove_last_trace(&fixture_path("small.sgy"), &sparse_path);
+
+    let handle = ingest_segy(&sparse_path, &store_root, IngestOptions::default()).unwrap();
+
+    let occupancy = load_occupancy(&handle).unwrap().unwrap();
+    assert_eq!(occupancy[[4, 4]], 0);
+    assert_eq!(
+        handle
+            .manifest
+            .volume
+            .source
+            .regularization
+            .as_ref()
+            .expect("regularization provenance")
+            .fill_value,
+        0.0
+    );
+}
+
+#[test]
 fn upscale_generates_dense_midpoints_and_preserves_samples() {
     let temp = tempdir().unwrap();
     let source_root = temp.path().join("source.tbvol");

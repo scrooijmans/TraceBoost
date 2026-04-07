@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use seis_runtime::{
-    ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingPipeline,
-    ProcessingPreset,
+    ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingPipelineSpec,
+    TraceLocalProcessingPreset,
 };
 
 pub(crate) struct ProcessingJobRecord {
@@ -110,7 +110,7 @@ impl ProcessingState {
         &self,
         input_store_path: String,
         output_store_path: Option<String>,
-        pipeline: ProcessingPipeline,
+        pipeline: ProcessingPipelineSpec,
     ) -> ProcessingJobStatus {
         let created_at_unix_s = unix_timestamp_s();
         let job_number = self.job_counter.fetch_add(1, Ordering::Relaxed) + 1;
@@ -160,7 +160,7 @@ impl ProcessingState {
         })
     }
 
-    pub fn list_presets(&self) -> Result<Vec<ProcessingPreset>, String> {
+    pub fn list_presets(&self) -> Result<Vec<TraceLocalProcessingPreset>, String> {
         let mut presets = Vec::new();
         for entry in fs::read_dir(&self.pipeline_presets_dir).map_err(|error| error.to_string())? {
             let entry = entry.map_err(|error| error.to_string())?;
@@ -168,7 +168,7 @@ impl ProcessingState {
             if path.extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
-            let preset = serde_json::from_slice::<ProcessingPreset>(
+            let preset = serde_json::from_slice::<TraceLocalProcessingPreset>(
                 &fs::read(&path).map_err(|error| error.to_string())?,
             )
             .map_err(|error| error.to_string())?;
@@ -178,12 +178,15 @@ impl ProcessingState {
         Ok(presets)
     }
 
-    pub fn save_preset(&self, preset: ProcessingPreset) -> Result<ProcessingPreset, String> {
+    pub fn save_preset(
+        &self,
+        preset: TraceLocalProcessingPreset,
+    ) -> Result<TraceLocalProcessingPreset, String> {
         if preset.preset_id.trim().is_empty() {
             return Err("Processing preset id must not be empty".to_string());
         }
         let now = unix_timestamp_s();
-        let preset = ProcessingPreset {
+        let preset = TraceLocalProcessingPreset {
             created_at_unix_s: if preset.created_at_unix_s == 0 {
                 now
             } else {

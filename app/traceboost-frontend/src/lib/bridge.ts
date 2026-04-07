@@ -9,10 +9,10 @@ import type {
   LoadWorkspaceStateResponse,
   ListPipelinePresetsResponse,
   OpenDatasetResponse,
-  PreviewProcessingResponse,
-  ProcessingPreset,
+  PreviewTraceLocalProcessingResponse as PreviewProcessingResponse,
+  TraceLocalProcessingPreset as ProcessingPreset,
   RemoveDatasetEntryResponse,
-  RunProcessingResponse,
+  RunTraceLocalProcessingResponse as RunProcessingResponse,
   SaveWorkspaceSessionRequest,
   SaveWorkspaceSessionResponse,
   SavePipelinePresetResponse,
@@ -20,8 +20,8 @@ import type {
   SectionAxis,
   SectionView,
   SurveyPreflightResponse,
-  PreviewProcessingRequest,
-  RunProcessingRequest,
+  PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
+  RunTraceLocalProcessingRequest as RunProcessingRequest,
   UpsertDatasetEntryRequest,
   UpsertDatasetEntryResponse,
   WorkspaceSession
@@ -86,6 +86,22 @@ function operationSlug(
   }
   if ("amplitude_scalar" in operation) {
     return `amplitude-scalar-${String(operation.amplitude_scalar.factor).replace(".", "_")}`;
+  }
+  if ("agc_rms" in operation) {
+    return `agc-rms-${String(operation.agc_rms.window_ms).replace(".", "_")}`;
+  }
+  if ("phase_rotation" in operation) {
+    return `phase-rotation-${String(operation.phase_rotation.angle_degrees).replace(".", "_")}`;
+  }
+  if ("lowpass_filter" in operation) {
+    return `lowpass-${[operation.lowpass_filter.f3_hz, operation.lowpass_filter.f4_hz]
+      .map((value) => String(value).replace(".", "_"))
+      .join("-")}`;
+  }
+  if ("highpass_filter" in operation) {
+    return `highpass-${[operation.highpass_filter.f1_hz, operation.highpass_filter.f2_hz]
+      .map((value) => String(value).replace(".", "_"))
+      .join("-")}`;
   }
   return `bandpass-${[
     operation.bandpass_filter.f1_hz,

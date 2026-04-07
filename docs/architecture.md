@@ -48,7 +48,7 @@ The target ecosystem boundary is:
 
 The current backend processing design is:
 
-- canonical processing model is a typed, versioned `ProcessingPipeline`
+- canonical post-stack processing model is a typed, versioned `TraceLocalProcessingPipeline`
 - preview requests run synchronously against the currently requested inline/xline section
 - full-volume apply runs as a background job and always writes a new derived `tbvol`
 - reusable operator sequences are persisted as pipeline presets
@@ -56,11 +56,25 @@ The current backend processing design is:
 
 This keeps the backend deterministic and frontend-safe without introducing a scripting language as the source of truth.
 
-The next processing expansion is frequency-domain work:
+The current live shared operator family is trace-local:
 
-- canonical spectral operators and analysis contracts should be added in the shared Ophiolite layer
-- TraceBoost should keep exposing only the post-stack-safe product subset
+- `amplitude_scalar`
+- `trace_rms_normalize`
+- `agc_rms`
+- `phase_rotation`
+- `lowpass_filter`
+- `highpass_filter`
+- `bandpass_filter`
+
+This is a deliberate scope boundary:
+
+- trace-local operators belong in the shared `TraceLocalProcessingOperation` path
+- gather-native prestack operators belong in a separate `GatherProcessingOperation` path with dedicated `tbgath` ingest/store/preview/materialization APIs in Ophiolite
+- section/gather-matrix operators should be modeled separately instead of being forced into the trace-local executor
+- inverse-wavelet operators should also be treated as a separate scope because they carry different assumptions, parameters, and validation needs
 - analysis flows such as amplitude spectrum inspection should stay separate from materializing processing operators
+
+Current TraceBoost still only owns the trace-local post-stack UI. The prestack backend now exists in Ophiolite, including dedicated offset-gather materialization APIs plus separate velocity scan / semblance analysis requests with optional autopicked time-velocity estimates, but there is no sibling prestack app wired to it yet.
 
 The detailed implementation plan for that work lives in `docs/spectral-processing-implementation.md`.
 

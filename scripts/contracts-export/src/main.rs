@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 
 use std::error::Error;
 use std::fs;
@@ -7,11 +7,14 @@ use std::path::{Path, PathBuf};
 use schemars::schema_for;
 use seis_contracts_core::{
     AmplitudeSpectrumCurve, AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, AxisSummaryF32,
-    AxisSummaryI32, DatasetId, FrequencyPhaseMode, FrequencyWindowShape, GeometryDescriptor,
-    GeometryProvenanceSummary, GeometrySummary, InterpretationPoint, ProcessingJobProgress,
-    ProcessingJobState, ProcessingJobStatus, ProcessingOperation, ProcessingPipeline,
-    ProcessingPreset, SectionAxis, SectionRequest, SectionSpectrumSelection,
-    SectionTileRequest, VolumeDescriptor,
+    AxisSummaryI32, DatasetId, FrequencyPhaseMode, FrequencyWindowShape,
+    GatherInterpolationMode, GatherProcessingOperation, GatherProcessingPipeline, GatherRequest,
+    GatherSelector, GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary,
+    InterpretationPoint, ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus,
+    ProcessingPipelineFamily, ProcessingPipelineSpec, SectionAxis, SectionRequest,
+    SectionSpectrumSelection, SectionTileRequest, SemblancePanel,
+    TraceLocalProcessingOperation, TraceLocalProcessingPipeline, TraceLocalProcessingPreset,
+    VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse, VolumeDescriptor,
 };
 use seis_contracts_interop::{
     CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetRegistryEntry,
@@ -19,19 +22,22 @@ use seis_contracts_interop::{
     DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
     IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, ListPipelinePresetsResponse,
     LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
-    PreviewProcessingRequest, PreviewProcessingResponse, PreviewResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunProcessingRequest,
-    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    PreviewGatherProcessingRequest, PreviewGatherProcessingResponse, PreviewResponse,
+    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunGatherProcessingRequest,
+    RunGatherProcessingResponse, RunTraceLocalProcessingRequest,
+    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
     SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
     SetActiveDatasetEntryResponse, SuggestedImportAction, SurveyPreflightRequest,
     SurveyPreflightResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
     WorkspacePipelineEntry, WorkspaceSession,
 };
 use seis_contracts_views::{
-    PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
-    SectionInteractionChanged, SectionMetadata, SectionPolarity, SectionPrimaryMode, SectionProbe,
-    SectionProbeChanged, SectionRenderMode, SectionUnits, SectionView, SectionViewport,
-    SectionViewportChanged,
+    GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
+    GatherViewportChanged, PreviewView, SectionColorMap, SectionCoordinate,
+    SectionDisplayDefaults, SectionInteractionChanged, SectionMetadata, SectionPolarity,
+    SectionPrimaryMode, SectionProbe, SectionProbeChanged, SectionRenderMode, SectionUnits,
+    SectionView, SectionViewport, SectionViewportChanged,
 };
 use ts_rs::TS;
 
@@ -70,19 +76,30 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "VolumeDescriptor.ts",
         "SectionAxis.ts",
         "SectionRequest.ts",
+        "GatherRequest.ts",
+        "GatherSelector.ts",
         "SectionTileRequest.ts",
         "FrequencyPhaseMode.ts",
         "FrequencyWindowShape.ts",
+        "VelocityFunctionSource.ts",
+        "GatherInterpolationMode.ts",
         "SectionSpectrumSelection.ts",
         "AmplitudeSpectrumCurve.ts",
         "AmplitudeSpectrumRequest.ts",
         "AmplitudeSpectrumResponse.ts",
         "ProcessingOperation.ts",
         "ProcessingPipeline.ts",
+        "ProcessingPreset.ts",
+        "TraceLocalProcessingOperation.ts",
+        "TraceLocalProcessingPipeline.ts",
+        "GatherProcessingOperation.ts",
+        "GatherProcessingPipeline.ts",
+        "ProcessingPipelineFamily.ts",
+        "ProcessingPipelineSpec.ts",
         "ProcessingJobState.ts",
         "ProcessingJobProgress.ts",
         "ProcessingJobStatus.ts",
-        "ProcessingPreset.ts",
+        "TraceLocalProcessingPreset.ts",
         "InterpretationPoint.ts",
         "SectionColorMap.ts",
         "SectionRenderMode.ts",
@@ -93,12 +110,21 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionMetadata.ts",
         "SectionDisplayDefaults.ts",
         "SectionView.ts",
+        "GatherView.ts",
         "PreviewView.ts",
+        "GatherPreviewView.ts",
         "SectionViewport.ts",
+        "GatherViewport.ts",
         "SectionProbe.ts",
+        "GatherProbe.ts",
         "SectionProbeChanged.ts",
+        "GatherProbeChanged.ts",
         "SectionViewportChanged.ts",
+        "GatherViewportChanged.ts",
         "SectionInteractionChanged.ts",
+        "SemblancePanel.ts",
+        "VelocityScanRequest.ts",
+        "VelocityScanResponse.ts",
         "SuggestedImportAction.ts",
         "DatasetSummary.ts",
         "SurveyPreflightRequest.ts",
@@ -111,8 +137,16 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "PreviewResponse.ts",
         "PreviewProcessingRequest.ts",
         "PreviewProcessingResponse.ts",
+        "PreviewTraceLocalProcessingRequest.ts",
+        "PreviewTraceLocalProcessingResponse.ts",
         "RunProcessingRequest.ts",
         "RunProcessingResponse.ts",
+        "RunTraceLocalProcessingRequest.ts",
+        "RunTraceLocalProcessingResponse.ts",
+        "PreviewGatherProcessingRequest.ts",
+        "PreviewGatherProcessingResponse.ts",
+        "RunGatherProcessingRequest.ts",
+        "RunGatherProcessingResponse.ts",
         "GetProcessingJobRequest.ts",
         "GetProcessingJobResponse.ts",
         "CancelProcessingJobRequest.ts",
@@ -150,19 +184,27 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     GeometryProvenanceSummary::export_all_to(output_dir)?;
     GeometrySummary::export_all_to(output_dir)?;
     VolumeDescriptor::export_all_to(output_dir)?;
+    GatherRequest::export_all_to(output_dir)?;
+    GatherSelector::export_all_to(output_dir)?;
     SectionTileRequest::export_all_to(output_dir)?;
     FrequencyPhaseMode::export_all_to(output_dir)?;
     FrequencyWindowShape::export_all_to(output_dir)?;
+    VelocityFunctionSource::export_all_to(output_dir)?;
+    GatherInterpolationMode::export_all_to(output_dir)?;
     SectionSpectrumSelection::export_all_to(output_dir)?;
     AmplitudeSpectrumCurve::export_all_to(output_dir)?;
     AmplitudeSpectrumRequest::export_all_to(output_dir)?;
     AmplitudeSpectrumResponse::export_all_to(output_dir)?;
-    ProcessingOperation::export_all_to(output_dir)?;
-    ProcessingPipeline::export_all_to(output_dir)?;
+    TraceLocalProcessingOperation::export_all_to(output_dir)?;
+    TraceLocalProcessingPipeline::export_all_to(output_dir)?;
+    GatherProcessingOperation::export_all_to(output_dir)?;
+    GatherProcessingPipeline::export_all_to(output_dir)?;
+    ProcessingPipelineFamily::export_all_to(output_dir)?;
+    ProcessingPipelineSpec::export_all_to(output_dir)?;
     ProcessingJobState::export_all_to(output_dir)?;
     ProcessingJobProgress::export_all_to(output_dir)?;
     ProcessingJobStatus::export_all_to(output_dir)?;
-    ProcessingPreset::export_all_to(output_dir)?;
+    TraceLocalProcessingPreset::export_all_to(output_dir)?;
     InterpretationPoint::export_all_to(output_dir)?;
     SectionColorMap::export_all_to(output_dir)?;
     SectionRenderMode::export_all_to(output_dir)?;
@@ -173,12 +215,21 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SectionMetadata::export_all_to(output_dir)?;
     SectionDisplayDefaults::export_all_to(output_dir)?;
     SectionView::export_all_to(output_dir)?;
+    GatherView::export_all_to(output_dir)?;
     PreviewView::export_all_to(output_dir)?;
+    GatherPreviewView::export_all_to(output_dir)?;
     SectionViewport::export_all_to(output_dir)?;
+    GatherViewport::export_all_to(output_dir)?;
     SectionProbe::export_all_to(output_dir)?;
+    GatherProbe::export_all_to(output_dir)?;
     SectionProbeChanged::export_all_to(output_dir)?;
+    GatherProbeChanged::export_all_to(output_dir)?;
     SectionViewportChanged::export_all_to(output_dir)?;
+    GatherViewportChanged::export_all_to(output_dir)?;
     SectionInteractionChanged::export_all_to(output_dir)?;
+    SemblancePanel::export_all_to(output_dir)?;
+    VelocityScanRequest::export_all_to(output_dir)?;
+    VelocityScanResponse::export_all_to(output_dir)?;
     SuggestedImportAction::export_all_to(output_dir)?;
     DatasetSummary::export_all_to(output_dir)?;
     SurveyPreflightRequest::export_all_to(output_dir)?;
@@ -189,10 +240,14 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     OpenDatasetResponse::export_all_to(output_dir)?;
     PreviewCommand::export_all_to(output_dir)?;
     PreviewResponse::export_all_to(output_dir)?;
-    PreviewProcessingRequest::export_all_to(output_dir)?;
-    PreviewProcessingResponse::export_all_to(output_dir)?;
-    RunProcessingRequest::export_all_to(output_dir)?;
-    RunProcessingResponse::export_all_to(output_dir)?;
+    PreviewTraceLocalProcessingRequest::export_all_to(output_dir)?;
+    PreviewTraceLocalProcessingResponse::export_all_to(output_dir)?;
+    RunTraceLocalProcessingRequest::export_all_to(output_dir)?;
+    RunTraceLocalProcessingResponse::export_all_to(output_dir)?;
+    PreviewGatherProcessingRequest::export_all_to(output_dir)?;
+    PreviewGatherProcessingResponse::export_all_to(output_dir)?;
+    RunGatherProcessingRequest::export_all_to(output_dir)?;
+    RunGatherProcessingResponse::export_all_to(output_dir)?;
     GetProcessingJobRequest::export_all_to(output_dir)?;
     GetProcessingJobResponse::export_all_to(output_dir)?;
     CancelProcessingJobRequest::export_all_to(output_dir)?;
@@ -216,7 +271,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SaveWorkspaceSessionRequest::export_all_to(output_dir)?;
     SaveWorkspaceSessionResponse::export_all_to(output_dir)?;
 
-    rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingPreset.ts"))?;
+    rewrite_generated_numeric_timestamps(&output_dir.join("TraceLocalProcessingPreset.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("DatasetRegistryEntry.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("WorkspacePipelineEntry.ts"))?;
@@ -249,19 +304,27 @@ export type { GeometrySummary } from "./GeometrySummary";
 export type { VolumeDescriptor } from "./VolumeDescriptor";
 export type { SectionAxis } from "./SectionAxis";
 export type { SectionRequest } from "./SectionRequest";
+export type { GatherRequest } from "./GatherRequest";
+export type { GatherSelector } from "./GatherSelector";
 export type { SectionTileRequest } from "./SectionTileRequest";
 export type { FrequencyPhaseMode } from "./FrequencyPhaseMode";
 export type { FrequencyWindowShape } from "./FrequencyWindowShape";
+export type { VelocityFunctionSource } from "./VelocityFunctionSource";
+export type { GatherInterpolationMode } from "./GatherInterpolationMode";
 export type { SectionSpectrumSelection } from "./SectionSpectrumSelection";
 export type { AmplitudeSpectrumCurve } from "./AmplitudeSpectrumCurve";
 export type { AmplitudeSpectrumRequest } from "./AmplitudeSpectrumRequest";
 export type { AmplitudeSpectrumResponse } from "./AmplitudeSpectrumResponse";
-export type { ProcessingOperation } from "./ProcessingOperation";
-export type { ProcessingPipeline } from "./ProcessingPipeline";
+export type { TraceLocalProcessingOperation } from "./TraceLocalProcessingOperation";
+export type { TraceLocalProcessingPipeline } from "./TraceLocalProcessingPipeline";
+export type { GatherProcessingOperation } from "./GatherProcessingOperation";
+export type { GatherProcessingPipeline } from "./GatherProcessingPipeline";
+export type { ProcessingPipelineFamily } from "./ProcessingPipelineFamily";
+export type { ProcessingPipelineSpec } from "./ProcessingPipelineSpec";
 export type { ProcessingJobState } from "./ProcessingJobState";
 export type { ProcessingJobProgress } from "./ProcessingJobProgress";
 export type { ProcessingJobStatus } from "./ProcessingJobStatus";
-export type { ProcessingPreset } from "./ProcessingPreset";
+export type { TraceLocalProcessingPreset } from "./TraceLocalProcessingPreset";
 export type { InterpretationPoint } from "./InterpretationPoint";
 export type { SectionColorMap } from "./SectionColorMap";
 export type { SectionRenderMode } from "./SectionRenderMode";
@@ -272,12 +335,21 @@ export type { SectionUnits } from "./SectionUnits";
 export type { SectionMetadata } from "./SectionMetadata";
 export type { SectionDisplayDefaults } from "./SectionDisplayDefaults";
 export type { SectionView } from "./SectionView";
+export type { GatherView } from "./GatherView";
 export type { PreviewView } from "./PreviewView";
+export type { GatherPreviewView } from "./GatherPreviewView";
 export type { SectionViewport } from "./SectionViewport";
+export type { GatherViewport } from "./GatherViewport";
 export type { SectionProbe } from "./SectionProbe";
+export type { GatherProbe } from "./GatherProbe";
 export type { SectionProbeChanged } from "./SectionProbeChanged";
+export type { GatherProbeChanged } from "./GatherProbeChanged";
 export type { SectionViewportChanged } from "./SectionViewportChanged";
+export type { GatherViewportChanged } from "./GatherViewportChanged";
 export type { SectionInteractionChanged } from "./SectionInteractionChanged";
+export type { SemblancePanel } from "./SemblancePanel";
+export type { VelocityScanRequest } from "./VelocityScanRequest";
+export type { VelocityScanResponse } from "./VelocityScanResponse";
 export type { SuggestedImportAction } from "./SuggestedImportAction";
 export type { DatasetSummary } from "./DatasetSummary";
 export type { SurveyPreflightRequest } from "./SurveyPreflightRequest";
@@ -288,10 +360,14 @@ export type { OpenDatasetRequest } from "./OpenDatasetRequest";
 export type { OpenDatasetResponse } from "./OpenDatasetResponse";
 export type { PreviewCommand } from "./PreviewCommand";
 export type { PreviewResponse } from "./PreviewResponse";
-export type { PreviewProcessingRequest } from "./PreviewProcessingRequest";
-export type { PreviewProcessingResponse } from "./PreviewProcessingResponse";
-export type { RunProcessingRequest } from "./RunProcessingRequest";
-export type { RunProcessingResponse } from "./RunProcessingResponse";
+export type { PreviewTraceLocalProcessingRequest } from "./PreviewTraceLocalProcessingRequest";
+export type { PreviewTraceLocalProcessingResponse } from "./PreviewTraceLocalProcessingResponse";
+export type { RunTraceLocalProcessingRequest } from "./RunTraceLocalProcessingRequest";
+export type { RunTraceLocalProcessingResponse } from "./RunTraceLocalProcessingResponse";
+export type { PreviewGatherProcessingRequest } from "./PreviewGatherProcessingRequest";
+export type { PreviewGatherProcessingResponse } from "./PreviewGatherProcessingResponse";
+export type { RunGatherProcessingRequest } from "./RunGatherProcessingRequest";
+export type { RunGatherProcessingResponse } from "./RunGatherProcessingResponse";
 export type { GetProcessingJobRequest } from "./GetProcessingJobRequest";
 export type { GetProcessingJobResponse } from "./GetProcessingJobResponse";
 export type { CancelProcessingJobRequest } from "./CancelProcessingJobRequest";
@@ -334,19 +410,27 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "VolumeDescriptor": schema_for!(VolumeDescriptor),
             "SectionAxis": schema_for!(SectionAxis),
             "SectionRequest": schema_for!(SectionRequest),
+            "GatherRequest": schema_for!(GatherRequest),
+            "GatherSelector": schema_for!(GatherSelector),
             "SectionTileRequest": schema_for!(SectionTileRequest),
             "FrequencyPhaseMode": schema_for!(FrequencyPhaseMode),
             "FrequencyWindowShape": schema_for!(FrequencyWindowShape),
+            "VelocityFunctionSource": schema_for!(VelocityFunctionSource),
+            "GatherInterpolationMode": schema_for!(GatherInterpolationMode),
             "SectionSpectrumSelection": schema_for!(SectionSpectrumSelection),
             "AmplitudeSpectrumCurve": schema_for!(AmplitudeSpectrumCurve),
             "AmplitudeSpectrumRequest": schema_for!(AmplitudeSpectrumRequest),
             "AmplitudeSpectrumResponse": schema_for!(AmplitudeSpectrumResponse),
-            "ProcessingOperation": schema_for!(ProcessingOperation),
-            "ProcessingPipeline": schema_for!(ProcessingPipeline),
+            "TraceLocalProcessingOperation": schema_for!(TraceLocalProcessingOperation),
+            "TraceLocalProcessingPipeline": schema_for!(TraceLocalProcessingPipeline),
+            "GatherProcessingOperation": schema_for!(GatherProcessingOperation),
+            "GatherProcessingPipeline": schema_for!(GatherProcessingPipeline),
+            "ProcessingPipelineFamily": schema_for!(ProcessingPipelineFamily),
+            "ProcessingPipelineSpec": schema_for!(ProcessingPipelineSpec),
             "ProcessingJobState": schema_for!(ProcessingJobState),
             "ProcessingJobProgress": schema_for!(ProcessingJobProgress),
             "ProcessingJobStatus": schema_for!(ProcessingJobStatus),
-            "ProcessingPreset": schema_for!(ProcessingPreset),
+            "TraceLocalProcessingPreset": schema_for!(TraceLocalProcessingPreset),
             "InterpretationPoint": schema_for!(InterpretationPoint),
             "SectionColorMap": schema_for!(SectionColorMap),
             "SectionRenderMode": schema_for!(SectionRenderMode),
@@ -357,12 +441,21 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SectionMetadata": schema_for!(SectionMetadata),
             "SectionDisplayDefaults": schema_for!(SectionDisplayDefaults),
             "SectionView": schema_for!(SectionView),
+            "GatherView": schema_for!(GatherView),
             "PreviewView": schema_for!(PreviewView),
+            "GatherPreviewView": schema_for!(GatherPreviewView),
             "SectionViewport": schema_for!(SectionViewport),
+            "GatherViewport": schema_for!(GatherViewport),
             "SectionProbe": schema_for!(SectionProbe),
+            "GatherProbe": schema_for!(GatherProbe),
             "SectionProbeChanged": schema_for!(SectionProbeChanged),
+            "GatherProbeChanged": schema_for!(GatherProbeChanged),
             "SectionViewportChanged": schema_for!(SectionViewportChanged),
+            "GatherViewportChanged": schema_for!(GatherViewportChanged),
             "SectionInteractionChanged": schema_for!(SectionInteractionChanged),
+            "SemblancePanel": schema_for!(SemblancePanel),
+            "VelocityScanRequest": schema_for!(VelocityScanRequest),
+            "VelocityScanResponse": schema_for!(VelocityScanResponse),
             "SuggestedImportAction": schema_for!(SuggestedImportAction),
             "DatasetSummary": schema_for!(DatasetSummary),
             "SurveyPreflightRequest": schema_for!(SurveyPreflightRequest),
@@ -373,10 +466,14 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "OpenDatasetResponse": schema_for!(OpenDatasetResponse),
             "PreviewCommand": schema_for!(PreviewCommand),
             "PreviewResponse": schema_for!(PreviewResponse),
-            "PreviewProcessingRequest": schema_for!(PreviewProcessingRequest),
-            "PreviewProcessingResponse": schema_for!(PreviewProcessingResponse),
-            "RunProcessingRequest": schema_for!(RunProcessingRequest),
-            "RunProcessingResponse": schema_for!(RunProcessingResponse),
+            "PreviewTraceLocalProcessingRequest": schema_for!(PreviewTraceLocalProcessingRequest),
+            "PreviewTraceLocalProcessingResponse": schema_for!(PreviewTraceLocalProcessingResponse),
+            "RunTraceLocalProcessingRequest": schema_for!(RunTraceLocalProcessingRequest),
+            "RunTraceLocalProcessingResponse": schema_for!(RunTraceLocalProcessingResponse),
+            "PreviewGatherProcessingRequest": schema_for!(PreviewGatherProcessingRequest),
+            "PreviewGatherProcessingResponse": schema_for!(PreviewGatherProcessingResponse),
+            "RunGatherProcessingRequest": schema_for!(RunGatherProcessingRequest),
+            "RunGatherProcessingResponse": schema_for!(RunGatherProcessingResponse),
             "GetProcessingJobRequest": schema_for!(GetProcessingJobRequest),
             "GetProcessingJobResponse": schema_for!(GetProcessingJobResponse),
             "CancelProcessingJobRequest": schema_for!(CancelProcessingJobRequest),

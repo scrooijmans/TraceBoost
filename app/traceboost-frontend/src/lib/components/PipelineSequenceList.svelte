@@ -1,7 +1,10 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { ProcessingOperation, ProcessingPipeline } from "@traceboost/seis-contracts";
+  import type {
+    TraceLocalProcessingOperation as ProcessingOperation,
+    TraceLocalProcessingPipeline as ProcessingPipeline
+  } from "@traceboost/seis-contracts";
   import type { OperatorCatalogId } from "../processing-model.svelte";
   import { describeOperation, operatorCatalogItems } from "../processing-model.svelte";
 
@@ -202,7 +205,7 @@
   {:else}
     <div class="empty-state">
       <p>No operators in the pipeline.</p>
-      <p class="hint">Use the search above to add scalar, normalize, or bandpass operators.</p>
+      <p class="hint">Use the search above to add scalar, normalize, AGC, phase rotation, or frequency filters.</p>
     </div>
   {/if}
 </section>

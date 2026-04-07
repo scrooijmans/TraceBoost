@@ -1,7 +1,10 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { ProcessingPipeline, ProcessingPreset } from "@traceboost/seis-contracts";
+  import type {
+    TraceLocalProcessingPipeline as ProcessingPipeline,
+    TraceLocalProcessingPreset as ProcessingPreset
+  } from "@traceboost/seis-contracts";
 
   let {
     pipeline,

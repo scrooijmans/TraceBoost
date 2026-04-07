@@ -1,14 +1,25 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { ProcessingOperation } from "@traceboost/seis-contracts";
-  import { isAmplitudeScalar, isBandpassFilter } from "../processing-model.svelte";
+  import type { TraceLocalProcessingOperation as ProcessingOperation } from "@traceboost/seis-contracts";
+  import {
+    isAgcRms,
+    isAmplitudeScalar,
+    isBandpassFilter,
+    isHighpassFilter,
+    isLowpassFilter,
+    isPhaseRotation
+  } from "../processing-model.svelte";
 
   let {
     selectedOperation,
     activeJob,
     processingError,
     onSetAmplitudeScalarFactor,
+    onSetAgcWindow = () => {},
+    onSetPhaseRotationAngle = () => {},
+    onSetLowpassCorner = () => {},
+    onSetHighpassCorner = () => {},
     onSetBandpassCorner = () => {},
     onMoveUp,
     onMoveDown,
@@ -19,6 +30,10 @@
     activeJob: { job_id: string; state: string; progress: { completed: number; total: number } } | null;
     processingError: string | null;
     onSetAmplitudeScalarFactor: (value: number) => void;
+    onSetAgcWindow?: (value: number) => void;
+    onSetPhaseRotationAngle?: (value: number) => void;
+    onSetLowpassCorner?: (corner: "f3_hz" | "f4_hz", value: number) => void;
+    onSetHighpassCorner?: (corner: "f1_hz" | "f2_hz", value: number) => void;
     onSetBandpassCorner?: (corner: "f1_hz" | "f2_hz" | "f3_hz" | "f4_hz", value: number) => void;
     onMoveUp: () => void;
     onMoveDown: () => void;
@@ -55,6 +70,103 @@
           />
           <small>Valid range: 0.0 to 10.0</small>
         </label>
+      {:else if isAgcRms(selectedOperation)}
+        <label class="field">
+          <span>AGC Window</span>
+          <input
+            type="number"
+            min="1"
+            max="10000"
+            step="10"
+            value={selectedOperation.agc_rms.window_ms}
+            oninput={(event) => onSetAgcWindow(Number((event.currentTarget as HTMLInputElement).value))}
+          />
+          <small>Milliseconds. Backend validation enforces a positive centered RMS window.</small>
+        </label>
+        <div class="info-block">
+          <strong>RMS AGC</strong>
+          <p>Automatic gain control using a centered moving RMS window. This is useful for balancing weak and strong events in post-stack sections.</p>
+          <p>AGC changes relative amplitudes, so treat it as conditioning rather than amplitude-preserving processing.</p>
+        </div>
+      {:else if isPhaseRotation(selectedOperation)}
+        <label class="field">
+          <span>Phase Rotation Angle</span>
+          <input
+            type="number"
+            min="-180"
+            max="180"
+            step="1"
+            value={selectedOperation.phase_rotation.angle_degrees}
+            oninput={(event) =>
+              onSetPhaseRotationAngle(Number((event.currentTarget as HTMLInputElement).value))}
+          />
+          <small>Degrees. 0 = unchanged, 90 = quadrature, 180 = polarity flip.</small>
+        </label>
+        <div class="info-block">
+          <strong>Phase Rotation</strong>
+          <p>Constant trace phase rotation applied in the spectral domain using the analytic-trace formulation.</p>
+          <p>Phase rotation changes wavelet shape and timing character but preserves amplitude spectrum magnitude.</p>
+        </div>
+      {:else if isLowpassFilter(selectedOperation)}
+        <div class="field-grid">
+          <label class="field">
+            <span>F3 Pass Corner</span>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={selectedOperation.lowpass_filter.f3_hz}
+              oninput={(event) =>
+                onSetLowpassCorner("f3_hz", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>F4 Stop Corner</span>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={selectedOperation.lowpass_filter.f4_hz}
+              oninput={(event) =>
+                onSetLowpassCorner("f4_hz", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+        </div>
+        <div class="info-block">
+          <strong>Lowpass Filter</strong>
+          <p>Zero-phase frequency-domain lowpass with a cosine high-cut taper. Runtime validation enforces f3 ≤ f4 ≤ Nyquist.</p>
+          <p>Phase: {selectedOperation.lowpass_filter.phase}. Window: {selectedOperation.lowpass_filter.window}.</p>
+        </div>
+      {:else if isHighpassFilter(selectedOperation)}
+        <div class="field-grid">
+          <label class="field">
+            <span>F1 Stop Corner</span>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={selectedOperation.highpass_filter.f1_hz}
+              oninput={(event) =>
+                onSetHighpassCorner("f1_hz", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>F2 Pass Corner</span>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={selectedOperation.highpass_filter.f2_hz}
+              oninput={(event) =>
+                onSetHighpassCorner("f2_hz", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+        </div>
+        <div class="info-block">
+          <strong>Highpass Filter</strong>
+          <p>Zero-phase frequency-domain highpass with a cosine low-cut taper. Runtime validation enforces f1 ≤ f2 ≤ Nyquist.</p>
+          <p>Phase: {selectedOperation.highpass_filter.phase}. Window: {selectedOperation.highpass_filter.window}.</p>
+        </div>
       {:else if isBandpassFilter(selectedOperation)}
         <div class="field-grid">
           <label class="field">

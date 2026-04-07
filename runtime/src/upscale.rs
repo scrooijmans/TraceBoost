@@ -6,7 +6,9 @@ use rayon::prelude::*;
 use crate::error::SeisRefineError;
 use crate::metadata::{DatasetKind, InterpMethod, ProcessingLineage, VolumeAxes, VolumeMetadata};
 use crate::store::{StoreHandle, create_tbvol_store, load_array, open_store};
-use crate::{ProcessingPipeline, TbvolManifest, recommended_tbvol_tile_shape};
+use crate::{
+    ProcessingPipelineSpec, TbvolManifest, TraceLocalProcessingPipeline, recommended_tbvol_tile_shape,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct UpscaleOptions {
@@ -57,19 +59,21 @@ pub fn upscale_store(
             created_by: "seis-runtime-0.1.0".to_string(),
             processing_lineage: Some(ProcessingLineage {
                 parent_store: input.root.clone(),
-                pipeline: ProcessingPipeline {
-                    schema_version: 1,
-                    revision: 1,
-                    preset_id: None,
-                    name: Some("upscale_2x".to_string()),
-                    description: Some(format!(
-                        "{} 2x upscale",
-                        match options.method {
-                            InterpMethod::Linear => "linear",
-                            InterpMethod::Cubic => "cubic",
-                        }
-                    )),
-                    operations: Vec::new(),
+                pipeline: ProcessingPipelineSpec::TraceLocal {
+                    pipeline: TraceLocalProcessingPipeline {
+                        schema_version: 1,
+                        revision: 1,
+                        preset_id: None,
+                        name: Some("upscale_2x".to_string()),
+                        description: Some(format!(
+                            "{} 2x upscale",
+                            match options.method {
+                                InterpMethod::Linear => "linear",
+                                InterpMethod::Cubic => "cubic",
+                            }
+                        )),
+                        operations: Vec::new(),
+                    },
                 },
                 runtime_version: format!(
                     "traceboost-upscale-{}-{}x",

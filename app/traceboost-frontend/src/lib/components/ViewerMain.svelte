@@ -398,7 +398,7 @@
         <div class="definition-header">
           <div class="shortcut-card">
             <span>Shortcuts</span>
-            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, <code>a/n/b</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
+            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, <code>a/n/g/h/l/i/b</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
           </div>
         </div>
 
@@ -446,6 +446,10 @@
             activeJob={processingModel.activeJob}
             processingError={processingModel.error}
             onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
+            onSetAgcWindow={processingModel.setSelectedAgcWindow}
+            onSetPhaseRotationAngle={processingModel.setSelectedPhaseRotationAngle}
+            onSetLowpassCorner={processingModel.setSelectedLowpassCorner}
+            onSetHighpassCorner={processingModel.setSelectedHighpassCorner}
             onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
             onMoveUp={processingModel.moveSelectedUp}
             onMoveDown={processingModel.moveSelectedDown}

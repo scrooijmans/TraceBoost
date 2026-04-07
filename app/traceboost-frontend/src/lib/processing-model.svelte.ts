@@ -2,12 +2,12 @@ import { createContext } from "svelte";
 import type {
   AmplitudeSpectrumRequest,
   AmplitudeSpectrumResponse,
-  PreviewProcessingRequest,
+  PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
   ProcessingJobStatus,
-  ProcessingOperation,
-  ProcessingPipeline,
-  ProcessingPreset,
-  RunProcessingRequest,
+  TraceLocalProcessingOperation as ProcessingOperation,
+  TraceLocalProcessingPipeline as ProcessingPipeline,
+  TraceLocalProcessingPreset as ProcessingPreset,
+  RunTraceLocalProcessingRequest as RunProcessingRequest,
   SectionView,
   WorkspacePipelineEntry
 } from "@traceboost/seis-contracts";
@@ -27,14 +27,21 @@ import type { ViewerModel } from "./viewer-model.svelte";
 
 type PreviewState = "raw" | "preview" | "stale";
 type SpectrumAmplitudeScale = "db" | "linear";
-export type OperatorCatalogId = "amplitude_scalar" | "trace_rms_normalize" | "bandpass_filter";
+export type OperatorCatalogId =
+  | "amplitude_scalar"
+  | "trace_rms_normalize"
+  | "agc_rms"
+  | "phase_rotation"
+  | "lowpass_filter"
+  | "highpass_filter"
+  | "bandpass_filter";
 
 interface OperatorCatalogDefinition {
   id: OperatorCatalogId;
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "b";
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b";
   create: (section: SectionView | null) => ProcessingOperation;
 }
 
@@ -56,6 +63,38 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     create: () => "trace_rms_normalize"
   },
   {
+    id: "agc_rms",
+    label: "RMS AGC",
+    description: "Centered moving-window RMS automatic gain control.",
+    keywords: ["agc", "gain", "window", "rms", "balance", "automatic gain control"],
+    shortcut: "g",
+    create: () => defaultAgcRms()
+  },
+  {
+    id: "phase_rotation",
+    label: "Phase Rotation",
+    description: "Constant trace phase rotation in degrees.",
+    keywords: ["phase", "rotation", "rotate", "constant phase", "quadrature", "hilbert"],
+    shortcut: "h",
+    create: () => defaultPhaseRotation()
+  },
+  {
+    id: "lowpass_filter",
+    label: "Lowpass Filter",
+    description: "Zero-phase FFT lowpass with a cosine high-cut taper.",
+    keywords: ["lowpass", "filter", "frequency", "spectral", "highcut", "noise"],
+    shortcut: "l",
+    create: (section) => defaultLowpassFilter(section)
+  },
+  {
+    id: "highpass_filter",
+    label: "Highpass Filter",
+    description: "Zero-phase FFT highpass with a cosine low-cut taper.",
+    keywords: ["highpass", "filter", "frequency", "spectral", "lowcut", "drift"],
+    shortcut: "i",
+    create: (section) => defaultHighpassFilter(section)
+  },
+  {
     id: "bandpass_filter",
     label: "Bandpass Filter",
     description: "Zero-phase FFT bandpass with cosine tapers.",
@@ -70,7 +109,7 @@ export interface OperatorCatalogItem {
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "b";
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b";
 }
 
 export const operatorCatalogItems: readonly OperatorCatalogItem[] = OPERATOR_CATALOG.map(
@@ -120,6 +159,18 @@ function cloneOperation(operation: ProcessingOperation): ProcessingOperation {
   if ("amplitude_scalar" in operation) {
     return { amplitude_scalar: { ...operation.amplitude_scalar } };
   }
+  if ("agc_rms" in operation) {
+    return { agc_rms: { ...operation.agc_rms } };
+  }
+  if ("phase_rotation" in operation) {
+    return { phase_rotation: { ...operation.phase_rotation } };
+  }
+  if ("lowpass_filter" in operation) {
+    return { lowpass_filter: { ...operation.lowpass_filter } };
+  }
+  if ("highpass_filter" in operation) {
+    return { highpass_filter: { ...operation.highpass_filter } };
+  }
   return {
     bandpass_filter: {
       ...operation.bandpass_filter
@@ -155,7 +206,33 @@ function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
         ? operation
         : "amplitude_scalar" in operation
           ? { amplitude_scalar: { factor: operation.amplitude_scalar.factor } }
-          : {
+          : "agc_rms" in operation
+            ? { agc_rms: { window_ms: operation.agc_rms.window_ms } }
+          : "phase_rotation" in operation
+            ? {
+                phase_rotation: {
+                  angle_degrees: operation.phase_rotation.angle_degrees
+                }
+              }
+            : "lowpass_filter" in operation
+              ? {
+                  lowpass_filter: {
+                    f3_hz: operation.lowpass_filter.f3_hz,
+                    f4_hz: operation.lowpass_filter.f4_hz,
+                    phase: operation.lowpass_filter.phase,
+                    window: operation.lowpass_filter.window
+                  }
+                }
+              : "highpass_filter" in operation
+                ? {
+                    highpass_filter: {
+                      f1_hz: operation.highpass_filter.f1_hz,
+                      f2_hz: operation.highpass_filter.f2_hz,
+                      phase: operation.highpass_filter.phase,
+                      window: operation.highpass_filter.window
+                    }
+                  }
+                : {
               bandpass_filter: {
                 f1_hz: operation.bandpass_filter.f1_hz,
                 f2_hz: operation.bandpass_filter.f2_hz,
@@ -169,13 +246,63 @@ function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
   });
 }
 
-function defaultBandpassFilter(section: SectionView | null): ProcessingOperation {
+function defaultPhaseRotation(): ProcessingOperation {
+  return {
+    phase_rotation: {
+      angle_degrees: 0
+    }
+  };
+}
+
+function sectionNyquistHz(section: SectionView | null): number {
   const sampleAxis = section?.sample_axis_f32le ?? [];
   const sampleIntervalMs =
     sampleAxis.length >= 2 ? Math.abs((sampleAxis[1] ?? 0) - (sampleAxis[0] ?? 0)) : 2;
   const safeSampleIntervalMs =
     Number.isFinite(sampleIntervalMs) && sampleIntervalMs > 0 ? sampleIntervalMs : 2;
-  const nyquistHz = 500.0 / safeSampleIntervalMs;
+  return 500.0 / safeSampleIntervalMs;
+}
+
+function defaultAgcRms(): ProcessingOperation {
+  return {
+    agc_rms: {
+      window_ms: 250
+    }
+  };
+}
+
+function defaultLowpassFilter(section: SectionView | null): ProcessingOperation {
+  const nyquistHz = sectionNyquistHz(section);
+  const f3_hz = Math.max(20, nyquistHz * 0.12);
+  const f4_hz = Math.min(nyquistHz, Math.max(f3_hz + 8, nyquistHz * 0.18));
+
+  return {
+    lowpass_filter: {
+      f3_hz: Number(f3_hz.toFixed(1)),
+      f4_hz: Number(f4_hz.toFixed(1)),
+      phase: "zero",
+      window: "cosine_taper"
+    }
+  };
+}
+
+function defaultHighpassFilter(section: SectionView | null): ProcessingOperation {
+  const nyquistHz = sectionNyquistHz(section);
+  const f1_hz = Math.max(2, nyquistHz * 0.015);
+  const f2_hz = Math.min(nyquistHz, Math.max(f1_hz + 2, nyquistHz * 0.04));
+
+  return {
+    highpass_filter: {
+      f1_hz: Number(f1_hz.toFixed(1)),
+      f2_hz: Number(f2_hz.toFixed(1)),
+      phase: "zero",
+      window: "cosine_taper"
+    }
+  };
+}
+
+function defaultBandpassFilter(section: SectionView | null): ProcessingOperation {
+  const nyquistHz = sectionNyquistHz(section);
   const f1_hz = Math.max(4, nyquistHz * 0.06);
   const f2_hz = Math.max(f1_hz + 1, nyquistHz * 0.1);
   const f4_hz = Math.min(nyquistHz, Math.max(f2_hz + 6, nyquistHz * 0.45));
@@ -676,6 +803,22 @@ export class ProcessingModel {
     this.insertOperatorById("trace_rms_normalize");
   };
 
+  addAgcRmsAfterSelected = (): void => {
+    this.insertOperatorById("agc_rms");
+  };
+
+  addPhaseRotationAfterSelected = (): void => {
+    this.insertOperatorById("phase_rotation");
+  };
+
+  addLowpassAfterSelected = (): void => {
+    this.insertOperatorById("lowpass_filter");
+  };
+
+  addHighpassAfterSelected = (): void => {
+    this.insertOperatorById("highpass_filter");
+  };
+
   addBandpassAfterSelected = (): void => {
     this.insertOperatorById("bandpass_filter");
   };
@@ -769,6 +912,60 @@ export class ProcessingModel {
     this.invalidatePreview();
   };
 
+  setSelectedAgcWindow = (value: number): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isAgcRms(selected) || !Number.isFinite(value)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isAgcRms(operation)) {
+      return;
+    }
+
+    operation.agc_rms.window_ms = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
+  setSelectedLowpassCorner = (corner: "f3_hz" | "f4_hz", value: number): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isLowpassFilter(selected) || !Number.isFinite(value)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isLowpassFilter(operation)) {
+      return;
+    }
+
+    operation.lowpass_filter[corner] = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
+  setSelectedHighpassCorner = (corner: "f1_hz" | "f2_hz", value: number): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isHighpassFilter(selected) || !Number.isFinite(value)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isHighpassFilter(operation)) {
+      return;
+    }
+
+    operation.highpass_filter[corner] = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
   setSelectedBandpassCorner = (
     corner: "f1_hz" | "f2_hz" | "f3_hz" | "f4_hz",
     value: number
@@ -785,6 +982,24 @@ export class ProcessingModel {
     }
 
     operation.bandpass_filter[corner] = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
+  setSelectedPhaseRotationAngle = (value: number): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isPhaseRotation(selected) || !Number.isFinite(value)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isPhaseRotation(operation)) {
+      return;
+    }
+
+    operation.phase_rotation.angle_degrees = value;
     next.revision += 1;
     this.updateActiveSessionPipeline(next);
     this.invalidatePreview();
@@ -1031,6 +1246,22 @@ export class ProcessingModel {
         event.preventDefault();
         this.addTraceRmsNormalizeAfterSelected();
         break;
+      case "g":
+        event.preventDefault();
+        this.addAgcRmsAfterSelected();
+        break;
+      case "h":
+        event.preventDefault();
+        this.addPhaseRotationAfterSelected();
+        break;
+      case "l":
+        event.preventDefault();
+        this.addLowpassAfterSelected();
+        break;
+      case "i":
+        event.preventDefault();
+        this.addHighpassAfterSelected();
+        break;
       case "b":
         event.preventDefault();
         this.addBandpassAfterSelected();
@@ -1194,6 +1425,20 @@ export function describeOperation(operation: ProcessingOperation): string {
   if (isAmplitudeScalar(operation)) {
     return `amplitude scalar (${operation.amplitude_scalar.factor})`;
   }
+  if (isAgcRms(operation)) {
+    return `RMS AGC (${operation.agc_rms.window_ms} ms)`;
+  }
+  if (isPhaseRotation(operation)) {
+    return `phase rotation (${operation.phase_rotation.angle_degrees}°)`;
+  }
+  if (isLowpassFilter(operation)) {
+    const { f3_hz, f4_hz } = operation.lowpass_filter;
+    return `lowpass (${f3_hz}/${f4_hz} Hz)`;
+  }
+  if (isHighpassFilter(operation)) {
+    const { f1_hz, f2_hz } = operation.highpass_filter;
+    return `highpass (${f1_hz}/${f2_hz} Hz)`;
+  }
   if (isBandpassFilter(operation)) {
     const { f1_hz, f2_hz, f3_hz, f4_hz } = operation.bandpass_filter;
     return `bandpass (${f1_hz}/${f2_hz}/${f3_hz}/${f4_hz} Hz)`;
@@ -1205,6 +1450,12 @@ export function isAmplitudeScalar(
   operation: ProcessingOperation
 ): operation is { amplitude_scalar: { factor: number } } {
   return typeof operation !== "string" && "amplitude_scalar" in operation;
+}
+
+export function isAgcRms(
+  operation: ProcessingOperation
+): operation is { agc_rms: { window_ms: number } } {
+  return typeof operation !== "string" && "agc_rms" in operation;
 }
 
 export function isBandpassFilter(
@@ -1220,6 +1471,42 @@ export function isBandpassFilter(
   };
 } {
   return typeof operation !== "string" && "bandpass_filter" in operation;
+}
+
+export function isLowpassFilter(
+  operation: ProcessingOperation
+): operation is {
+  lowpass_filter: {
+    f3_hz: number;
+    f4_hz: number;
+    phase: "zero";
+    window: "cosine_taper";
+  };
+} {
+  return typeof operation !== "string" && "lowpass_filter" in operation;
+}
+
+export function isHighpassFilter(
+  operation: ProcessingOperation
+): operation is {
+  highpass_filter: {
+    f1_hz: number;
+    f2_hz: number;
+    phase: "zero";
+    window: "cosine_taper";
+  };
+} {
+  return typeof operation !== "string" && "highpass_filter" in operation;
+}
+
+export function isPhaseRotation(
+  operation: ProcessingOperation
+): operation is {
+  phase_rotation: {
+    angle_degrees: number;
+  };
+} {
+  return typeof operation !== "string" && "phase_rotation" in operation;
 }
 
 const [internalGetProcessingModelContext, internalSetProcessingModelContext] =

@@ -20,26 +20,44 @@ pub use ophiolite_seismic::{
     AmplitudeSpectrumCurve, AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, AxisSummaryF32,
     AxisSummaryI32, CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetId,
     DeletePipelinePresetRequest, DeletePipelinePresetResponse, FrequencyPhaseMode,
-    FrequencyWindowShape, GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary,
-    GetProcessingJobRequest, GetProcessingJobResponse, InterpretationPoint,
-    ListPipelinePresetsResponse, PreviewProcessingRequest, PreviewProcessingResponse,
+    FrequencyWindowShape, GatherInterpolationMode, GatherPreviewView, GatherProcessingOperation,
+    GatherProcessingPipeline, GatherRequest, GatherSelector, GeometryDescriptor,
+    GeometryProvenanceSummary, GeometrySummary, GetProcessingJobRequest,
+    GetProcessingJobResponse, ImportPrestackOffsetDatasetRequest,
+    ImportPrestackOffsetDatasetResponse, InterpretationPoint, ListPipelinePresetsResponse,
+    PrestackThirdAxisField, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
+    PreviewProcessingRequest, PreviewProcessingResponse,
+    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
     ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingOperation,
-    ProcessingPipeline, ProcessingPreset, RunProcessingRequest, RunProcessingResponse,
-    SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis, SectionRequest,
-    SectionSpectrumSelection, SectionTileRequest, VolumeDescriptor,
+    ProcessingPipeline, ProcessingPipelineFamily, ProcessingPipelineSpec, ProcessingPreset,
+    RunGatherProcessingRequest, RunGatherProcessingResponse, RunProcessingRequest,
+    RunProcessingResponse,
+    RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse, SavePipelinePresetRequest,
+    SavePipelinePresetResponse, SectionAxis, SectionRequest, SectionSpectrumSelection,
+    SectionTileRequest, SemblancePanel, TraceLocalProcessingOperation,
+    TraceLocalProcessingPipeline, TraceLocalProcessingPreset, VelocityAutopickParameters,
+    VelocityFunctionEstimate, VelocityFunctionSource, VelocityPickStrategy, VelocityScanRequest,
+    VelocityScanResponse, VolumeDescriptor,
 };
 pub use ophiolite_seismic::{PreviewView, SectionView};
 pub use ophiolite_seismic_runtime::{
     MaterializeOptions, amplitude_spectrum_from_plane, amplitude_spectrum_from_reader,
-    apply_pipeline_to_plane, apply_pipeline_to_traces,
-    materialize_from_reader_writer, materialize_from_reader_writer_with_progress,
-    materialize_processing_volume, materialize_processing_volume_with_progress, materialize_volume,
+    apply_pipeline_to_plane, apply_pipeline_to_traces, materialize_from_reader_writer,
+    materialize_from_reader_writer_with_progress, materialize_processing_volume,
+    materialize_processing_volume_with_progress, materialize_volume,
     preview_processing_section_plane, preview_processing_section_view, preview_section_from_reader,
     preview_section_plane, preview_section_view, validate_pipeline, validate_processing_pipeline,
+    velocity_scan,
 };
 pub use ophiolite_seismic_runtime::{
-    OccupancyTile, TbvolReader, TbvolWriter, TileBuffer, TileCoord, TileGeometry,
-    VolumeStoreReader, VolumeStoreWriter, assemble_section_plane, recommended_tbvol_tile_shape,
+    OccupancyTile, PrestackStoreHandle, TbvolReader, TbvolWriter, TbgathManifest, TbgathReader,
+    TbgathWriter, TileBuffer, TileCoord, TileGeometry, VolumeStoreReader, VolumeStoreWriter,
+    assemble_section_plane, create_tbgath_store, describe_prestack_store,
+    ingest_prestack_offset_segy, open_prestack_store, prestack_gather_view,
+    preview_gather_processing_view, read_prestack_gather_plane, recommended_tbvol_tile_shape,
+};
+pub use ophiolite_seismic_runtime::{
+    materialize_gather_processing_store, materialize_gather_processing_store_with_progress,
 };
 pub use preflight::{PreflightAction, PreflightGeometry, SurveyPreflight, preflight_segy};
 pub use render::{render_section_csv, render_section_csv_for_request};

@@ -6,17 +6,23 @@ mod workspace;
 use seis_contracts_interop::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DeletePipelinePresetRequest, DeletePipelinePresetResponse,
-    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
-    ImportDatasetResponse, ListPipelinePresetsResponse, LoadWorkspaceStateResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PreviewProcessingRequest, PreviewProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunProcessingRequest,
-    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    GatherProcessingPipeline, GatherRequest, GatherView, GetProcessingJobRequest,
+    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
+    ListPipelinePresetsResponse, LoadWorkspaceStateResponse, OpenDatasetRequest,
+    OpenDatasetResponse, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
+    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunGatherProcessingRequest,
+    RunGatherProcessingResponse, RunTraceLocalProcessingRequest,
+    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
     SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
     SetActiveDatasetEntryResponse, SurveyPreflightRequest, SurveyPreflightResponse,
-    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, VelocityScanRequest,
+    VelocityScanResponse,
 };
 use seis_runtime::{
-    MaterializeOptions, SectionAxis, SectionView, materialize_processing_volume_with_progress,
+    MaterializeOptions, SectionAxis, SectionView,
+    materialize_gather_processing_store_with_progress, materialize_processing_volume_with_progress,
     open_store,
 };
 use std::{
@@ -29,8 +35,9 @@ use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
 use traceboost_app::{
-    amplitude_spectrum, import_dataset, open_dataset_summary, preflight_dataset,
-    preview_processing,
+    amplitude_spectrum, import_dataset, import_prestack_offset_dataset, load_gather,
+    open_dataset_summary, preflight_dataset, preview_gather_processing, preview_processing,
+    run_velocity_scan,
 };
 
 use crate::app_paths::AppPaths;
@@ -65,7 +72,7 @@ fn sanitized_stem(value: &str, fallback: &str) -> String {
     }
 }
 
-fn pipeline_output_slug(pipeline: &seis_runtime::ProcessingPipeline) -> String {
+fn pipeline_output_slug(pipeline: &seis_runtime::TraceLocalProcessingPipeline) -> String {
     if let Some(name) = pipeline
         .name
         .as_ref()
@@ -84,6 +91,22 @@ fn pipeline_output_slug(pipeline: &seis_runtime::ProcessingPipeline) -> String {
             seis_runtime::ProcessingOperation::TraceRmsNormalize => {
                 "trace-rms-normalize".to_string()
             }
+            seis_runtime::ProcessingOperation::AgcRms { window_ms } => {
+                format!("agc-rms-{}", format_factor(*window_ms))
+            }
+            seis_runtime::ProcessingOperation::PhaseRotation { angle_degrees } => {
+                format!("phase-rotation-{}", format_factor(*angle_degrees))
+            }
+            seis_runtime::ProcessingOperation::LowpassFilter { f3_hz, f4_hz, .. } => format!(
+                "lowpass-{}-{}",
+                format_factor(*f3_hz),
+                format_factor(*f4_hz)
+            ),
+            seis_runtime::ProcessingOperation::HighpassFilter { f1_hz, f2_hz, .. } => format!(
+                "highpass-{}-{}",
+                format_factor(*f1_hz),
+                format_factor(*f2_hz)
+            ),
             seis_runtime::ProcessingOperation::BandpassFilter {
                 f1_hz,
                 f2_hz,
@@ -108,6 +131,83 @@ fn pipeline_output_slug(pipeline: &seis_runtime::ProcessingPipeline) -> String {
     }
 }
 
+fn gather_pipeline_output_slug(pipeline: &seis_runtime::GatherProcessingPipeline) -> String {
+    if let Some(name) = pipeline
+        .name
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return sanitized_stem(name, "gather-pipeline");
+    }
+
+    let mut parts = Vec::new();
+    if let Some(trace_local) = &pipeline.trace_local_pipeline {
+        parts.push(pipeline_output_slug(trace_local));
+    }
+    for operation in &pipeline.operations {
+        let part = match operation {
+            seis_runtime::GatherProcessingOperation::NmoCorrection {
+                velocity_model,
+                interpolation,
+            } => format!(
+                "nmo-{}-{}",
+                velocity_model_output_slug(velocity_model),
+                gather_interpolation_output_slug(*interpolation)
+            ),
+            seis_runtime::GatherProcessingOperation::StretchMute {
+                velocity_model,
+                max_stretch_ratio,
+            } => format!(
+                "stretch-mute-{}-{}",
+                velocity_model_output_slug(velocity_model),
+                format_factor(*max_stretch_ratio)
+            ),
+            seis_runtime::GatherProcessingOperation::OffsetMute {
+                min_offset,
+                max_offset,
+            } => format!(
+                "offset-mute-{}-{}",
+                optional_factor_output_slug(*min_offset),
+                optional_factor_output_slug(*max_offset)
+            ),
+        };
+        parts.push(part);
+    }
+
+    if parts.is_empty() {
+        "gather-pipeline".to_string()
+    } else {
+        sanitized_stem(&parts.join("-"), "gather-pipeline")
+    }
+}
+
+fn gather_interpolation_output_slug(mode: seis_runtime::GatherInterpolationMode) -> &'static str {
+    match mode {
+        seis_runtime::GatherInterpolationMode::Linear => "linear",
+    }
+}
+
+fn velocity_model_output_slug(model: &seis_runtime::VelocityFunctionSource) -> String {
+    match model {
+        seis_runtime::VelocityFunctionSource::ConstantVelocity { velocity_m_per_s } => {
+            format!("constant-{}", format_factor(*velocity_m_per_s))
+        }
+        seis_runtime::VelocityFunctionSource::TimeVelocityPairs { .. } => {
+            "time-velocity-pairs".to_string()
+        }
+        seis_runtime::VelocityFunctionSource::VelocityAssetReference { asset_id } => {
+            sanitized_stem(&format!("velocity-asset-{asset_id}"), "velocity-asset")
+        }
+    }
+}
+
+fn optional_factor_output_slug(value: Option<f32>) -> String {
+    value
+        .map(format_factor)
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn format_factor(value: f32) -> String {
     let mut formatted = format!("{value:.4}");
     while formatted.contains('.') && formatted.ends_with('0') {
@@ -129,11 +229,11 @@ fn source_store_stem(store_path: &str) -> String {
     sanitized_stem(stem, "dataset")
 }
 
-fn unique_store_candidate(dir: &Path, base_name: &str) -> PathBuf {
-    let mut candidate = dir.join(format!("{base_name}.tbvol"));
+fn unique_store_candidate(dir: &Path, base_name: &str, extension: &str) -> PathBuf {
+    let mut candidate = dir.join(format!("{base_name}.{extension}"));
     let mut index = 2usize;
     while candidate.exists() {
-        candidate = dir.join(format!("{base_name}-{index}.tbvol"));
+        candidate = dir.join(format!("{base_name}-{index}.{extension}"));
         index += 1;
     }
     candidate
@@ -142,7 +242,7 @@ fn unique_store_candidate(dir: &Path, base_name: &str) -> PathBuf {
 fn default_processing_store_path(
     app_paths: &AppPaths,
     input_store_path: &str,
-    pipeline: &seis_runtime::ProcessingPipeline,
+    pipeline: &seis_runtime::TraceLocalProcessingPipeline,
 ) -> Result<String, String> {
     fs::create_dir_all(app_paths.derived_volumes_dir()).map_err(|error| error.to_string())?;
     let source_stem = source_store_stem(input_store_path);
@@ -150,19 +250,40 @@ fn default_processing_store_path(
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let base_name = format!("{source_stem}.{pipeline_stem}.{timestamp}");
     Ok(
-        unique_store_candidate(app_paths.derived_volumes_dir(), &base_name)
+        unique_store_candidate(app_paths.derived_volumes_dir(), &base_name, "tbvol")
             .display()
             .to_string(),
     )
 }
 
-fn import_store_path_for_input(app_paths: &AppPaths, input_path: &str) -> Result<String, String> {
+fn default_gather_processing_store_path(
+    app_paths: &AppPaths,
+    input_store_path: &str,
+    pipeline: &GatherProcessingPipeline,
+) -> Result<String, String> {
+    fs::create_dir_all(app_paths.derived_gathers_dir()).map_err(|error| error.to_string())?;
+    let source_stem = source_store_stem(input_store_path);
+    let pipeline_stem = gather_pipeline_output_slug(pipeline);
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let base_name = format!("{source_stem}.{pipeline_stem}.{timestamp}");
+    Ok(
+        unique_store_candidate(app_paths.derived_gathers_dir(), &base_name, "tbgath")
+            .display()
+            .to_string(),
+    )
+}
+
+fn import_store_path_for_input(
+    dir: &Path,
+    input_path: &str,
+    extension: &str,
+) -> Result<String, String> {
     let input_path = input_path.trim();
     if input_path.is_empty() {
         return Err("Input path is required.".to_string());
     }
 
-    fs::create_dir_all(app_paths.imported_volumes_dir()).map_err(|error| error.to_string())?;
+    fs::create_dir_all(dir).map_err(|error| error.to_string())?;
 
     let source = Path::new(input_path);
     let stem = source
@@ -175,28 +296,57 @@ fn import_store_path_for_input(app_paths: &AppPaths, input_path: &str) -> Result
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     input_path.to_ascii_lowercase().hash(&mut hasher);
     let fingerprint = hasher.finish();
-    let store_name = format!("{sanitized_stem}-{fingerprint:016x}.tbvol");
-    Ok(app_paths
-        .imported_volumes_dir()
+    let store_name = format!("{sanitized_stem}-{fingerprint:016x}.{extension}");
+    Ok(dir
         .join(store_name)
         .display()
         .to_string())
 }
 
+fn import_volume_store_path_for_input(app_paths: &AppPaths, input_path: &str) -> Result<String, String> {
+    import_store_path_for_input(app_paths.imported_volumes_dir(), input_path, "tbvol")
+}
+
+fn import_prestack_store_path_for_input(
+    app_paths: &AppPaths,
+    input_path: &str,
+) -> Result<String, String> {
+    import_store_path_for_input(app_paths.imported_gathers_dir(), input_path, "tbgath")
+}
+
 #[tauri::command]
 fn default_import_store_path_command(app: AppHandle, input_path: String) -> Result<String, String> {
     let app_paths = AppPaths::resolve(&app)?;
-    import_store_path_for_input(&app_paths, &input_path)
+    import_volume_store_path_for_input(&app_paths, &input_path)
+}
+
+#[tauri::command]
+fn default_import_prestack_store_path_command(
+    app: AppHandle,
+    input_path: String,
+) -> Result<String, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    import_prestack_store_path_for_input(&app_paths, &input_path)
 }
 
 #[tauri::command]
 fn default_processing_store_path_command(
     app: AppHandle,
     store_path: String,
-    pipeline: seis_runtime::ProcessingPipeline,
+    pipeline: seis_runtime::TraceLocalProcessingPipeline,
 ) -> Result<String, String> {
     let app_paths = AppPaths::resolve(&app)?;
     default_processing_store_path(&app_paths, &store_path, &pipeline)
+}
+
+#[tauri::command]
+fn default_gather_processing_store_path_command(
+    app: AppHandle,
+    store_path: String,
+    pipeline: seis_runtime::GatherProcessingPipeline,
+) -> Result<String, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    default_gather_processing_store_path(&app_paths, &store_path, &pipeline)
 }
 
 fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
@@ -377,6 +527,73 @@ fn import_dataset_command(
 }
 
 #[tauri::command]
+fn import_prestack_offset_dataset_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    request: ImportPrestackOffsetDatasetRequest,
+) -> Result<ImportPrestackOffsetDatasetResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "import_prestack_offset_dataset",
+        "Starting prestack SEG-Y import",
+        Some(build_fields([
+            ("inputPath", json_value(&request.input_path)),
+            ("outputStorePath", json_value(&request.output_store_path)),
+            ("overwriteExisting", json_value(request.overwrite_existing)),
+            ("thirdAxisField", json_value(format!("{:?}", request.third_axis_field).to_ascii_lowercase())),
+            ("stage", json_value("validate_input")),
+        ])),
+    );
+    diagnostics.verbose_progress(
+        &app,
+        &operation,
+        "Validated prestack import inputs",
+        Some(build_fields([
+            ("inputPath", json_value(&request.input_path)),
+            ("outputStorePath", json_value(&request.output_store_path)),
+            ("overwriteExisting", json_value(request.overwrite_existing)),
+        ])),
+    );
+    diagnostics.progress(
+        &app,
+        &operation,
+        "Reading SEG-Y gather survey and building prestack runtime store",
+        Some(build_fields([("stage", json_value("read_segy"))])),
+    );
+
+    let result = import_prestack_offset_dataset(request);
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Prestack SEG-Y import completed",
+                Some(build_fields([
+                    ("storePath", json_value(&response.dataset.store_path)),
+                    ("datasetId", json_value(&response.dataset.descriptor.id.0)),
+                    ("datasetLabel", json_value(&response.dataset.descriptor.label)),
+                    ("shape", json_value(response.dataset.descriptor.shape)),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Prestack SEG-Y import failed",
+                Some(build_fields([
+                    ("stage", json_value("build_store")),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn open_dataset_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
@@ -501,11 +718,57 @@ fn load_section_command(
 }
 
 #[tauri::command]
+fn load_gather_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+    request: GatherRequest,
+) -> Result<GatherView, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "load_gather",
+        "Loading gather view",
+        Some(build_fields([
+            ("storePath", json_value(&store_path)),
+            ("datasetId", json_value(&request.dataset_id.0)),
+            ("stage", json_value("load_gather")),
+        ])),
+    );
+
+    let result = load_gather(store_path, request);
+    match result {
+        Ok(gather) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Gather view loaded",
+                Some(build_fields([
+                    ("traces", json_value(gather.traces)),
+                    ("samples", json_value(gather.samples)),
+                    ("label", json_value(&gather.label)),
+                ])),
+            );
+            Ok(gather)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Gather load failed",
+                Some(build_fields([("error", json_value(&message))])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn preview_processing_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
-    request: PreviewProcessingRequest,
-) -> Result<PreviewProcessingResponse, String> {
+    request: PreviewTraceLocalProcessingRequest,
+) -> Result<PreviewTraceLocalProcessingResponse, String> {
     let operation = diagnostics.start_operation(
         &app,
         "preview_processing",
@@ -546,6 +809,63 @@ fn preview_processing_command(
                 &app,
                 &operation,
                 "Processing preview failed",
+                Some(build_fields([("error", json_value(&message))])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn preview_gather_processing_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    request: PreviewGatherProcessingRequest,
+) -> Result<PreviewGatherProcessingResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "preview_gather_processing",
+        "Generating gather processing preview",
+        Some(build_fields([
+            ("storePath", json_value(&request.store_path)),
+            ("datasetId", json_value(&request.gather.dataset_id.0)),
+            ("operatorCount", json_value(request.pipeline.operations.len())),
+            (
+                "traceLocalOperatorCount",
+                json_value(
+                    request
+                        .pipeline
+                        .trace_local_pipeline
+                        .as_ref()
+                        .map(|pipeline| pipeline.operations.len())
+                        .unwrap_or(0),
+                ),
+            ),
+            ("stage", json_value("preview_gather")),
+        ])),
+    );
+
+    let result = preview_gather_processing(request);
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Gather processing preview ready",
+                Some(build_fields([
+                    ("previewReady", json_value(response.preview.preview_ready)),
+                    ("traces", json_value(response.preview.gather.traces)),
+                    ("samples", json_value(response.preview.gather.samples)),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Gather processing preview failed",
                 Some(build_fields([("error", json_value(&message))])),
             );
             Err(message)
@@ -603,12 +923,70 @@ fn amplitude_spectrum_command(
 }
 
 #[tauri::command]
+fn velocity_scan_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    request: VelocityScanRequest,
+) -> Result<VelocityScanResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "velocity_scan",
+        "Running prestack velocity scan",
+        Some(build_fields([
+            ("storePath", json_value(&request.store_path)),
+            ("datasetId", json_value(&request.gather.dataset_id.0)),
+            ("minVelocity", json_value(request.min_velocity_m_per_s)),
+            ("maxVelocity", json_value(request.max_velocity_m_per_s)),
+            ("velocityStep", json_value(request.velocity_step_m_per_s)),
+            ("autopickEnabled", json_value(request.autopick.is_some())),
+            ("stage", json_value("velocity_scan")),
+        ])),
+    );
+
+    let result = run_velocity_scan(request);
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Velocity scan ready",
+                Some(build_fields([
+                    ("velocityBins", json_value(response.panel.velocities_m_per_s.len())),
+                    ("sampleCount", json_value(response.panel.sample_axis_ms.len())),
+                    (
+                        "autopickCount",
+                        json_value(
+                            response
+                                .autopicked_velocity_function
+                                .as_ref()
+                                .map(|estimate| estimate.times_ms.len())
+                                .unwrap_or(0),
+                        ),
+                    ),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Velocity scan failed",
+                Some(build_fields([("error", json_value(&message))])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn run_processing_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
     processing: State<ProcessingState>,
-    request: RunProcessingRequest,
-) -> Result<RunProcessingResponse, String> {
+    request: RunTraceLocalProcessingRequest,
+) -> Result<RunTraceLocalProcessingResponse, String> {
     let app_paths = AppPaths::resolve(&app)?;
     let output_store_path =
         request
@@ -622,7 +1000,9 @@ fn run_processing_command(
     let queued = processing.enqueue_job(
         request.store_path.clone(),
         Some(output_store_path.clone()),
-        request.pipeline.clone(),
+        seis_runtime::ProcessingPipelineSpec::TraceLocal {
+            pipeline: request.pipeline.clone(),
+        },
     );
     let job_id = queued.job_id.clone();
     let record = processing.job_record(&job_id)?;
@@ -644,7 +1024,7 @@ fn run_processing_command(
     );
 
     let worker_app = app.clone();
-    let worker_request = RunProcessingRequest {
+    let worker_request = RunTraceLocalProcessingRequest {
         output_store_path: Some(output_store_path.clone()),
         ..request
     };
@@ -652,7 +1032,62 @@ fn run_processing_command(
         run_processing_job(&worker_app, &record, worker_request);
     });
 
-    Ok(RunProcessingResponse {
+    Ok(RunTraceLocalProcessingResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        job: queued,
+    })
+}
+
+#[tauri::command]
+fn run_gather_processing_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    processing: State<ProcessingState>,
+    request: RunGatherProcessingRequest,
+) -> Result<RunGatherProcessingResponse, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    let output_store_path =
+        request
+            .output_store_path
+            .clone()
+            .unwrap_or(default_gather_processing_store_path(
+                &app_paths,
+                &request.store_path,
+                &request.pipeline,
+            )?);
+    let queued = processing.enqueue_job(
+        request.store_path.clone(),
+        Some(output_store_path.clone()),
+        seis_runtime::ProcessingPipelineSpec::Gather {
+            pipeline: request.pipeline.clone(),
+        },
+    );
+    let job_id = queued.job_id.clone();
+    let record = processing.job_record(&job_id)?;
+
+    diagnostics.emit_session_event(
+        &app,
+        "gather_processing_job_queued",
+        log::Level::Info,
+        "Gather processing job queued",
+        Some(build_fields([
+            ("jobId", json_value(&job_id)),
+            ("storePath", json_value(&request.store_path)),
+            ("outputStorePath", json_value(&output_store_path)),
+            ("operatorCount", json_value(request.pipeline.operations.len())),
+        ])),
+    );
+
+    let worker_app = app.clone();
+    let worker_request = RunGatherProcessingRequest {
+        output_store_path: Some(output_store_path.clone()),
+        ..request
+    };
+    std::thread::spawn(move || {
+        run_gather_processing_job(&worker_app, &record, worker_request);
+    });
+
+    Ok(RunGatherProcessingResponse {
         schema_version: IPC_SCHEMA_VERSION,
         job: queued,
     })
@@ -761,7 +1196,11 @@ fn save_workspace_session_command(
     workspace.save_session(request)
 }
 
-fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessingRequest) {
+fn run_processing_job(
+    app: &AppHandle,
+    record: &JobRecord,
+    request: RunTraceLocalProcessingRequest,
+) {
     let app_paths = match AppPaths::resolve(app) {
         Ok(paths) => paths,
         Err(error) => {
@@ -863,6 +1302,130 @@ fn run_processing_job(app: &AppHandle, record: &JobRecord, request: RunProcessin
                         "Processing job cancelled"
                     } else {
                         "Processing job failed"
+                    },
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "state",
+                            json_value(format!("{:?}", final_status.state).to_ascii_lowercase()),
+                        ),
+                        (
+                            "error",
+                            json_value(final_status.error_message.clone().unwrap_or_default()),
+                        ),
+                    ])),
+                );
+            }
+        }
+    }
+}
+
+fn run_gather_processing_job(
+    app: &AppHandle,
+    record: &JobRecord,
+    request: RunGatherProcessingRequest,
+) {
+    let app_paths = match AppPaths::resolve(app) {
+        Ok(paths) => paths,
+        Err(error) => {
+            let _ = record.mark_failed(error.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "gather_processing_job_failed",
+                    log::Level::Error,
+                    "Gather processing job failed before initialization",
+                    Some(build_fields([("error", json_value(&error))])),
+                );
+            }
+            return;
+        }
+    };
+    let _ = record.mark_running();
+    let output_store_path = request.output_store_path.clone().unwrap_or_else(|| {
+        default_gather_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
+            .unwrap_or_else(|_| "derived-output.tbgath".to_string())
+    });
+    if let Err(error) = prepare_processing_output_store(
+        &request.store_path,
+        &output_store_path,
+        request.overwrite_existing,
+    ) {
+        let final_status = record.mark_failed(error);
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "gather_processing_job_failed",
+                log::Level::Error,
+                "Gather processing job failed",
+                Some(build_fields([
+                    ("jobId", json_value(&final_status.job_id)),
+                    (
+                        "error",
+                        json_value(final_status.error_message.clone().unwrap_or_default()),
+                    ),
+                ])),
+            );
+        }
+        return;
+    }
+
+    let result = materialize_gather_processing_store_with_progress(
+        &request.store_path,
+        &output_store_path,
+        &request.pipeline,
+        |completed, total| {
+            if record.cancel_requested() {
+                return Err(seis_runtime::SeisRefineError::Message(
+                    "processing cancelled".to_string(),
+                ));
+            }
+            let _ = record.mark_progress(completed, total);
+            Ok(())
+        },
+    );
+
+    match result {
+        Ok(_) => {
+            let final_status = record.mark_completed(output_store_path.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "gather_processing_job_completed",
+                    log::Level::Info,
+                    "Gather processing job completed",
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        ("outputStorePath", json_value(&output_store_path)),
+                    ])),
+                );
+            }
+        }
+        Err(error) => {
+            let final_status = if record.cancel_requested() {
+                record.mark_cancelled()
+            } else {
+                record.mark_failed(error.to_string())
+            };
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "gather_processing_job_failed",
+                    if matches!(
+                        final_status.state,
+                        seis_runtime::ProcessingJobState::Cancelled
+                    ) {
+                        log::Level::Warn
+                    } else {
+                        log::Level::Error
+                    },
+                    if matches!(
+                        final_status.state,
+                        seis_runtime::ProcessingJobState::Cancelled
+                    ) {
+                        "Gather processing job cancelled"
+                    } else {
+                        "Gather processing job failed"
                     },
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
@@ -1043,11 +1606,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             preflight_import_command,
             import_dataset_command,
+            import_prestack_offset_dataset_command,
             open_dataset_command,
             load_section_command,
+            load_gather_command,
             preview_processing_command,
+            preview_gather_processing_command,
             amplitude_spectrum_command,
+            velocity_scan_command,
             run_processing_command,
+            run_gather_processing_command,
             get_processing_job_command,
             cancel_processing_job_command,
             list_pipeline_presets_command,
@@ -1059,7 +1627,9 @@ pub fn run() {
             set_active_dataset_entry_command,
             save_workspace_session_command,
             default_import_store_path_command,
+            default_import_prestack_store_path_command,
             default_processing_store_path_command,
+            default_gather_processing_store_path_command,
             get_diagnostics_status_command,
             set_diagnostics_verbosity_command,
             export_diagnostics_bundle_command

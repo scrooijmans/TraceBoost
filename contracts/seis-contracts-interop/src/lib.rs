@@ -2,15 +2,21 @@ pub use ophiolite_seismic::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DatasetSummary, DeletePipelinePresetRequest,
     DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
-    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
-    PreviewProcessingRequest, PreviewProcessingResponse, PreviewResponse, RunProcessingRequest,
-    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis,
-    SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+    GatherProcessingPipeline, GatherRequest, GatherView, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
+    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse,
+    PrestackThirdAxisField, PreviewCommand, PreviewGatherProcessingRequest,
+    PreviewGatherProcessingResponse, PreviewResponse, PreviewTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest,
+    RunGatherProcessingResponse, RunTraceLocalProcessingRequest,
+    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    SectionAxis, SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+    VelocityAutopickParameters, VelocityFunctionEstimate, VelocityFunctionSource, VelocityPickStrategy,
+    VelocityScanRequest, VelocityScanResponse,
 };
 
 use schemars::JsonSchema;
-use seis_contracts_core::ProcessingPipeline;
+use seis_contracts_core::TraceLocalProcessingPipeline;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -28,7 +34,7 @@ pub enum DatasetRegistryStatus {
 #[ts(export)]
 pub struct WorkspacePipelineEntry {
     pub pipeline_id: String,
-    pub pipeline: ProcessingPipeline,
+    pub pipeline: TraceLocalProcessingPipeline,
     #[ts(type = "number")]
     pub updated_at_unix_s: u64,
 }
