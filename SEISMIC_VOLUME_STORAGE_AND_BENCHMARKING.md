@@ -42,7 +42,7 @@ Both operators require access to a full trace along the sample axis. That detail
 
 ## The storage candidates that were tested
 
-Three runtime-store shapes were benchmarked through the same compute executor.
+Four runtime-store shapes were benchmarked through the same compute executor.
 
 ### 1. Zarr
 
@@ -83,6 +83,7 @@ If Zarr lost badly to a naive contiguous layout, then the system was likely payi
 ### 3. `tbvol`
 
 `tbvol` is the production-grade custom runtime format that emerged from the benchmark work. It is a dense tiled binary container optimized for local desktop compute.
+It is specific to the TraceBoost/Ophiolite runtime stack, not a broadly adopted industry interchange standard like SEG-Y or an increasingly recognized ecosystem format like OpenVDS.
 
 Current on-disk shape:
 
@@ -101,6 +102,31 @@ Key properties:
 - derived-store lineage stored in metadata
 
 The point of `tbvol` is not novelty. It is to retain the low-overhead behavior that made the flat-binary control attractive, while restoring the locality and partial-read behavior needed for section assembly and streamed full-volume apply.
+
+### 4. OpenVDS
+
+OpenVDS is increasingly relevant because it is part of the OSDU seismic data stack and is showing up more often as teams standardize around OSDU-aligned interchange and storage workflows.
+
+For this benchmark, OpenVDS was treated as a local desktop data format, not as a cloud/object-store service layer:
+
+- local file-backed `.vds`
+- uncompressed amplitude channel
+- benchmarked through local subset reads and full-volume page iteration
+- brick-size sweep over `32`, `64`, and `128`
+
+Why OpenVDS is worth testing:
+
+- it has a real seismic-specific storage model
+- it supports local-file and object-storage-backed VDS assets
+- it offers subset reads, page-based access, and format-level metadata
+- it is materially more relevant to seismic interoperability than a generic array container
+
+Why OpenVDS was still suspect for this workload:
+
+- the physical unit is still a brick/page layout, not a full-trace tile
+- the sample axis is therefore split across multiple bricks for `1024`-sample traces
+- that mismatch is expensive for trace-local operators like `trace_rms_normalize`
+- it is a stronger interoperability format than it is a guaranteed optimal local compute substrate
 
 ## Why "shape" matters more than "format"
 
@@ -169,6 +195,8 @@ The benchmark therefore runs through the same compute substrate the product uses
 - preview execution path
 - full-volume materialization path
 
+OpenVDS was added as an external comparison path through a small standalone C++ runner in [`scripts/openvds_storage_bench.cpp`](/Users/sc/dev/TraceBoost/scripts/openvds_storage_bench.cpp). The runner uses the same synthetic dataset generator and the same two-operator pipeline as the Rust benchmark, but it talks directly to the official OpenVDS API because the shared runtime does not currently ship an OpenVDS backend.
+
 The current benchmark exercises:
 
 - inline section read
@@ -189,43 +217,65 @@ The small real cube is useful for smoke-testing realism. It is not large enough 
 
 ## Representative measured results
 
-With full-trace tiles around the `2-4 MiB` regime, the measured results were directionally stable:
+The numbers below are from the current rerun on April 7, 2026. For `tbvol`, flat binary, and Zarr, the benchmark used the shared Rust runtime with `4 MiB` full-trace tiles. For OpenVDS, the benchmark used local-file `.vds` stores with a brick-size sweep over `32`, `64`, and `128`; the best-balanced OpenVDS result for each dataset is listed, with sweep notes underneath.
 
 ### Medium synthetic: `256 x 256 x 1024`
 
 - `zarr_uncompressed_unsharded`
-  - preview pipeline: `39.390 ms`
-  - full apply pipeline: `688.762 ms`
+  - preview pipeline: `5.796 ms`
+  - full apply pipeline: `560.661 ms`
   - file count: `67`
 - `tbvol`
-  - preview pipeline: `0.503 ms`
-  - full apply pipeline: `403.393 ms`
+  - preview pipeline: `0.286 ms`
+  - full apply pipeline: `648.866 ms`
   - file count: `2`
 - `flat_binary_control`
-  - preview pipeline: `1.043 ms`
-  - full apply pipeline: `595.457 ms`
-  - file count: `2`
+  - preview pipeline: `0.477 ms`
+  - full apply pipeline: `1466.344 ms`
+  - file count: `1`
+- `openvds` best balanced result
+  - preview pipeline: `2.960 ms`
+  - full apply pipeline: `558.635 ms`
+  - file count: `1`
+
+OpenVDS sweep notes for the medium dataset:
+
+- `brick_size=64` was the best balance for preview plus apply
+- `brick_size=128` reduced full apply slightly further to `537.918 ms`, but preview regressed to `5.692 ms`
+- `brick_size=32` gave `3.184 ms` preview and `749.788 ms` full apply
 
 ### Large synthetic: `384 x 384 x 1024`
 
 - `zarr_uncompressed_unsharded`
-  - preview pipeline: `61.177 ms`
-  - full apply pipeline: `2573.365 ms`
+  - preview pipeline: `9.612 ms`
+  - full apply pipeline: `900.962 ms`
   - file count: `147`
 - `tbvol`
-  - preview pipeline: `1.756 ms`
-  - full apply pipeline: `958.889 ms`
+  - preview pipeline: `0.229 ms`
+  - full apply pipeline: `526.317 ms`
   - file count: `2`
 - `flat_binary_control`
-  - preview pipeline: `1.831 ms`
-  - full apply pipeline: `1572.882 ms`
-  - file count: `2`
+  - preview pipeline: `0.567 ms`
+  - full apply pipeline: `970.066 ms`
+  - file count: `1`
+- `openvds` best result
+  - preview pipeline: `4.759 ms`
+  - full apply pipeline: `1033.193 ms`
+  - file count: `1`
 
-These numbers matter for two reasons.
+OpenVDS sweep notes for the large dataset:
 
-First, `tbvol` beats Zarr decisively on both key workloads: preview latency and full-volume materialization throughput.
+- `brick_size=32` was best on both measured workloads
+- `brick_size=64` gave `5.087 ms` preview and `1148.289 ms` full apply
+- `brick_size=128` gave `10.659 ms` preview and `1314.584 ms` full apply
 
-Second, `tbvol` also beats the flat-binary control on the larger synthetic case. That means the outcome is not "simpler is always better." It is "the right tiled layout is better than both a generic chunked format and a monolithic contiguous control."
+These numbers matter for three reasons.
+
+First, `tbvol` still dominates preview latency by a wide margin. That remains important because preview is the interactive hot path.
+
+Second, OpenVDS is meaningfully better than generic uncompressed Zarr on file count and often on preview latency, so it is a real comparison target rather than an academic omission.
+
+Third, OpenVDS does not displace `tbvol` as the preferred local compute backend. It can be competitive on the medium synthetic full-apply case, but it falls behind once the volume gets larger and the brick/sample-axis mismatch shows up more clearly.
 
 ## Why `tbvol` wins
 
@@ -377,21 +427,23 @@ The important thing is that the runtime is no longer boxed into a storage abstra
 
 ## Final conclusion
 
-For the current TraceBoost/Ophiolite seismic runtime, `tbvol` is the right backend.
+For the current TraceBoost/Ophiolite seismic runtime, `tbvol` is still the right default backend.
 
-Not because Zarr is bad in general, and not because custom formats are inherently superior, but because:
+Not because Zarr or OpenVDS are bad in general, and not because custom formats are inherently superior, but because:
 
 - the operator class is trace-local
 - preview and full apply need the same compute substrate
 - the workload is local and latency-sensitive
 - full-trace tiled binary layout minimizes overhead while preserving selective access
 - mmap reads and positioned writes map cleanly onto the required execution paths
-- the measured results are not marginal; they are decisive
+- the measured results still show a decisive preview advantage
+- the larger synthetic full-apply case still favors `tbvol`
 
 The benchmark therefore changed the architecture in a meaningful way:
 
 - Zarr is no longer the optimization target for runtime compute
+- OpenVDS is now a benchmarked interoperability/comparison format rather than a missing data point
 - monolithic flat binary was useful as a control, but not as the final production answer
-- `tbvol` became the preferred runtime backend because it matched both the software engineering constraints and the measured performance profile
+- `tbvol` remains the preferred runtime backend because it best matches the operator class and the local interactive workload
 
 That is the main lesson of the exercise: in scientific compute systems, backend correctness and backend speed often come from the same design choice, namely choosing a physical layout that matches the unit of computation.

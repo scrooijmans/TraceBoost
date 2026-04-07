@@ -41,6 +41,8 @@ Implemented backend pieces:
   - `runtime/src/bin/compute_storage_bench.rs`
 - Criterion harness:
   - `runtime/benches/compute_storage.rs`
+- OpenVDS comparison runner:
+  - [`scripts/openvds_storage_bench.cpp`](/Users/sc/dev/TraceBoost/scripts/openvds_storage_bench.cpp)
 
 Current state:
 
@@ -48,6 +50,7 @@ Current state:
 - TraceBoost runtime re-exports that shared backend as a compatibility layer
 - ingest/open/preview/materialize in the shared runtime now operate on the `tbvol` path by default
 - Zarr remains present only as a benchmark/reference backend and compatibility helper
+- OpenVDS is benchmarked as an external local-file comparison path, not yet as an in-runtime backend
 
 ## Measured Findings
 
@@ -56,39 +59,51 @@ The benchmark was rerun in release mode through the storage-neutral compute path
 - real control dataset: `test-data/f3.sgy`
 - synthetic medium dataset: `256 x 256 x 1024`
 - synthetic large dataset: `384 x 384 x 1024`
+- OpenVDS brick sweep: `32`, `64`, `128`
 
 Control finding:
 
 - `f3.sgy` is too small to be decision-driving; storage/container overhead dominates
 
-Measured backend comparison with `4 MiB` full-trace tiles:
+Measured backend comparison with `4 MiB` full-trace tiles for `tbvol`/flat/Zarr, plus local-file OpenVDS `.vds` runs:
 
 - medium synthetic `256 x 256 x 1024`
   - `zarr_uncompressed_unsharded`
-    - preview pipeline: `39.390 ms`
-    - full apply pipeline: `688.762 ms`
+    - preview pipeline: `5.796 ms`
+    - full apply pipeline: `560.661 ms`
     - file count: `67`
   - `tbvol`
-    - preview pipeline: `0.503 ms`
-    - full apply pipeline: `403.393 ms`
+    - preview pipeline: `0.286 ms`
+    - full apply pipeline: `648.866 ms`
     - file count: `2`
   - `flat_binary_control`
-    - preview pipeline: `1.043 ms`
-    - full apply pipeline: `595.457 ms`
-    - file count: `2`
+    - preview pipeline: `0.477 ms`
+    - full apply pipeline: `1466.344 ms`
+    - file count: `1`
+  - `openvds`
+    - best balanced brick: `64`
+    - preview pipeline: `2.960 ms`
+    - full apply pipeline: `558.635 ms`
+    - file count: `1`
+    - sweep note: `brick_size=128` reached `537.918 ms` full apply, but preview regressed to `5.692 ms`
 - large synthetic `384 x 384 x 1024`
   - `zarr_uncompressed_unsharded`
-    - preview pipeline: `61.177 ms`
-    - full apply pipeline: `2573.365 ms`
+    - preview pipeline: `9.612 ms`
+    - full apply pipeline: `900.962 ms`
     - file count: `147`
   - `tbvol`
-    - preview pipeline: `1.756 ms`
-    - full apply pipeline: `958.889 ms`
+    - preview pipeline: `0.229 ms`
+    - full apply pipeline: `526.317 ms`
     - file count: `2`
   - `flat_binary_control`
-    - preview pipeline: `1.831 ms`
-    - full apply pipeline: `1572.882 ms`
-    - file count: `2`
+    - preview pipeline: `0.567 ms`
+    - full apply pipeline: `970.066 ms`
+    - file count: `1`
+  - `openvds`
+    - best brick: `32`
+    - preview pipeline: `4.759 ms`
+    - full apply pipeline: `1033.193 ms`
+    - file count: `1`
 - small real control `f3.sgy`
   - still too small to drive the architectural decision
   - `tbvol` won preview and beat Zarr, but flat binary still had the cheapest full apply on this tiny case because container overhead dominates
@@ -96,9 +111,9 @@ Measured backend comparison with `4 MiB` full-trace tiles:
 Measured conclusion:
 
 - the earlier “promote flat binary” direction is superseded
-- the production-grade tiled implementation (`tbvol`) is now the best-performing backend overall
-- `tbvol` beats Zarr decisively on both key workloads
-- `tbvol` also beats the monolithic flat control on the larger synthetic case, which means the tile design is not just an overhead compromise; it is the correct compute substrate
+- OpenVDS is worth keeping in the benchmark set because it is materially stronger than generic local Zarr on file count and can be competitive on medium-size full apply
+- `tbvol` remains the strongest interactive backend because its preview latency is still an order of magnitude lower than OpenVDS and much lower than Zarr
+- `tbvol` also wins the larger synthetic full-apply case, which keeps it in front as the default local compute substrate
 
 Chunk-size sweep findings for `tbvol`:
 
@@ -169,11 +184,13 @@ The benchmark compares the following runtime-store candidates:
 - `zarr_zstd_sharded`
 - `tbvol`
 - `flat_binary_control`
+- `openvds` local-file comparison path
 
 Notes:
 
 - `tbvol` is the current leading production backend candidate
 - `flat_binary_control` remains a control artifact, not a production commitment
+- `openvds` is not yet wired into the shared runtime backend layer; it is benchmarked through a standalone local-file runner
 - HDF5 and TileDB remain intentionally deferred
 
 ## Chunking Policy Under Test
@@ -333,14 +350,16 @@ The current measured result still does **not** satisfy the Zarr retention rule, 
 
 Reason:
 
-- `tbvol` now beats Zarr decisively on both preview and full-volume apply
-- `tbvol` also beats the flat-binary control on the larger synthetic workload, which removes the need to promote the monolithic control format further
+- `tbvol` still dominates the interactive preview path
+- `tbvol` still wins the larger synthetic full-volume apply case
+- OpenVDS is a legitimate interoperability-oriented comparison point, but it does not overtake `tbvol` as the default local compute backend
 
 Updated architectural conclusion:
 
 - stop treating Zarr as the optimization target for this compute class
 - stop treating the monolithic flat-binary control as the likely successor
 - treat `tbvol` as the preferred extraction-ready runtime backend candidate
+- keep OpenVDS in the benchmark set as a local-file interoperability/reference comparison
 - the backend has now been moved into the shared core
 - keep the current Zarr path only as a benchmark/reference adapter until it is no longer needed
 - invest next in:
@@ -355,7 +374,7 @@ This plan is complete when the shared/runtime stack can:
 - benchmark multiple runtime-store layouts in-repo
 - compare them using real operators
 - select a default tile policy for new stores
-- justify with measured evidence that `tbvol` is the better runtime backend than Zarr for the current operator class
+- justify with measured evidence that `tbvol` is the better default local runtime backend than the benchmark alternatives for the current operator class
 - expose that backend through the shared seismic core with TraceBoost consuming it as a wrapper
 
 ## Immediate Next Steps
