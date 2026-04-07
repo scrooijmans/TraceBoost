@@ -1,4 +1,6 @@
 import type {
+  AmplitudeSpectrumRequest,
+  AmplitudeSpectrumResponse,
   CancelProcessingJobResponse,
   DatasetRegistryEntry,
   DatasetRegistryStatus,
@@ -74,6 +76,25 @@ async function postJson<T>(url: string, body: Record<string, unknown>): Promise<
     body: JSON.stringify(body)
   });
   return readJson<T>(response);
+}
+
+function operationSlug(
+  operation: ProcessingPreset["pipeline"]["operations"][number] | RunProcessingRequest["pipeline"]["operations"][number]
+): string {
+  if (typeof operation === "string") {
+    return "trace-rms-normalize";
+  }
+  if ("amplitude_scalar" in operation) {
+    return `amplitude-scalar-${String(operation.amplitude_scalar.factor).replace(".", "_")}`;
+  }
+  return `bandpass-${[
+    operation.bandpass_filter.f1_hz,
+    operation.bandpass_filter.f2_hz,
+    operation.bandpass_filter.f3_hz,
+    operation.bandpass_filter.f4_hz
+  ]
+    .map((value) => String(value).replace(".", "_"))
+    .join("-")}`;
 }
 
 function defaultWorkspaceSession(): WorkspaceSession {
@@ -262,6 +283,16 @@ export async function previewProcessing(
   return postJson<PreviewProcessingResponse>("/api/processing/preview", request as Record<string, unknown>);
 }
 
+export async function fetchAmplitudeSpectrum(
+  request: AmplitudeSpectrumRequest
+): Promise<AmplitudeSpectrumResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<AmplitudeSpectrumResponse>("amplitude_spectrum_command", { request });
+  }
+
+  return postJson<AmplitudeSpectrumResponse>("/api/processing/spectrum", request as Record<string, unknown>);
+}
+
 export async function runProcessing(
   request: RunProcessingRequest
 ): Promise<RunProcessingResponse> {
@@ -289,15 +320,9 @@ export async function defaultProcessingStorePath(
   const filename = separatorIndex >= 0 ? normalizedStorePath.slice(separatorIndex + 1) : normalizedStorePath;
   const sourceStem = filename.replace(/\.[^.]+$/, "") || "dataset";
   const namedPipeline = pipeline.name?.trim();
-  const operationSlug =
-    pipeline.operations
-      .map((operation) =>
-        typeof operation === "string"
-          ? "trace-rms-normalize"
-          : `amplitude-scalar-${String(operation.amplitude_scalar.factor).replace(".", "_")}`
-      )
-      .join("-") || "pipeline";
-  const pipelineStem = (namedPipeline || operationSlug)
+  const pipelineOperationSlug =
+    pipeline.operations.map((operation) => operationSlug(operation)).join("-") || "pipeline";
+  const pipelineStem = (namedPipeline || pipelineOperationSlug)
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "");

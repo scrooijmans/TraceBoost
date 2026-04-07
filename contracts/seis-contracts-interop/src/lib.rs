@@ -1,7 +1,8 @@
 pub use ophiolite_seismic::{
-    CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetSummary,
-    DeletePipelinePresetRequest, DeletePipelinePresetResponse, GetProcessingJobRequest,
-    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
+    CancelProcessingJobResponse, DatasetSummary, DeletePipelinePresetRequest,
+    DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
+    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
     ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
     PreviewProcessingRequest, PreviewProcessingResponse, PreviewResponse, RunProcessingRequest,
     RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis,

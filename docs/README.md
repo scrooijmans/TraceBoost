@@ -6,6 +6,7 @@ Current source-of-truth document:
 
 - `architecture.md`
 - `compute-storage-benchmark.md` for the runtime compute/storage benchmark and format decision plan
+- `spectral-processing-implementation.md` for the shared Ophiolite + TraceBoost frequency-domain operator and spectrum-analysis implementation plan
 
 Status of the rest of this folder:
 

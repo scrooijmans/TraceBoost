@@ -56,6 +56,14 @@ The current backend processing design is:
 
 This keeps the backend deterministic and frontend-safe without introducing a scripting language as the source of truth.
 
+The next processing expansion is frequency-domain work:
+
+- canonical spectral operators and analysis contracts should be added in the shared Ophiolite layer
+- TraceBoost should keep exposing only the post-stack-safe product subset
+- analysis flows such as amplitude spectrum inspection should stay separate from materializing processing operators
+
+The detailed implementation plan for that work lives in `docs/spectral-processing-implementation.md`.
+
 ## Workspace Persistence
 
 The current desktop persistence split is:

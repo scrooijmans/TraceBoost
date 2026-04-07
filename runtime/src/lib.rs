@@ -17,18 +17,21 @@ pub use metadata::{
     RegularizationProvenance, SourceIdentity, TbvolManifest, VolumeAxes, VolumeMetadata,
 };
 pub use ophiolite_seismic::{
-    AxisSummaryF32, AxisSummaryI32, CancelProcessingJobRequest, CancelProcessingJobResponse,
-    DatasetId, DeletePipelinePresetRequest, DeletePipelinePresetResponse, GeometryDescriptor,
-    GeometryProvenanceSummary, GeometrySummary, GetProcessingJobRequest, GetProcessingJobResponse,
-    InterpretationPoint, ListPipelinePresetsResponse, PreviewProcessingRequest,
-    PreviewProcessingResponse, ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus,
-    ProcessingOperation, ProcessingPipeline, ProcessingPreset, RunProcessingRequest,
-    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis,
-    SectionRequest, SectionTileRequest, VolumeDescriptor,
+    AmplitudeSpectrumCurve, AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, AxisSummaryF32,
+    AxisSummaryI32, CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetId,
+    DeletePipelinePresetRequest, DeletePipelinePresetResponse, FrequencyPhaseMode,
+    FrequencyWindowShape, GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary,
+    GetProcessingJobRequest, GetProcessingJobResponse, InterpretationPoint,
+    ListPipelinePresetsResponse, PreviewProcessingRequest, PreviewProcessingResponse,
+    ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingOperation,
+    ProcessingPipeline, ProcessingPreset, RunProcessingRequest, RunProcessingResponse,
+    SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis, SectionRequest,
+    SectionSpectrumSelection, SectionTileRequest, VolumeDescriptor,
 };
 pub use ophiolite_seismic::{PreviewView, SectionView};
 pub use ophiolite_seismic_runtime::{
-    MaterializeOptions, apply_pipeline_to_plane, apply_pipeline_to_traces,
+    MaterializeOptions, amplitude_spectrum_from_plane, amplitude_spectrum_from_reader,
+    apply_pipeline_to_plane, apply_pipeline_to_traces,
     materialize_from_reader_writer, materialize_from_reader_writer_with_progress,
     materialize_processing_volume, materialize_processing_volume_with_progress, materialize_volume,
     preview_processing_section_plane, preview_processing_section_view, preview_section_from_reader,

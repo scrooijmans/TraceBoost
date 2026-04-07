@@ -1,6 +1,482 @@
 {
   "ipcSchemaVersion": 1,
   "types": {
+    "AmplitudeSpectrumCurve": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "amplitudes": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "frequencies_hz": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "amplitudes",
+        "frequencies_hz"
+      ],
+      "title": "AmplitudeSpectrumCurve",
+      "type": "object"
+    },
+    "AmplitudeSpectrumRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
+        "ProcessingOperation": {
+          "oneOf": [
+            {
+              "enum": [
+                "trace_rms_normalize"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "amplitude_scalar": {
+                  "properties": {
+                    "factor": {
+                      "format": "float",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "factor"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ProcessingPipeline": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/ProcessingOperation"
+              },
+              "type": "array"
+            },
+            "preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "schema_version": {
+              "default": 1,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operations"
+          ],
+          "type": "object"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "SectionRequest": {
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "axis",
+            "dataset_id",
+            "index"
+          ],
+          "type": "object"
+        },
+        "SectionSpectrumSelection": {
+          "oneOf": [
+            {
+              "enum": [
+                "whole_section"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "trace_range": {
+                  "properties": {
+                    "trace_end": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "trace_start": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "trace_end",
+                    "trace_start"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "trace_range"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "rect_window": {
+                  "properties": {
+                    "sample_end": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "sample_start": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "trace_end": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "trace_start": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "sample_end",
+                    "sample_start",
+                    "trace_end",
+                    "trace_start"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "rect_window"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "pipeline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProcessingPipeline"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "section": {
+          "$ref": "#/definitions/SectionRequest"
+        },
+        "selection": {
+          "$ref": "#/definitions/SectionSpectrumSelection"
+        },
+        "store_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "section",
+        "selection",
+        "store_path"
+      ],
+      "title": "AmplitudeSpectrumRequest",
+      "type": "object"
+    },
+    "AmplitudeSpectrumResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "AmplitudeSpectrumCurve": {
+          "properties": {
+            "amplitudes": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "frequencies_hz": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "amplitudes",
+            "frequencies_hz"
+          ],
+          "type": "object"
+        },
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "enum": [
+            "inline",
+            "xline"
+          ],
+          "type": "string"
+        },
+        "SectionRequest": {
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "axis",
+            "dataset_id",
+            "index"
+          ],
+          "type": "object"
+        },
+        "SectionSpectrumSelection": {
+          "oneOf": [
+            {
+              "enum": [
+                "whole_section"
+              ],
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "trace_range": {
+                  "properties": {
+                    "trace_end": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "trace_start": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "trace_end",
+                    "trace_start"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "trace_range"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "rect_window": {
+                  "properties": {
+                    "sample_end": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "sample_start": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "trace_end": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    },
+                    "trace_start": {
+                      "format": "uint",
+                      "minimum": 0.0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "sample_end",
+                    "sample_start",
+                    "trace_end",
+                    "trace_start"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "rect_window"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "curve": {
+          "$ref": "#/definitions/AmplitudeSpectrumCurve"
+        },
+        "processing_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sample_interval_ms": {
+          "format": "float",
+          "type": "number"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "section": {
+          "$ref": "#/definitions/SectionRequest"
+        },
+        "selection": {
+          "$ref": "#/definitions/SectionSpectrumSelection"
+        }
+      },
+      "required": [
+        "curve",
+        "sample_interval_ms",
+        "schema_version",
+        "section",
+        "selection"
+      ],
+      "title": "AmplitudeSpectrumResponse",
+      "type": "object"
+    },
     "AxisSummaryF32": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -101,6 +577,18 @@
     "CancelProcessingJobResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -207,6 +695,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -383,6 +915,18 @@
           ],
           "type": "object"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "GeometryDescriptor": {
           "properties": {
             "compare_family": {
@@ -459,6 +1003,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -900,6 +1488,22 @@
       "title": "DeletePipelinePresetResponse",
       "type": "object"
     },
+    "FrequencyPhaseMode": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "zero"
+      ],
+      "title": "FrequencyPhaseMode",
+      "type": "string"
+    },
+    "FrequencyWindowShape": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "cosine_taper"
+      ],
+      "title": "FrequencyWindowShape",
+      "type": "string"
+    },
     "GeometryDescriptor": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
@@ -1169,6 +1773,18 @@
     "GetProcessingJobResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -1275,6 +1891,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -1602,6 +2262,18 @@
     "ListPipelinePresetsResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -1628,6 +2300,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -1912,6 +2628,18 @@
           ],
           "type": "object"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "GeometryDescriptor": {
           "properties": {
             "compare_family": {
@@ -1988,6 +2716,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -2457,6 +3229,18 @@
         "DatasetId": {
           "type": "string"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -2483,6 +3267,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -2592,6 +3420,18 @@
         "DatasetId": {
           "type": "string"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "PreviewView": {
           "properties": {
             "preview_ready": {
@@ -2637,6 +3477,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -3542,6 +4426,18 @@
     "ProcessingJobStatus": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -3597,6 +4493,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -3700,6 +4640,20 @@
     },
     "ProcessingOperation": {
       "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        }
+      },
       "oneOf": [
         {
           "enum": [
@@ -3727,6 +4681,50 @@
             "amplitude_scalar"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bandpass_filter": {
+              "properties": {
+                "f1_hz": {
+                  "format": "float",
+                  "type": "number"
+                },
+                "f2_hz": {
+                  "format": "float",
+                  "type": "number"
+                },
+                "f3_hz": {
+                  "format": "float",
+                  "type": "number"
+                },
+                "f4_hz": {
+                  "format": "float",
+                  "type": "number"
+                },
+                "phase": {
+                  "$ref": "#/definitions/FrequencyPhaseMode"
+                },
+                "window": {
+                  "$ref": "#/definitions/FrequencyWindowShape"
+                }
+              },
+              "required": [
+                "f1_hz",
+                "f2_hz",
+                "f3_hz",
+                "f4_hz",
+                "phase",
+                "window"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "bandpass_filter"
+          ],
+          "type": "object"
         }
       ],
       "title": "ProcessingOperation"
@@ -3734,6 +4732,18 @@
     "ProcessingPipeline": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -3760,6 +4770,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -3813,6 +4867,18 @@
     "ProcessingPreset": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -3839,6 +4905,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -4005,6 +5115,18 @@
     "RunProcessingRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -4031,6 +5153,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -4115,6 +5281,18 @@
     "RunProcessingResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -4223,6 +5401,50 @@
                 "amplitude_scalar"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -4291,6 +5513,18 @@
     "SavePipelinePresetRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -4317,6 +5551,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -4414,6 +5692,18 @@
     "SavePipelinePresetResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -4440,6 +5730,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -5000,6 +6334,86 @@
       ],
       "title": "SectionRequest",
       "type": "object"
+    },
+    "SectionSpectrumSelection": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "oneOf": [
+        {
+          "enum": [
+            "whole_section"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "trace_range": {
+              "properties": {
+                "trace_end": {
+                  "format": "uint",
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "trace_start": {
+                  "format": "uint",
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "trace_end",
+                "trace_start"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "trace_range"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rect_window": {
+              "properties": {
+                "sample_end": {
+                  "format": "uint",
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "sample_start": {
+                  "format": "uint",
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "trace_end": {
+                  "format": "uint",
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "trace_start": {
+                  "format": "uint",
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "sample_end",
+                "sample_start",
+                "trace_end",
+                "trace_start"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "rect_window"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "SectionSpectrumSelection"
     },
     "SectionTileRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -5643,6 +7057,18 @@
           ],
           "type": "object"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "GeometryDescriptor": {
           "properties": {
             "compare_family": {
@@ -5719,6 +7145,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -6116,6 +7586,18 @@
           ],
           "type": "object"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "GeometryDescriptor": {
           "properties": {
             "compare_family": {
@@ -6192,6 +7674,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -6570,6 +8096,18 @@
           ],
           "type": "object"
         },
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "GeometryDescriptor": {
           "properties": {
             "compare_family": {
@@ -6646,6 +8184,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }
@@ -7006,6 +8588,18 @@
     "WorkspacePipelineEntry": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "definitions": {
+        "FrequencyPhaseMode": {
+          "enum": [
+            "zero"
+          ],
+          "type": "string"
+        },
+        "FrequencyWindowShape": {
+          "enum": [
+            "cosine_taper"
+          ],
+          "type": "string"
+        },
         "ProcessingOperation": {
           "oneOf": [
             {
@@ -7032,6 +8626,50 @@
               },
               "required": [
                 "amplitude_scalar"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "bandpass_filter": {
+                  "properties": {
+                    "f1_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f2_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f3_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "f4_hz": {
+                      "format": "float",
+                      "type": "number"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  },
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "bandpass_filter"
               ],
               "type": "object"
             }

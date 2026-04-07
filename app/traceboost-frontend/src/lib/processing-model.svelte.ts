@@ -1,5 +1,7 @@
 import { createContext } from "svelte";
 import type {
+  AmplitudeSpectrumRequest,
+  AmplitudeSpectrumResponse,
   PreviewProcessingRequest,
   ProcessingJobStatus,
   ProcessingOperation,
@@ -13,6 +15,7 @@ import {
   cancelProcessingJob,
   defaultProcessingStorePath,
   deletePipelinePreset,
+  fetchAmplitudeSpectrum,
   getProcessingJob,
   listPipelinePresets,
   previewProcessing,
@@ -23,6 +26,62 @@ import { confirmOverwriteStore, pickOutputStorePath } from "./file-dialog";
 import type { ViewerModel } from "./viewer-model.svelte";
 
 type PreviewState = "raw" | "preview" | "stale";
+type SpectrumAmplitudeScale = "db" | "linear";
+export type OperatorCatalogId = "amplitude_scalar" | "trace_rms_normalize" | "bandpass_filter";
+
+interface OperatorCatalogDefinition {
+  id: OperatorCatalogId;
+  label: string;
+  description: string;
+  keywords: string[];
+  shortcut: "a" | "n" | "b";
+  create: (section: SectionView | null) => ProcessingOperation;
+}
+
+const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
+  {
+    id: "amplitude_scalar",
+    label: "Amplitude Scalar",
+    description: "Scale trace amplitudes by a constant factor.",
+    keywords: ["scalar", "scale", "gain", "amplitude"],
+    shortcut: "a",
+    create: () => ({ amplitude_scalar: { factor: 1 } })
+  },
+  {
+    id: "trace_rms_normalize",
+    label: "Trace RMS Normalize",
+    description: "Normalize each trace to unit RMS amplitude.",
+    keywords: ["normalize", "rms", "trace", "balance"],
+    shortcut: "n",
+    create: () => "trace_rms_normalize"
+  },
+  {
+    id: "bandpass_filter",
+    label: "Bandpass Filter",
+    description: "Zero-phase FFT bandpass with cosine tapers.",
+    keywords: ["bandpass", "filter", "frequency", "spectral", "highcut", "lowcut"],
+    shortcut: "b",
+    create: (section) => defaultBandpassFilter(section)
+  }
+] as const;
+
+export interface OperatorCatalogItem {
+  id: OperatorCatalogId;
+  label: string;
+  description: string;
+  keywords: string[];
+  shortcut: "a" | "n" | "b";
+}
+
+export const operatorCatalogItems: readonly OperatorCatalogItem[] = OPERATOR_CATALOG.map(
+  ({ id, label, description, keywords, shortcut }) => ({
+    id,
+    label,
+    description,
+    keywords,
+    shortcut
+  })
+);
 
 function createEmptyPipeline(): ProcessingPipeline {
   return {
@@ -55,7 +114,17 @@ function clonePipeline(pipeline: ProcessingPipeline): ProcessingPipeline {
 }
 
 function cloneOperation(operation: ProcessingOperation): ProcessingOperation {
-  return typeof operation === "string" ? operation : { amplitude_scalar: { ...operation.amplitude_scalar } };
+  if (typeof operation === "string") {
+    return operation;
+  }
+  if ("amplitude_scalar" in operation) {
+    return { amplitude_scalar: { ...operation.amplitude_scalar } };
+  }
+  return {
+    bandpass_filter: {
+      ...operation.bandpass_filter
+    }
+  };
 }
 
 function normalizePresetId(value: string): string {
@@ -84,9 +153,44 @@ function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
     operations: pipeline.operations.map((operation) =>
       typeof operation === "string"
         ? operation
-        : { amplitude_scalar: { factor: operation.amplitude_scalar.factor } }
+        : "amplitude_scalar" in operation
+          ? { amplitude_scalar: { factor: operation.amplitude_scalar.factor } }
+          : {
+              bandpass_filter: {
+                f1_hz: operation.bandpass_filter.f1_hz,
+                f2_hz: operation.bandpass_filter.f2_hz,
+                f3_hz: operation.bandpass_filter.f3_hz,
+                f4_hz: operation.bandpass_filter.f4_hz,
+                phase: operation.bandpass_filter.phase,
+                window: operation.bandpass_filter.window
+              }
+            }
     )
   });
+}
+
+function defaultBandpassFilter(section: SectionView | null): ProcessingOperation {
+  const sampleAxis = section?.sample_axis_f32le ?? [];
+  const sampleIntervalMs =
+    sampleAxis.length >= 2 ? Math.abs((sampleAxis[1] ?? 0) - (sampleAxis[0] ?? 0)) : 2;
+  const safeSampleIntervalMs =
+    Number.isFinite(sampleIntervalMs) && sampleIntervalMs > 0 ? sampleIntervalMs : 2;
+  const nyquistHz = 500.0 / safeSampleIntervalMs;
+  const f1_hz = Math.max(4, nyquistHz * 0.06);
+  const f2_hz = Math.max(f1_hz + 1, nyquistHz * 0.1);
+  const f4_hz = Math.min(nyquistHz, Math.max(f2_hz + 6, nyquistHz * 0.45));
+  const f3_hz = Math.min(f4_hz, Math.max(f2_hz + 4, nyquistHz * 0.32));
+
+  return {
+    bandpass_filter: {
+      f1_hz: Number(f1_hz.toFixed(1)),
+      f2_hz: Number(f2_hz.toFixed(1)),
+      f3_hz: Number(f3_hz.toFixed(1)),
+      f4_hz: Number(f4_hz.toFixed(1)),
+      phase: "zero",
+      window: "cosine_taper"
+    }
+  };
 }
 
 export interface ProcessingModelOptions {
@@ -106,6 +210,14 @@ export class ProcessingModel {
   previewLabel = $state<string | null>(null);
   previewedSectionKey = $state<string | null>(null);
   previewBusy = $state(false);
+  spectrumInspectorOpen = $state(false);
+  spectrumAmplitudeScale = $state<SpectrumAmplitudeScale>("db");
+  spectrumBusy = $state(false);
+  spectrumStale = $state(false);
+  spectrumError = $state<string | null>(null);
+  rawSpectrum = $state.raw<AmplitudeSpectrumResponse | null>(null);
+  processedSpectrum = $state.raw<AmplitudeSpectrumResponse | null>(null);
+  spectrumSectionKey = $state<string | null>(null);
   runBusy = $state(false);
   error = $state<string | null>(null);
   presets = $state.raw<ProcessingPreset[]>([]);
@@ -136,11 +248,16 @@ export class ProcessingModel {
         this.previewSection = null;
         this.previewState = "raw";
         this.previewedSectionKey = null;
+        this.spectrumInspectorOpen = false;
+        this.clearSpectrumState();
         return;
       }
 
       if (this.previewedSectionKey && this.previewedSectionKey !== key) {
         this.previewState = "stale";
+      }
+      if (this.spectrumSectionKey && this.spectrumSectionKey !== key) {
+        this.clearSpectrumState();
       }
     });
 
@@ -253,6 +370,19 @@ export class ProcessingModel {
 
   get canRun(): boolean {
     return this.hasOperations && Boolean(this.viewerModel.activeStorePath);
+  }
+
+  get canInspectSpectrum(): boolean {
+    return Boolean(this.viewerModel.section && this.viewerModel.activeStorePath && this.viewerModel.dataset);
+  }
+
+  get spectrumSelectionSummary(): string {
+    const section = this.viewerModel.section;
+    if (!section) {
+      return "Open a dataset and load a section to inspect spectra.";
+    }
+
+    return `Whole ${this.viewerModel.axis} section ${this.viewerModel.index} · ${section.traces} traces × ${section.samples} samples`;
   }
 
   get pipelineDirty(): boolean {
@@ -498,6 +628,30 @@ export class ProcessingModel {
     this.previewedSectionKey = null;
   }
 
+  private clearSpectrumState(): void {
+    this.rawSpectrum = null;
+    this.processedSpectrum = null;
+    this.spectrumStale = false;
+    this.spectrumError = null;
+    this.spectrumSectionKey = null;
+  }
+
+  openSpectrumInspector = (): void => {
+    this.spectrumInspectorOpen = true;
+  };
+
+  closeSpectrumInspector = (): void => {
+    this.spectrumInspectorOpen = false;
+  };
+
+  toggleSpectrumInspector = (): void => {
+    this.spectrumInspectorOpen = !this.spectrumInspectorOpen;
+  };
+
+  setSpectrumAmplitudeScale = (scale: SpectrumAmplitudeScale): void => {
+    this.spectrumAmplitudeScale = scale;
+  };
+
   selectStep = (index: number): void => {
     if (this.pipeline.operations.length === 0) {
       this.selectedStepIndex = 0;
@@ -515,11 +669,23 @@ export class ProcessingModel {
   };
 
   addAmplitudeScalarAfterSelected = (): void => {
-    this.insertOperation({ amplitude_scalar: { factor: 1 } });
+    this.insertOperatorById("amplitude_scalar");
   };
 
   addTraceRmsNormalizeAfterSelected = (): void => {
-    this.insertOperation("trace_rms_normalize");
+    this.insertOperatorById("trace_rms_normalize");
+  };
+
+  addBandpassAfterSelected = (): void => {
+    this.insertOperatorById("bandpass_filter");
+  };
+
+  insertOperatorById = (operatorId: OperatorCatalogId): void => {
+    const operator = OPERATOR_CATALOG.find((candidate) => candidate.id === operatorId);
+    if (!operator) {
+      return;
+    }
+    this.insertOperation(operator.create(this.viewerModel.section));
   };
 
   insertOperation = (operation: ProcessingOperation): void => {
@@ -598,6 +764,27 @@ export class ProcessingModel {
       return;
     }
     operation.amplitude_scalar.factor = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
+  setSelectedBandpassCorner = (
+    corner: "f1_hz" | "f2_hz" | "f3_hz" | "f4_hz",
+    value: number
+  ): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isBandpassFilter(selected) || !Number.isFinite(value)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isBandpassFilter(operation)) {
+      return;
+    }
+
+    operation.bandpass_filter[corner] = value;
     next.revision += 1;
     this.updateActiveSessionPipeline(next);
     this.invalidatePreview();
@@ -687,6 +874,51 @@ export class ProcessingModel {
       this.viewerModel.note("Processing preview failed.", "backend", "error", this.error);
     } finally {
       this.previewBusy = false;
+    }
+  };
+
+  refreshSpectrum = async (): Promise<void> => {
+    const currentSection = this.viewerModel.section;
+    if (!this.canInspectSpectrum || !this.viewerModel.dataset || !this.viewerModel.activeStorePath || !currentSection) {
+      this.spectrumError = "Open a dataset and load a section before inspecting the spectrum.";
+      return;
+    }
+
+    this.spectrumBusy = true;
+    this.spectrumError = null;
+    try {
+      const baseRequest: AmplitudeSpectrumRequest = {
+        schema_version: 1,
+        store_path: this.viewerModel.activeStorePath,
+        section: {
+          dataset_id: this.viewerModel.dataset.descriptor.id,
+          axis: this.viewerModel.axis,
+          index: this.viewerModel.index
+        },
+        selection: "whole_section",
+        pipeline: null
+      };
+
+      const rawResponse = await fetchAmplitudeSpectrum(baseRequest);
+      this.rawSpectrum = rawResponse;
+
+      if (this.hasOperations) {
+        this.processedSpectrum = await fetchAmplitudeSpectrum({
+          ...baseRequest,
+          pipeline: clonePipeline(this.pipeline)
+        });
+      } else {
+        this.processedSpectrum = null;
+      }
+
+      this.spectrumStale = false;
+      this.spectrumSectionKey = sectionKey(this.viewerModel);
+      this.viewerModel.note("Amplitude spectrum generated.", "backend", "info", this.spectrumSelectionSummary);
+    } catch (error) {
+      this.spectrumError = errorMessage(error, "Failed to inspect amplitude spectrum.");
+      this.viewerModel.note("Amplitude spectrum failed.", "backend", "error", this.spectrumError);
+    } finally {
+      this.spectrumBusy = false;
     }
   };
 
@@ -799,6 +1031,10 @@ export class ProcessingModel {
         event.preventDefault();
         this.addTraceRmsNormalizeAfterSelected();
         break;
+      case "b":
+        event.preventDefault();
+        this.addBandpassAfterSelected();
+        break;
       case "x":
       case "Delete":
         event.preventDefault();
@@ -815,6 +1051,13 @@ export class ProcessingModel {
       case "p":
         event.preventDefault();
         await this.previewCurrentSection();
+        break;
+      case "s":
+        event.preventDefault();
+        this.openSpectrumInspector();
+        if (!this.rawSpectrum && !this.spectrumBusy) {
+          await this.refreshSpectrum();
+        }
         break;
       case "r":
         event.preventDefault();
@@ -888,6 +1131,10 @@ export class ProcessingModel {
     } else {
       this.previewState = "raw";
     }
+    if (this.rawSpectrum || this.processedSpectrum) {
+      this.spectrumStale = true;
+      this.spectrumError = null;
+    }
   }
 
   private async refreshDefaultRunOutputPath(
@@ -947,6 +1194,10 @@ export function describeOperation(operation: ProcessingOperation): string {
   if (isAmplitudeScalar(operation)) {
     return `amplitude scalar (${operation.amplitude_scalar.factor})`;
   }
+  if (isBandpassFilter(operation)) {
+    const { f1_hz, f2_hz, f3_hz, f4_hz } = operation.bandpass_filter;
+    return `bandpass (${f1_hz}/${f2_hz}/${f3_hz}/${f4_hz} Hz)`;
+  }
   return "trace RMS normalize";
 }
 
@@ -954,6 +1205,21 @@ export function isAmplitudeScalar(
   operation: ProcessingOperation
 ): operation is { amplitude_scalar: { factor: number } } {
   return typeof operation !== "string" && "amplitude_scalar" in operation;
+}
+
+export function isBandpassFilter(
+  operation: ProcessingOperation
+): operation is {
+  bandpass_filter: {
+    f1_hz: number;
+    f2_hz: number;
+    f3_hz: number;
+    f4_hz: number;
+    phase: "zero";
+    window: "cosine_taper";
+  };
+} {
+  return typeof operation !== "string" && "bandpass_filter" in operation;
 }
 
 const [internalGetProcessingModelContext, internalSetProcessingModelContext] =

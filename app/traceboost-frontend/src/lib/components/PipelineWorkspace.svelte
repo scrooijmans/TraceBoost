@@ -1,9 +1,11 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import PipelineControlBar from "./PipelineControlBar.svelte";
   import PipelineOperatorEditor from "./PipelineOperatorEditor.svelte";
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
   import PipelineSessionList from "./PipelineSessionList.svelte";
+  import SpectrumInspector from "./SpectrumInspector.svelte";
   import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
 
@@ -27,7 +29,7 @@
 
     <div class="shortcut-card">
       <span>Shortcuts</span>
-      <p><code>a</code> add scalar, <code>n</code> add normalize, <code>p</code> preview, <code>r</code> run volume</p>
+      <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, <code>a/n/b</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run</p>
     </div>
   </div>
 
@@ -45,52 +47,72 @@
       canRemove={processingModel.canRemoveSessionPipeline}
     />
 
-    <PipelineSequenceList
-      pipeline={processingModel.pipeline}
-      selectedIndex={processingModel.selectedStepIndex}
-      onSelect={processingModel.selectStep}
-      onAddAmplitudeScalar={processingModel.addAmplitudeScalarAfterSelected}
-      onAddTraceNormalize={processingModel.addTraceRmsNormalizeAfterSelected}
-    />
+    <div class="inspector-stack">
+      <PipelineControlBar
+        pipeline={processingModel.pipeline}
+        previewState={processingModel.previewState}
+        previewLabel={processingModel.previewLabel}
+        presets={processingModel.presets}
+        loadingPresets={processingModel.loadingPresets}
+        canPreview={processingModel.canPreview}
+        canRun={processingModel.canRun}
+        previewBusy={processingModel.previewBusy}
+        runBusy={processingModel.runBusy}
+        runOutputSettingsOpen={processingModel.runOutputSettingsOpen}
+        runOutputPathMode={processingModel.runOutputPathMode}
+        runOutputPath={processingModel.resolvedRunOutputPath}
+        resolvingRunOutputPath={processingModel.resolvingRunOutputPath}
+        overwriteExistingRunOutput={processingModel.overwriteExistingRunOutput}
+        onSetPipelineName={processingModel.setPipelineName}
+        onPreview={() => processingModel.previewCurrentSection()}
+        onShowRaw={processingModel.showRawSection}
+        onRun={() => processingModel.runOnVolume()}
+        onToggleRunOutputSettings={() =>
+          processingModel.setRunOutputSettingsOpen(!processingModel.runOutputSettingsOpen)}
+        onSetRunOutputPathMode={processingModel.setRunOutputPathMode}
+        onSetCustomRunOutputPath={processingModel.setCustomRunOutputPath}
+        onBrowseRunOutputPath={() => processingModel.browseRunOutputPath()}
+        onResetRunOutputPath={processingModel.resetRunOutputPath}
+        onSetOverwriteExistingRunOutput={processingModel.setOverwriteExistingRunOutput}
+        onLoadPreset={processingModel.loadPreset}
+        onSavePreset={() => processingModel.savePreset()}
+        onDeletePreset={(presetId) => processingModel.deletePreset(presetId)}
+      />
 
-    <PipelineOperatorEditor
-      pipeline={processingModel.pipeline}
-      selectedOperation={processingModel.selectedOperation}
-      previewState={processingModel.previewState}
-      previewLabel={processingModel.previewLabel}
-      activeJob={processingModel.activeJob}
-      presets={processingModel.presets}
-      loadingPresets={processingModel.loadingPresets}
-      canPreview={processingModel.canPreview}
-      canRun={processingModel.canRun}
-      previewBusy={processingModel.previewBusy}
-      runBusy={processingModel.runBusy}
-      processingError={processingModel.error}
-      runOutputSettingsOpen={processingModel.runOutputSettingsOpen}
-      runOutputPathMode={processingModel.runOutputPathMode}
-      runOutputPath={processingModel.resolvedRunOutputPath}
-      resolvingRunOutputPath={processingModel.resolvingRunOutputPath}
-      overwriteExistingRunOutput={processingModel.overwriteExistingRunOutput}
-      onSetPipelineName={processingModel.setPipelineName}
-      onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
-      onMoveUp={processingModel.moveSelectedUp}
-      onMoveDown={processingModel.moveSelectedDown}
-      onRemove={processingModel.removeSelected}
-      onPreview={() => processingModel.previewCurrentSection()}
-      onShowRaw={processingModel.showRawSection}
-      onRun={() => processingModel.runOnVolume()}
-      onToggleRunOutputSettings={() =>
-        processingModel.setRunOutputSettingsOpen(!processingModel.runOutputSettingsOpen)}
-      onSetRunOutputPathMode={processingModel.setRunOutputPathMode}
-      onSetCustomRunOutputPath={processingModel.setCustomRunOutputPath}
-      onBrowseRunOutputPath={() => processingModel.browseRunOutputPath()}
-      onResetRunOutputPath={processingModel.resetRunOutputPath}
-      onSetOverwriteExistingRunOutput={processingModel.setOverwriteExistingRunOutput}
-      onCancelJob={() => processingModel.cancelActiveJob()}
-      onLoadPreset={processingModel.loadPreset}
-      onSavePreset={() => processingModel.savePreset()}
-      onDeletePreset={(presetId) => processingModel.deletePreset(presetId)}
-    />
+      <div class="detail-grid">
+        <PipelineSequenceList
+          pipeline={processingModel.pipeline}
+          selectedIndex={processingModel.selectedStepIndex}
+          onSelect={processingModel.selectStep}
+          onInsertOperator={processingModel.insertOperatorById}
+        />
+
+        <PipelineOperatorEditor
+          selectedOperation={processingModel.selectedOperation}
+          activeJob={processingModel.activeJob}
+          processingError={processingModel.error}
+          onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
+          onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
+          onMoveUp={processingModel.moveSelectedUp}
+          onMoveDown={processingModel.moveSelectedDown}
+          onRemove={processingModel.removeSelected}
+          onCancelJob={() => processingModel.cancelActiveJob()}
+        />
+      </div>
+
+      <SpectrumInspector
+        canInspectSpectrum={processingModel.canInspectSpectrum}
+        spectrumBusy={processingModel.spectrumBusy}
+        spectrumStale={processingModel.spectrumStale}
+        spectrumError={processingModel.spectrumError}
+        spectrumSelectionSummary={processingModel.spectrumSelectionSummary}
+        spectrumAmplitudeScale={processingModel.spectrumAmplitudeScale}
+        rawSpectrum={processingModel.rawSpectrum}
+        processedSpectrum={processingModel.processedSpectrum}
+        onSetSpectrumAmplitudeScale={processingModel.setSpectrumAmplitudeScale}
+        onRefreshSpectrum={() => processingModel.refreshSpectrum()}
+      />
+    </div>
   </div>
 </div>
 
@@ -163,9 +185,23 @@
   .workspace-grid {
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(200px, 0.7fr) minmax(240px, 0.95fr) minmax(300px, 1.1fr);
+    grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.35fr);
     gap: 8px;
     flex: 1;
+  }
+
+  .inspector-stack {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .detail-grid {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(300px, 0.95fr) minmax(380px, 1.2fr);
+    gap: 8px;
   }
 
   @media (max-width: 1100px) {
@@ -179,6 +215,14 @@
     }
 
     .workspace-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .inspector-stack {
+      grid-template-rows: auto;
+    }
+
+    .detail-grid {
       grid-template-columns: 1fr;
     }
   }

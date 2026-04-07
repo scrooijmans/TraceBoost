@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 
 use schemars::schema_for;
 use seis_contracts_core::{
-    AxisSummaryF32, AxisSummaryI32, DatasetId, GeometryDescriptor, GeometryProvenanceSummary,
-    GeometrySummary, InterpretationPoint, ProcessingJobProgress, ProcessingJobState,
-    ProcessingJobStatus, ProcessingOperation, ProcessingPipeline, ProcessingPreset, SectionAxis,
-    SectionRequest, SectionTileRequest, VolumeDescriptor,
+    AmplitudeSpectrumCurve, AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, AxisSummaryF32,
+    AxisSummaryI32, DatasetId, FrequencyPhaseMode, FrequencyWindowShape, GeometryDescriptor,
+    GeometryProvenanceSummary, GeometrySummary, InterpretationPoint, ProcessingJobProgress,
+    ProcessingJobState, ProcessingJobStatus, ProcessingOperation, ProcessingPipeline,
+    ProcessingPreset, SectionAxis, SectionRequest, SectionSpectrumSelection,
+    SectionTileRequest, VolumeDescriptor,
 };
 use seis_contracts_interop::{
     CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetRegistryEntry,
@@ -69,6 +71,12 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionAxis.ts",
         "SectionRequest.ts",
         "SectionTileRequest.ts",
+        "FrequencyPhaseMode.ts",
+        "FrequencyWindowShape.ts",
+        "SectionSpectrumSelection.ts",
+        "AmplitudeSpectrumCurve.ts",
+        "AmplitudeSpectrumRequest.ts",
+        "AmplitudeSpectrumResponse.ts",
         "ProcessingOperation.ts",
         "ProcessingPipeline.ts",
         "ProcessingJobState.ts",
@@ -143,6 +151,12 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     GeometrySummary::export_all_to(output_dir)?;
     VolumeDescriptor::export_all_to(output_dir)?;
     SectionTileRequest::export_all_to(output_dir)?;
+    FrequencyPhaseMode::export_all_to(output_dir)?;
+    FrequencyWindowShape::export_all_to(output_dir)?;
+    SectionSpectrumSelection::export_all_to(output_dir)?;
+    AmplitudeSpectrumCurve::export_all_to(output_dir)?;
+    AmplitudeSpectrumRequest::export_all_to(output_dir)?;
+    AmplitudeSpectrumResponse::export_all_to(output_dir)?;
     ProcessingOperation::export_all_to(output_dir)?;
     ProcessingPipeline::export_all_to(output_dir)?;
     ProcessingJobState::export_all_to(output_dir)?;
@@ -236,6 +250,12 @@ export type { VolumeDescriptor } from "./VolumeDescriptor";
 export type { SectionAxis } from "./SectionAxis";
 export type { SectionRequest } from "./SectionRequest";
 export type { SectionTileRequest } from "./SectionTileRequest";
+export type { FrequencyPhaseMode } from "./FrequencyPhaseMode";
+export type { FrequencyWindowShape } from "./FrequencyWindowShape";
+export type { SectionSpectrumSelection } from "./SectionSpectrumSelection";
+export type { AmplitudeSpectrumCurve } from "./AmplitudeSpectrumCurve";
+export type { AmplitudeSpectrumRequest } from "./AmplitudeSpectrumRequest";
+export type { AmplitudeSpectrumResponse } from "./AmplitudeSpectrumResponse";
 export type { ProcessingOperation } from "./ProcessingOperation";
 export type { ProcessingPipeline } from "./ProcessingPipeline";
 export type { ProcessingJobState } from "./ProcessingJobState";
@@ -315,6 +335,12 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SectionAxis": schema_for!(SectionAxis),
             "SectionRequest": schema_for!(SectionRequest),
             "SectionTileRequest": schema_for!(SectionTileRequest),
+            "FrequencyPhaseMode": schema_for!(FrequencyPhaseMode),
+            "FrequencyWindowShape": schema_for!(FrequencyWindowShape),
+            "SectionSpectrumSelection": schema_for!(SectionSpectrumSelection),
+            "AmplitudeSpectrumCurve": schema_for!(AmplitudeSpectrumCurve),
+            "AmplitudeSpectrumRequest": schema_for!(AmplitudeSpectrumRequest),
+            "AmplitudeSpectrumResponse": schema_for!(AmplitudeSpectrumResponse),
             "ProcessingOperation": schema_for!(ProcessingOperation),
             "ProcessingPipeline": schema_for!(ProcessingPipeline),
             "ProcessingJobState": schema_for!(ProcessingJobState),

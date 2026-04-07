@@ -4,14 +4,15 @@ use std::{
 };
 
 use seis_contracts_interop::{
-    DatasetSummary, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PreviewProcessingRequest, PreviewProcessingResponse,
-    RunProcessingRequest, SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, DatasetSummary, IPC_SCHEMA_VERSION,
+    ImportDatasetRequest, ImportDatasetResponse, OpenDatasetRequest, OpenDatasetResponse,
+    PreviewProcessingRequest, PreviewProcessingResponse, RunProcessingRequest,
+    SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
 };
 use seis_runtime::{
     IngestOptions, MaterializeOptions, PreviewView, ProcessingPipeline, SparseSurveyPolicy,
-    describe_store, ingest_segy, materialize_processing_volume, open_store, preflight_segy,
-    preview_processing_section_view,
+    amplitude_spectrum_from_reader, describe_store, ingest_segy, materialize_processing_volume,
+    open_store, preflight_segy, preview_processing_section_view,
 };
 
 pub fn preflight_dataset(
@@ -150,6 +151,30 @@ pub fn apply_processing(
     })
 }
 
+pub fn amplitude_spectrum(
+    request: AmplitudeSpectrumRequest,
+) -> Result<AmplitudeSpectrumResponse, Box<dyn std::error::Error>> {
+    let handle = open_store(&request.store_path)?;
+    ensure_dataset_matches(&handle, &request.section.dataset_id.0)?;
+    let reader = seis_runtime::TbvolReader::open(&handle.root)?;
+    let curve = amplitude_spectrum_from_reader(
+        &reader,
+        request.section.axis,
+        request.section.index,
+        request.pipeline.as_ref().map(|pipeline| pipeline.operations.as_slice()),
+        &request.selection,
+    )?;
+
+    Ok(AmplitudeSpectrumResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        section: request.section,
+        selection: request.selection,
+        sample_interval_ms: handle.volume_descriptor().sample_interval_ms,
+        curve,
+        processing_label: request.pipeline.as_ref().map(processing_label),
+    })
+}
+
 pub fn default_output_store_path(
     input_store_path: impl AsRef<Path>,
     pipeline: &ProcessingPipeline,
@@ -218,6 +243,19 @@ fn pipeline_slug(pipeline: &ProcessingPipeline) -> String {
             seis_runtime::ProcessingOperation::TraceRmsNormalize => {
                 "trace-rms-normalize".to_string()
             }
+            seis_runtime::ProcessingOperation::BandpassFilter {
+                f1_hz,
+                f2_hz,
+                f3_hz,
+                f4_hz,
+                ..
+            } => format!(
+                "bandpass-{}-{}-{}-{}",
+                format_factor(*f1_hz),
+                format_factor(*f2_hz),
+                format_factor(*f3_hz),
+                format_factor(*f4_hz)
+            ),
         };
         parts.push(label);
     }

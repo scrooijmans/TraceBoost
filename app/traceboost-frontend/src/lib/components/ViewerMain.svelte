@@ -4,10 +4,11 @@
   import type { ChartToolbarActionItem, ChartToolbarToolItem } from "@geoviz/svelte-toolbar";
   import { ChartInteractionToolbar } from "@geoviz/svelte-toolbar";
   import { SeismicSectionChart } from "@geoviz/svelte";
-  import { PLOT_MARGIN } from "@geoviz/renderer";
+  import PipelineControlBar from "./PipelineControlBar.svelte";
   import PipelineOperatorEditor from "./PipelineOperatorEditor.svelte";
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
   import PipelineSessionList from "./PipelineSessionList.svelte";
+  import SpectrumInspector from "./SpectrumInspector.svelte";
   import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
 
@@ -46,11 +47,6 @@
         : Math.max(0, viewerModel.dataset.descriptor.shape[1] - 1)
       : 0
   );
-  const chartOverlayTop = `${PLOT_MARGIN.top + 8}px`;
-  const chartOverlayLeft = `${PLOT_MARGIN.left + 8}px`;
-  const chartOverlayRight = `${PLOT_MARGIN.right + 8}px`;
-  const chartOverlayBottom = `${PLOT_MARGIN.bottom + 8}px`;
-  const chartToolbarCenter = `calc(${PLOT_MARGIN.left}px + ((100% - ${PLOT_MARGIN.left + PLOT_MARGIN.right}px) / 2))`;
   const toolbarTools = $derived<ChartToolbarToolItem[]>([
     {
       id: "pointer",
@@ -195,11 +191,172 @@
   function handleWindowKeyDown(event: KeyboardEvent): void {
     if (displaySettingsOpen && event.key === "Escape") {
       closeDisplaySettings();
+      return;
     }
+
+    if (processingModel.spectrumInspectorOpen && event.key === "Escape") {
+      processingModel.closeSpectrumInspector();
+      return;
+    }
+
+    if (displaySettingsOpen) {
+      return;
+    }
+
+    void processingModel.handleKeydown(event);
   }
 </script>
 
 <svelte:window onkeydown={handleWindowKeyDown} />
+
+{#snippet chartDisplayOverlay()}
+  <div class="chart-display-overlay">
+    <div class="display-chip-row">
+      <label class="display-chip field">
+        <span>{viewerModel.axis === "inline" ? "Inline" : "Xline"}</span>
+        <select
+          value={viewerModel.axis}
+          disabled={!viewerModel.activeStorePath || viewerModel.loading}
+          onchange={(event) => handleAxisChange((event.currentTarget as HTMLSelectElement).value as "inline" | "xline")}
+        >
+          <option value="inline">Inline</option>
+          <option value="xline">Xline</option>
+        </select>
+      </label>
+
+      <label class="display-chip field">
+        <span>Index</span>
+        <input
+          bind:value={sectionIndexInput}
+          type="number"
+          min="0"
+          max={sectionAxisLimit}
+          disabled={!viewerModel.activeStorePath || viewerModel.loading}
+          onblur={commitSectionIndex}
+          onkeydown={(event) => {
+            if (event.key === "Enter") {
+              commitSectionIndex();
+            }
+          }}
+        />
+      </label>
+    </div>
+
+    <div class="display-chip-row">
+      <button
+        class:active={viewerModel.displayTransform.renderMode === "heatmap"}
+        class="display-chip action"
+        onclick={() => toggleRenderMode("heatmap")}
+        disabled={!processingModel.displaySection}
+      >
+        Heatmap
+      </button>
+      <button
+        class:active={viewerModel.displayTransform.renderMode === "wiggle"}
+        class="display-chip action"
+        onclick={() => toggleRenderMode("wiggle")}
+        disabled={!processingModel.displaySection}
+      >
+        Wiggle
+      </button>
+      <button
+        class="display-chip action"
+        onclick={toggleColormap}
+        disabled={!processingModel.displaySection}
+      >
+        {viewerModel.displayTransform.colormap === "grayscale" ? "R/W/B" : "Gray"}
+      </button>
+      <button
+        class:active={processingModel.spectrumInspectorOpen}
+        class="display-chip icon"
+        onclick={processingModel.openSpectrumInspector}
+        aria-label="Open frequency spectrum inspector"
+        disabled={!processingModel.canInspectSpectrum}
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M4 18.5V14" />
+          <path d="M9 18.5V8" />
+          <path d="M14 18.5V11" />
+          <path d="M19 18.5V5" />
+          <path d="M3 18.5h18" />
+        </svg>
+      </button>
+      <button
+        class="display-chip icon"
+        onclick={openDisplaySettings}
+        aria-label="Open display settings"
+        disabled={!processingModel.displaySection}
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M10.3 2.5h3.4l.5 2.2a7.9 7.9 0 012 .8l1.9-1.2 2.4 2.4-1.2 1.9c.35.63.61 1.3.78 2l2.23.52v3.4l-2.23.52a7.9 7.9 0 01-.78 2l1.2 1.9-2.4 2.4-1.9-1.2a7.9 7.9 0 01-2 .78l-.52 2.23h-3.4l-.52-2.23a7.9 7.9 0 01-2-.78l-1.9 1.2-2.4-2.4 1.2-1.9a7.9 7.9 0 01-.78-2L2.5 13.7v-3.4l2.23-.52a7.9 7.9 0 01.78-2L4.26 5.9l2.4-2.4 1.9 1.2a7.9 7.9 0 012-.78z" />
+          <circle cx="12" cy="12" r="3.1" />
+        </svg>
+      </button>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet chartToolbarOverlay()}
+  <div class="chart-toolbar-overlay">
+    <ChartInteractionToolbar
+      variant="overlay"
+      iconOnly={true}
+      tools={toolbarTools}
+      actions={toolbarActions}
+      onToolSelect={handleToolbarToolSelect}
+      onActionSelect={handleToolbarActionSelect}
+    />
+  </div>
+{/snippet}
+
+{#snippet compareCycleOverlay()}
+  <div class="compare-cycle-overlay">
+    <button
+      class="compare-arrow"
+      onclick={() => void viewerModel.cycleForegroundCompareSurvey(-1)}
+      aria-label="Show previous compatible survey"
+      disabled={viewerModel.loading}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14" />
+        <path d="M7 10l5-5 5 5" />
+      </svg>
+    </button>
+    <div class="compare-cycle-copy">
+      <small>
+        {viewerModel.compatibleCompareCandidates.findIndex(
+          (candidate) => candidate.storePath === viewerModel.comparePrimaryStorePath
+        ) + 1}
+        / {viewerModel.compatibleCompareCandidates.length}
+      </small>
+    </div>
+    <button
+      class="compare-arrow"
+      onclick={() => void viewerModel.cycleForegroundCompareSurvey(1)}
+      aria-label="Show next compatible survey"
+      disabled={viewerModel.loading}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 19V5" />
+        <path d="M7 14l5 5 5-5" />
+      </svg>
+    </button>
+  </div>
+{/snippet}
+
+{#snippet compareLabelOverlay()}
+  <div class="compare-label-overlay">
+    <div class="compare-label-line">
+      <strong>{viewerModel.activeForegroundCompareCandidate?.displayName ?? viewerModel.activeDatasetDisplayName}</strong>
+    </div>
+
+    {#if viewerModel.activeBackgroundCompareCandidate}
+      <div class="compare-label-line secondary">
+        <strong>{viewerModel.activeBackgroundCompareCandidate.displayName}</strong>
+      </div>
+    {/if}
+  </div>
+{/snippet}
 
 {#if !showSidebar}
   <button class="sidebar-toggle" onclick={showSidebarPanel} aria-label="Show sidebar">
@@ -241,56 +398,59 @@
         <div class="definition-header">
           <div class="shortcut-card">
             <span>Shortcuts</span>
-            <p><code>a</code> add scalar, <code>n</code> add normalize, <code>p</code> preview, <code>r</code> run volume</p>
+            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, <code>a/n/b</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
           </div>
         </div>
+
+        <PipelineControlBar
+          pipeline={processingModel.pipeline}
+          previewState={processingModel.previewState}
+          previewLabel={processingModel.previewLabel}
+          presets={processingModel.presets}
+          loadingPresets={processingModel.loadingPresets}
+          canPreview={processingModel.canPreview}
+          canRun={processingModel.canRun}
+          previewBusy={processingModel.previewBusy}
+          runBusy={processingModel.runBusy}
+          runOutputSettingsOpen={processingModel.runOutputSettingsOpen}
+          runOutputPathMode={processingModel.runOutputPathMode}
+          runOutputPath={processingModel.resolvedRunOutputPath}
+          resolvingRunOutputPath={processingModel.resolvingRunOutputPath}
+          overwriteExistingRunOutput={processingModel.overwriteExistingRunOutput}
+          onSetPipelineName={processingModel.setPipelineName}
+          onPreview={() => processingModel.previewCurrentSection()}
+          onShowRaw={processingModel.showRawSection}
+          onRun={() => processingModel.runOnVolume()}
+          onToggleRunOutputSettings={() =>
+            processingModel.setRunOutputSettingsOpen(!processingModel.runOutputSettingsOpen)}
+          onSetRunOutputPathMode={processingModel.setRunOutputPathMode}
+          onSetCustomRunOutputPath={processingModel.setCustomRunOutputPath}
+          onBrowseRunOutputPath={() => processingModel.browseRunOutputPath()}
+          onResetRunOutputPath={processingModel.resetRunOutputPath}
+          onSetOverwriteExistingRunOutput={processingModel.setOverwriteExistingRunOutput}
+          onLoadPreset={processingModel.loadPreset}
+          onSavePreset={() => processingModel.savePreset()}
+          onDeletePreset={(presetId) => processingModel.deletePreset(presetId)}
+        />
 
         <div class="definition-grid">
           <PipelineSequenceList
             pipeline={processingModel.pipeline}
             selectedIndex={processingModel.selectedStepIndex}
             onSelect={processingModel.selectStep}
-            onAddAmplitudeScalar={processingModel.addAmplitudeScalarAfterSelected}
-            onAddTraceNormalize={processingModel.addTraceRmsNormalizeAfterSelected}
+            onInsertOperator={processingModel.insertOperatorById}
           />
 
           <PipelineOperatorEditor
-            pipeline={processingModel.pipeline}
             selectedOperation={processingModel.selectedOperation}
-            previewState={processingModel.previewState}
-            previewLabel={processingModel.previewLabel}
             activeJob={processingModel.activeJob}
-            presets={processingModel.presets}
-            loadingPresets={processingModel.loadingPresets}
-            canPreview={processingModel.canPreview}
-            canRun={processingModel.canRun}
-            previewBusy={processingModel.previewBusy}
-            runBusy={processingModel.runBusy}
             processingError={processingModel.error}
-            runOutputSettingsOpen={processingModel.runOutputSettingsOpen}
-            runOutputPathMode={processingModel.runOutputPathMode}
-            runOutputPath={processingModel.resolvedRunOutputPath}
-            resolvingRunOutputPath={processingModel.resolvingRunOutputPath}
-            overwriteExistingRunOutput={processingModel.overwriteExistingRunOutput}
-            onSetPipelineName={processingModel.setPipelineName}
             onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
+            onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
             onMoveUp={processingModel.moveSelectedUp}
             onMoveDown={processingModel.moveSelectedDown}
             onRemove={processingModel.removeSelected}
-            onPreview={() => processingModel.previewCurrentSection()}
-            onShowRaw={processingModel.showRawSection}
-            onRun={() => processingModel.runOnVolume()}
-            onToggleRunOutputSettings={() =>
-              processingModel.setRunOutputSettingsOpen(!processingModel.runOutputSettingsOpen)}
-            onSetRunOutputPathMode={processingModel.setRunOutputPathMode}
-            onSetCustomRunOutputPath={processingModel.setCustomRunOutputPath}
-            onBrowseRunOutputPath={() => processingModel.browseRunOutputPath()}
-            onResetRunOutputPath={processingModel.resetRunOutputPath}
-            onSetOverwriteExistingRunOutput={processingModel.setOverwriteExistingRunOutput}
             onCancelJob={() => processingModel.cancelActiveJob()}
-            onLoadPreset={processingModel.loadPreset}
-            onSavePreset={() => processingModel.savePreset()}
-            onDeletePreset={(presetId) => processingModel.deletePreset(presetId)}
           />
         </div>
       </div>
@@ -317,148 +477,31 @@
             onInteractionChange={viewerModel.setInteraction}
             onInteractionStateChange={viewerModel.setInteractionState}
             onSplitPositionChange={(ratio) => viewerModel.setCompareSplitPosition(ratio)}
+            stageScale={2}
+            stageTopLeft={chartDisplayOverlay}
+            plotTopCenter={chartToolbarOverlay}
+            plotTopRight={viewerModel.canCycleForegroundCompareSurvey ? compareCycleOverlay : undefined}
+            plotBottomLeft={compareLabelOverlay}
           />
 
-          <div
-            class="chart-display-overlay"
-            style:right={chartOverlayRight}
-            style:bottom={chartOverlayBottom}
-          >
-            <div class="display-chip-row">
-              <label class="display-chip field">
-                <span>{viewerModel.axis === "inline" ? "Inline" : "Xline"}</span>
-                <select
-                  value={viewerModel.axis}
-                  disabled={!viewerModel.activeStorePath || viewerModel.loading}
-                  onchange={(event) => handleAxisChange((event.currentTarget as HTMLSelectElement).value as "inline" | "xline")}
-                >
-                  <option value="inline">Inline</option>
-                  <option value="xline">Xline</option>
-                </select>
-              </label>
-
-              <label class="display-chip field">
-                <span>Index</span>
-                <input
-                  bind:value={sectionIndexInput}
-                  type="number"
-                  min="0"
-                  max={sectionAxisLimit}
-                  disabled={!viewerModel.activeStorePath || viewerModel.loading}
-                  onblur={commitSectionIndex}
-                  onkeydown={(event) => {
-                    if (event.key === "Enter") {
-                      commitSectionIndex();
-                    }
-                  }}
-                />
-              </label>
-            </div>
-
-            <div class="display-chip-row">
-              <button
-                class:active={viewerModel.displayTransform.renderMode === "heatmap"}
-                class="display-chip action"
-                onclick={() => toggleRenderMode("heatmap")}
-                disabled={!processingModel.displaySection}
-              >
-                Heatmap
-              </button>
-              <button
-                class:active={viewerModel.displayTransform.renderMode === "wiggle"}
-                class="display-chip action"
-                onclick={() => toggleRenderMode("wiggle")}
-                disabled={!processingModel.displaySection}
-              >
-                Wiggle
-              </button>
-              <button
-                class="display-chip action"
-                onclick={toggleColormap}
-                disabled={!processingModel.displaySection}
-              >
-                {viewerModel.displayTransform.colormap === "grayscale" ? "R/W/B" : "Gray"}
-              </button>
-              <button
-                class="display-chip icon"
-                onclick={openDisplaySettings}
-                aria-label="Open display settings"
-                disabled={!processingModel.displaySection}
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <path d="M10.3 2.5h3.4l.5 2.2a7.9 7.9 0 012 .8l1.9-1.2 2.4 2.4-1.2 1.9c.35.63.61 1.3.78 2l2.23.52v3.4l-2.23.52a7.9 7.9 0 01-.78 2l1.2 1.9-2.4 2.4-1.9-1.2a7.9 7.9 0 01-2 .78l-.52 2.23h-3.4l-.52-2.23a7.9 7.9 0 01-2-.78l-1.9 1.2-2.4-2.4 1.2-1.9a7.9 7.9 0 01-.78-2L2.5 13.7v-3.4l2.23-.52a7.9 7.9 0 01.78-2L4.26 5.9l2.4-2.4 1.9 1.2a7.9 7.9 0 012-.78z" />
-                  <circle cx="12" cy="12" r="3.1" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div class="chart-toolbar-overlay" style:top={chartOverlayTop} style:left={chartToolbarCenter}>
-            <ChartInteractionToolbar
-              variant="overlay"
-              iconOnly={true}
-              tools={toolbarTools}
-              actions={toolbarActions}
-              onToolSelect={handleToolbarToolSelect}
-              onActionSelect={handleToolbarActionSelect}
-            />
-          </div>
-
-          {#if viewerModel.canCycleForegroundCompareSurvey}
-            <div
-              class="compare-cycle-overlay"
-              style:top={chartOverlayTop}
-              style:right={chartOverlayRight}
-            >
-              <button
-                class="compare-arrow"
-                onclick={() => void viewerModel.cycleForegroundCompareSurvey(-1)}
-                aria-label="Show previous compatible survey"
-                disabled={viewerModel.loading}
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 5v14" />
-                  <path d="M7 10l5-5 5 5" />
-                </svg>
-              </button>
-              <div class="compare-cycle-copy">
-                <small>
-                  {viewerModel.compatibleCompareCandidates.findIndex(
-                    (candidate) => candidate.storePath === viewerModel.comparePrimaryStorePath
-                  ) + 1}
-                  / {viewerModel.compatibleCompareCandidates.length}
-                </small>
-              </div>
-              <button
-                class="compare-arrow"
-                onclick={() => void viewerModel.cycleForegroundCompareSurvey(1)}
-                aria-label="Show next compatible survey"
-                disabled={viewerModel.loading}
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 19V5" />
-                  <path d="M7 14l5 5 5-5" />
-                </svg>
-              </button>
+          {#if processingModel.spectrumInspectorOpen}
+            <div class="spectrum-inspector-layer">
+              <SpectrumInspector
+                floating={true}
+                canInspectSpectrum={processingModel.canInspectSpectrum}
+                spectrumBusy={processingModel.spectrumBusy}
+                spectrumStale={processingModel.spectrumStale}
+                spectrumError={processingModel.spectrumError}
+                spectrumSelectionSummary={processingModel.spectrumSelectionSummary}
+                spectrumAmplitudeScale={processingModel.spectrumAmplitudeScale}
+                rawSpectrum={processingModel.rawSpectrum}
+                processedSpectrum={processingModel.processedSpectrum}
+                onSetSpectrumAmplitudeScale={processingModel.setSpectrumAmplitudeScale}
+                onRefreshSpectrum={() => processingModel.refreshSpectrum()}
+                onClose={processingModel.closeSpectrumInspector}
+              />
             </div>
           {/if}
-
-          <div
-            class="compare-label-overlay"
-            style:left={chartOverlayLeft}
-            style:bottom={chartOverlayBottom}
-          >
-            <div class="compare-label-line">
-              <strong>{viewerModel.activeForegroundCompareCandidate?.displayName ?? viewerModel.activeDatasetDisplayName}</strong>
-            </div>
-
-            {#if viewerModel.activeBackgroundCompareCandidate}
-              <div class="compare-label-line secondary">
-                <strong>{viewerModel.activeBackgroundCompareCandidate.displayName}</strong>
-              </div>
-            {/if}
-          </div>
-
         </div>
       {:else}
         <div class="welcome-card">
@@ -650,8 +693,9 @@
   .definition-grid {
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(260px, 0.9fr) minmax(340px, 1.25fr);
+    grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.25fr);
     gap: 8px;
+    align-items: stretch;
   }
 
   .viewer-pane {
@@ -692,18 +736,12 @@
     position: relative;
     flex: 1;
     min-height: 0;
-    --plot-top: 104px;
-    --plot-left: 76px;
-    --plot-right: 32px;
   }
 
   .chart-display-overlay {
-    position: absolute;
-    z-index: 3;
     display: grid;
     gap: 6px;
-    pointer-events: auto;
-    justify-items: end;
+    justify-items: start;
   }
 
   .display-chip-row {
@@ -762,15 +800,26 @@
     color: #effff5;
   }
 
+  .display-chip.icon.active {
+    color: #d9ffe9;
+  }
+
   .display-chip:disabled {
     opacity: 0.45;
     cursor: not-allowed;
   }
 
   .chart-toolbar-overlay {
+    display: flex;
+    justify-content: center;
+  }
+
+  .spectrum-inspector-layer {
     position: absolute;
-    z-index: 3;
-    transform: translateX(-50%);
+    right: 14px;
+    bottom: 16px;
+    z-index: 6;
+    pointer-events: none;
   }
 
   .chart-toolbar-overlay :global(.toolbar-group) {
@@ -805,8 +854,6 @@
   }
 
   .compare-cycle-overlay {
-    position: absolute;
-    z-index: 2;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 6px;
@@ -855,8 +902,6 @@
   }
 
   .compare-label-overlay {
-    position: absolute;
-    z-index: 2;
     display: flex;
     gap: 6px;
     flex-wrap: wrap;

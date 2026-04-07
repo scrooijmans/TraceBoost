@@ -4,15 +4,16 @@ mod processing;
 mod workspace;
 
 use seis_contracts_interop::{
-    CancelProcessingJobRequest, CancelProcessingJobResponse, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
-    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, ListPipelinePresetsResponse,
-    LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewProcessingRequest,
-    PreviewProcessingResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
-    RunProcessingRequest, RunProcessingResponse, SavePipelinePresetRequest,
-    SavePipelinePresetResponse, SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
-    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, SurveyPreflightRequest,
-    SurveyPreflightResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
+    CancelProcessingJobResponse, DeletePipelinePresetRequest, DeletePipelinePresetResponse,
+    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
+    ImportDatasetResponse, ListPipelinePresetsResponse, LoadWorkspaceStateResponse,
+    OpenDatasetRequest, OpenDatasetResponse, PreviewProcessingRequest, PreviewProcessingResponse,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunProcessingRequest,
+    RunProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
+    SetActiveDatasetEntryResponse, SurveyPreflightRequest, SurveyPreflightResponse,
+    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
 };
 use seis_runtime::{
     MaterializeOptions, SectionAxis, SectionView, materialize_processing_volume_with_progress,
@@ -27,7 +28,10 @@ use tauri::{
     AppHandle, Emitter, Manager, State,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
-use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset, preview_processing};
+use traceboost_app::{
+    amplitude_spectrum, import_dataset, open_dataset_summary, preflight_dataset,
+    preview_processing,
+};
 
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
@@ -80,6 +84,19 @@ fn pipeline_output_slug(pipeline: &seis_runtime::ProcessingPipeline) -> String {
             seis_runtime::ProcessingOperation::TraceRmsNormalize => {
                 "trace-rms-normalize".to_string()
             }
+            seis_runtime::ProcessingOperation::BandpassFilter {
+                f1_hz,
+                f2_hz,
+                f3_hz,
+                f4_hz,
+                ..
+            } => format!(
+                "bandpass-{}-{}-{}-{}",
+                format_factor(*f1_hz),
+                format_factor(*f2_hz),
+                format_factor(*f3_hz),
+                format_factor(*f4_hz)
+            ),
         };
         parts.push(part);
     }
@@ -537,6 +554,55 @@ fn preview_processing_command(
 }
 
 #[tauri::command]
+fn amplitude_spectrum_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    request: AmplitudeSpectrumRequest,
+) -> Result<AmplitudeSpectrumResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "amplitude_spectrum",
+        "Generating amplitude spectrum",
+        Some(build_fields([
+            ("storePath", json_value(&request.store_path)),
+            (
+                "axis",
+                json_value(format!("{:?}", request.section.axis).to_ascii_lowercase()),
+            ),
+            ("index", json_value(request.section.index)),
+            ("pipelineEnabled", json_value(request.pipeline.is_some())),
+            ("stage", json_value("spectrum_analysis")),
+        ])),
+    );
+
+    let result = amplitude_spectrum(request);
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Amplitude spectrum ready",
+                Some(build_fields([
+                    ("bins", json_value(response.curve.frequencies_hz.len())),
+                    ("sampleIntervalMs", json_value(response.sample_interval_ms)),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Amplitude spectrum failed",
+                Some(build_fields([("error", json_value(&message))])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn run_processing_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
@@ -980,6 +1046,7 @@ pub fn run() {
             open_dataset_command,
             load_section_command,
             preview_processing_command,
+            amplitude_spectrum_command,
             run_processing_command,
             get_processing_job_command,
             cancel_processing_job_command,
