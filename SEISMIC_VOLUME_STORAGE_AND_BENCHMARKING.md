@@ -103,6 +103,20 @@ Key properties:
 
 The point of `tbvol` is not novelty. It is to retain the low-overhead behavior that made the flat-binary control attractive, while restoring the locality and partial-read behavior needed for section assembly and streamed full-volume apply.
 
+## What `mmap` means in this design
+
+`mmap` does not mean "load the whole volume into RAM". It means the runtime asks the operating system to map `amplitude.bin` into the process address space and then touches only the byte ranges it needs.
+
+In practical terms:
+
+- the canonical `tbvol` payload stays on the local SSD at rest
+- opening a reader creates a virtual-memory mapping for `amplitude.bin` and optional `occupancy.bin`
+- when preview or materialization touches a tile range, the OS pages the corresponding file-backed memory into main RAM on demand
+- the CPU then consumes the active subset through the normal cache hierarchy: L3, then L2, then L1
+- recently touched pages may remain in the OS page cache, but this is still not the same thing as eagerly materializing the whole volume into application-owned buffers
+
+The important runtime consequence is that `tbvol` can preserve a very small explicit working set in application code while still giving the compute path direct access to dense binary data.
+
 ### 4. OpenVDS
 
 OpenVDS is increasingly relevant because it is part of the OSDU seismic data stack and is showing up more often as teams standardize around OSDU-aligned interchange and storage workflows.
@@ -181,6 +195,39 @@ Full apply streams tile-by-tile, runs the operator pipeline, and writes a new de
 - whether the store shape fits the operator class
 
 The runtime does not mutate the source store. It always materializes a new derived store with stored lineage. That is a correctness and reproducibility decision, not just an API decision.
+
+## Concrete execution flow
+
+The shared runtime uses the same operator kernels for preview and full apply, but the data movement pattern is intentionally different.
+
+### Preview section flow
+
+When a user previews one inline or xline section from a `tbvol`:
+
+1. The reader opens `manifest.json` and memory-maps `amplitude.bin`.
+2. The runtime computes which `[ci, cx, samples]` tiles intersect the requested section.
+3. It reads only those tiles and copies the relevant traces into one dense in-memory `SectionPlane`.
+4. The OS pages only the touched file regions into RAM as the mapped bytes are accessed.
+5. The operator pipeline runs against that one section buffer.
+6. The preview result is returned without writing a new persistent store.
+
+This path is optimized for low latency and limited touched surface area.
+
+### Full-volume materialization flow
+
+When a user materializes the pipeline over the entire volume:
+
+1. The source `tbvol` is opened for mapped reads.
+2. A new derived `tbvol` is created and its output files are preallocated.
+3. The runtime iterates tile-by-tile over the full tile grid.
+4. For each tile it:
+   - reads one tile from the mapped source
+   - pages the touched range into RAM on demand
+   - applies the same operator pipeline used for preview
+   - writes the processed tile to the deterministic output offset
+5. The writer finalizes the new derived store and records lineage.
+
+This path is optimized for throughput and bounded working-set size. It does not require whole-volume in-memory materialization.
 
 ## The benchmark methodology
 
@@ -334,7 +381,7 @@ Once the dataset becomes large enough, the ability to operate on a sensible tile
 
 This is a common systems lesson: the best production substrate is often neither the most generic format nor the most naive one. It is the simplest format that still exposes the right physical unit of work.
 
-## Padding, tile size, and the 2-4 MiB conclusion
+## Padding, tile size, and the current conclusion
 
 Tile size is not a cosmetic tuning parameter. It changes:
 
@@ -347,13 +394,29 @@ Tile size is not a cosmetic tuning parameter. It changes:
 The benchmark found:
 
 - `1 MiB` tiles were too small and increased tile-management overhead
-- `8 MiB` tiles were not consistently better and increased padding waste for non-divisible shapes
-- the practical sweet spot was around `2-4 MiB`
+- on the original synthetic benchmark corpus, `8 MiB` tiles were not consistently better and increased padding waste for non-divisible shapes
+- the original practical sweet spot was around `2-4 MiB`
+
+That conclusion is now qualified by the first focused real-volume sweep. On April 8, 2026, the new `sweep-tbvol` benchmark was run against `C:\Users\crooijmanss\Downloads\archive\f3_dataset.sgy`, a `651 x 951 x 462` regularized volume.
+
+That run found:
+
+- `1 MiB` won preview latency at `1.208 ms` but lost badly on full apply at `6907.067 ms`
+- `2 MiB` reached `1.458 ms` preview and `1633.727 ms` full apply
+- `4 MiB` reached `2.287 ms` preview and `1334.141 ms` full apply
+- `8 MiB` reached `1.279 ms` preview, `1290.195 ms` full apply, and the best section-read I/O
+
+So the more accurate current conclusion is:
+
+- `1 MiB` is still too small for production-scale materialization
+- `2-4 MiB` remains a strong synthetic/default regime
+- `8 MiB` is now a proven contender, and was the best balanced choice on the first customer-scale sweep
+- the shared runtime now uses a conservative adaptive fallback of `4 MiB` below roughly `768 MiB` dense `f32` volume size and `8 MiB` at or above that threshold when no explicit tile shape is supplied
 
 That is why the current recommendation is not a generic "bigger chunks are better." It is:
 
 - use padding-aware full-trace tiles
-- target approximately `2-4 MiB`
+- treat `2`, `4`, and `8 MiB` as active benchmark candidates
 - let dataset shape influence the exact `ci x cx` selection
 
 This is implemented in the `tbvol` tile recommendation logic. The runtime scores candidate tile shapes by balancing:
@@ -364,6 +427,20 @@ This is implemented in the `tbvol` tile recommendation logic. The runtime scores
 - tile count
 
 That is a better policy than hardcoding one chunk shape or blindly maximizing chunk size.
+
+## Tile size is about locality, not exact cache fitting
+
+The current tile-size conclusion should not be read as "fit every tile into L2" or "fit every tile into L3". CPU cache sizes vary by workstation and operating system does not expose one universal tuning target anyway.
+
+What the current policy is actually optimizing for is broader and more robust:
+
+- contiguous useful reads from disk into RAM
+- predictable section assembly from intersecting tiles
+- low enough tile count to avoid excessive per-tile overhead
+- small enough tile payloads to limit padding waste and keep the active working set tractable
+- a physical unit of work that the CPU can consume with good locality once the tile is active
+
+In other words, the runtime is tuned for storage locality, RAM locality, and compute-shape locality together. It is not trying to hand-pack the format to one specific workstation cache size.
 
 ## Storage format versus metadata and lineage
 
@@ -424,6 +501,28 @@ If the system later emphasizes:
 then the optimal physical layout may change. That does not invalidate the current decision. It means storage decisions should continue to be benchmark-driven and operator-aware.
 
 The important thing is that the runtime is no longer boxed into a storage abstraction it cannot question.
+
+## What is still worth benchmarking further
+
+The current storage decision is settled enough to stop debating lossy compression and generic chunk containers for the hot path, but some benchmark work is still worth doing.
+
+Questions and recommended answers:
+
+- Should active runtime work focus on `tbvol` rather than SGZ/ZFP-style compression: yes.
+- Should we benchmark more `tbvol` tile shapes for preview versus full apply tradeoffs on larger real datasets: yes.
+- Should we benchmark whether imported source stores and derived output stores should use the same tile policy: yes, but only if the benchmark is run through the same preview and materialization code paths.
+- Should we benchmark section-read prefetch or read-ahead behavior for the preview path: yes.
+- Should we benchmark overlapped read, compute, and write scheduling for full-volume materialization: yes, if apply throughput becomes a practical user bottleneck.
+- Should we tune the format around exact L1, L2, or L3 cache sizes on individual machines: no.
+- Should we pursue lossy compression for the active runtime store when amplitude fidelity must be exact: no.
+- Should we redesign the hot path around whole-volume in-memory materialization: no.
+
+The next worthwhile performance questions are therefore narrow and empirical:
+
+- how sensitive is preview latency to tile shape on real customer-sized cubes
+- how sensitive is materialization throughput to tile shape and output write scheduling
+- whether a small amount of reader-side prefetch improves preview without complicating correctness
+- whether the current default should settle at `2 MiB`, `4 MiB`, or `8 MiB` once more real datasets are in the benchmark corpus
 
 ## Final conclusion
 

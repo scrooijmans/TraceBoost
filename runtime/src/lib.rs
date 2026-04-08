@@ -53,7 +53,8 @@ pub use ophiolite_seismic_runtime::{
     TbvolWriter, TileBuffer, TileCoord, TileGeometry, VolumeStoreReader, VolumeStoreWriter,
     assemble_section_plane, create_tbgath_store, describe_prestack_store,
     ingest_prestack_offset_segy, open_prestack_store, prestack_gather_view,
-    preview_gather_processing_view, read_prestack_gather_plane, recommended_tbvol_tile_shape,
+    preview_gather_processing_view, read_prestack_gather_plane,
+    recommended_default_tbvol_tile_target_mib, recommended_tbvol_tile_shape,
 };
 pub use ophiolite_seismic_runtime::{
     materialize_gather_processing_store, materialize_gather_processing_store_with_progress,

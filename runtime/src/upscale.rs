@@ -7,7 +7,8 @@ use crate::error::SeisRefineError;
 use crate::metadata::{DatasetKind, InterpMethod, ProcessingLineage, VolumeAxes, VolumeMetadata};
 use crate::store::{StoreHandle, create_tbvol_store, load_array, open_store};
 use crate::{
-    ProcessingPipelineSpec, TbvolManifest, TraceLocalProcessingPipeline, recommended_tbvol_tile_shape,
+    ProcessingPipelineSpec, TbvolManifest, TraceLocalProcessingPipeline,
+    recommended_default_tbvol_tile_target_mib, recommended_tbvol_tile_shape,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -298,7 +299,10 @@ fn densify_coords(values: &[f64]) -> Vec<f64> {
 
 fn resolve_tile_shape(chunk_shape: [usize; 3], shape: [usize; 3]) -> [usize; 3] {
     if chunk_shape.iter().all(|value| *value == 0) {
-        return recommended_tbvol_tile_shape(shape, 8);
+        return recommended_tbvol_tile_shape(
+            shape,
+            recommended_default_tbvol_tile_target_mib(shape),
+        );
     }
 
     [

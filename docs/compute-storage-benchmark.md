@@ -44,6 +44,13 @@ Implemented backend pieces:
 - OpenVDS comparison runner:
   - [`scripts/openvds_storage_bench.cpp`](/Users/sc/dev/TraceBoost/scripts/openvds_storage_bench.cpp)
 
+Planned external comparison candidate:
+
+- SGZ / `seismic-zfp` comparison runner:
+  - implemented as [`scripts/sgz_storage_bench.py`](/Users/crooijmanss/dev/TraceBoost/scripts/sgz_storage_bench.py)
+  - intended as an external benchmark path similar in spirit to the OpenVDS runner
+  - explicitly not a commitment to replace `tbvol` as the active runtime backend
+
 Current state:
 
 - the shared backend now lives in `ophiolite-seismic-runtime`
@@ -118,15 +125,32 @@ Measured conclusion:
 Chunk-size sweep findings for `tbvol`:
 
 - `1 MiB` tiles were too small and increased tile-count overhead
-- `8 MiB` tiles were not consistently better and increased padding waste on non-divisible shapes
-- the practical sweet spot is currently `2-4 MiB`
+- on the original synthetic benchmark corpus, `8 MiB` tiles were not consistently better and increased padding waste on non-divisible shapes
+- the original synthetic sweet spot was `2-4 MiB`
 - `4 MiB` was strongest on the medium synthetic dataset
 - `2 MiB` and `4 MiB` were both strong on the larger synthetic dataset
 
+Focused real-volume sweep update:
+
+- on April 8, 2026, the new `sweep-tbvol` command was run against `C:\Users\crooijmanss\Downloads\archive\f3_dataset.sgy`
+- dataset shape: `651 x 951 x 462`
+- `1 MiB` won preview latency at `1.208 ms` but was unacceptable on full apply at `6907.067 ms`
+- `2 MiB` reached `1.458 ms` preview and `1633.727 ms` full apply
+- `4 MiB` reached `2.287 ms` preview and `1334.141 ms` full apply
+- `8 MiB` reached `1.279 ms` preview, `1290.195 ms` full apply, and the best section-read I/O
+- that made `8 MiB` the best balanced result on the first real customer-scale sweep
+- the practical conclusion is no longer "always prefer `2-4 MiB`"
+- the better conclusion is: keep `2`, `4`, and `8 MiB` in the candidate set and choose from benchmark evidence on real datasets
+
 Implication:
 
-- the old generic `8 MiB` chunk heuristic should not become the long-term `tbvol` policy
-- future `tbvol` tile recommendation should be padding-aware and should target roughly `2-4 MiB`, not blindly maximize tile size
+- the old generic "always use `8 MiB`" heuristic should still not become the unqualified `tbvol` policy
+- the old synthetic-only "target `2-4 MiB`" guidance is now too rigid
+- future `tbvol` tile recommendation should stay padding-aware and benchmark-driven, with at least `2`, `4`, and `8 MiB` considered valid candidate regimes for large real volumes
+- the shared runtime now uses a conservative adaptive fallback when no explicit chunk shape is supplied:
+  - `4 MiB` below roughly `768 MiB` dense `f32` volume size
+  - `8 MiB` at or above that threshold
+- that fallback is intentionally conservative and should continue to be validated against additional real customer volumes
 
 ## Scope
 
@@ -185,12 +209,17 @@ The benchmark compares the following runtime-store candidates:
 - `tbvol`
 - `flat_binary_control`
 - `openvds` local-file comparison path
+- `sgz` / `seismic-zfp` external comparison path planned for a future benchmark pass
 
 Notes:
 
 - `tbvol` is the current leading production backend candidate
 - `flat_binary_control` remains a control artifact, not a production commitment
 - `openvds` is not yet wired into the shared runtime backend layer; it is benchmarked through a standalone local-file runner
+- SGZ should be treated like OpenVDS in the first phase:
+  - benchmarked externally first
+  - evaluated primarily for compressed storage and interchange merit
+  - not assumed to be a drop-in replacement for the mmap-backed `tbvol` runtime path
 - HDF5 and TileDB remain intentionally deferred
 
 ## Chunking Policy Under Test
@@ -327,6 +356,37 @@ Expected outputs:
 - CSV table
 - optional Markdown summary for architecture review
 
+For the SGZ external comparison path, the current runner emits JSON summaries and environment diagnostics via:
+
+```powershell
+python scripts/sgz_storage_bench.py check-env
+python scripts/sgz_storage_bench.py benchmark-synthetic medium 256 256 1024 --bits-per-voxel 4
+```
+
+Current setup note:
+
+- the SGZ runner depends on external Python packages from the `seismic-zfp` stack, notably `segyio` and `zfpy`
+- if those are missing, `check-env` reports the exact blocker rather than failing silently
+
+For targeted `tbvol` tile-shape tuning on one real source or existing store, the benchmark CLI now also supports a focused sweep:
+
+```powershell
+cargo run --release --manifest-path C:\Users\crooijmanss\dev\ophiolite\crates\ophiolite-seismic-runtime\Cargo.toml --bin compute_storage_bench -- sweep-tbvol C:\Users\crooijmanss\dev\TraceBoost\test-data\f3.sgy --format json
+```
+
+The `sweep-tbvol` command accepts either:
+
+- a SEG-Y or SU source file, which is loaded once and retiled across the tested `tbvol` chunk targets
+- an existing `tbvol` directory, which is read back into the canonical dense cube and then retiled across the tested chunk targets
+
+The sweep currently benchmarks the default `1`, `2`, `4`, and `8 MiB` tile targets and reports, per tile policy:
+
+- input `tbvol` bytes and file count
+- inline and xline section read latency
+- preview pipeline latency
+- full-volume apply pipeline latency
+- a simple balanced score across preview, apply, and section-read costs
+
 ## Decision Rubric
 
 The benchmark decides the default backend direction using this rule:
@@ -360,12 +420,14 @@ Updated architectural conclusion:
 - stop treating the monolithic flat-binary control as the likely successor
 - treat `tbvol` as the preferred extraction-ready runtime backend candidate
 - keep OpenVDS in the benchmark set as a local-file interoperability/reference comparison
+- add SGZ as a future external comparison target, with the default assumption that any value it has will be in a cold-storage or interchange tier rather than as the active compute substrate
 - the backend has now been moved into the shared core
 - keep the current Zarr path only as a benchmark/reference adapter until it is no longer needed
 - invest next in:
   - padding-aware `tbvol` tile-shape recommendation
   - backend cutover in the shared seismic core
   - product/runtime integration on top of that shared core
+  - an SGZ benchmark pass only after the external runner and acceptance bars are defined
 
 ## Success Criteria
 
@@ -379,6 +441,7 @@ This plan is complete when the shared/runtime stack can:
 
 ## Immediate Next Steps
 
-1. Keep tuning `tbvol` around the padding-aware `2-4 MiB` tile regime if future operators demand it
+1. Keep tuning `tbvol` around a padding-aware `2-8 MiB` candidate regime, with real-volume sweeps deciding the default for new stores
 2. Remove remaining Zarr-only assumptions in higher layers such as file naming and UI copy when those layers are touched
 3. Keep Zarr only as long as the benchmark/reference path is still valuable
+4. Add SGZ as a measured external comparison candidate before considering any compressed-storage product work
