@@ -29,7 +29,7 @@
 
     <div class="shortcut-card">
       <span>Shortcuts</span>
-      <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, <code>a/n/g/h/l/i/b</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run</p>
+      <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run</p>
     </div>
   </div>
 
@@ -43,6 +43,7 @@
       onCopy={processingModel.copyActiveSessionPipeline}
       onPaste={processingModel.pasteCopiedSessionPipeline}
       onRemove={processingModel.removeActiveSessionPipeline}
+      onRemoveItem={processingModel.removeSessionPipeline}
       getLabel={processingModel.sessionPipelineLabel}
       canRemove={processingModel.canRemoveSessionPipeline}
     />
@@ -83,24 +84,35 @@
         <PipelineSequenceList
           pipeline={processingModel.pipeline}
           selectedIndex={processingModel.selectedStepIndex}
+          checkpointAfterOperationIndexes={processingModel.checkpointAfterOperationIndexes}
+          checkpointWarning={processingModel.checkpointWarning}
           onSelect={processingModel.selectStep}
           onInsertOperator={processingModel.insertOperatorById}
+          onCopy={processingModel.copySelectedOperation}
+          onPaste={processingModel.pasteCopiedOperation}
+          onRemove={processingModel.removeOperationAt}
+          onToggleCheckpoint={processingModel.toggleCheckpointAfterOperation}
         />
 
         <PipelineOperatorEditor
           selectedOperation={processingModel.selectedOperation}
           activeJob={processingModel.activeJob}
           processingError={processingModel.error}
+          primaryVolumeLabel={processingModel.activePrimaryVolumeLabel}
+          secondaryVolumeOptions={processingModel.volumeArithmeticSecondaryOptions}
           onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
           onSetAgcWindow={processingModel.setSelectedAgcWindow}
           onSetPhaseRotationAngle={processingModel.setSelectedPhaseRotationAngle}
           onSetLowpassCorner={processingModel.setSelectedLowpassCorner}
           onSetHighpassCorner={processingModel.setSelectedHighpassCorner}
           onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
+          onSetVolumeArithmeticOperator={processingModel.setSelectedVolumeArithmeticOperator}
+          onSetVolumeArithmeticSecondaryStorePath={processingModel.setSelectedVolumeArithmeticSecondaryStorePath}
           onMoveUp={processingModel.moveSelectedUp}
           onMoveDown={processingModel.moveSelectedDown}
           onRemove={processingModel.removeSelected}
           onCancelJob={() => processingModel.cancelActiveJob()}
+          onOpenArtifact={(storePath) => processingModel.openProcessingArtifact(storePath)}
         />
       </div>
 

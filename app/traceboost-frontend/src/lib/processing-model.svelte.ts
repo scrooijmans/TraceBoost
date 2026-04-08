@@ -27,6 +27,7 @@ import type { ViewerModel } from "./viewer-model.svelte";
 
 type PreviewState = "raw" | "preview" | "stale";
 type SpectrumAmplitudeScale = "db" | "linear";
+type VolumeArithmeticOperator = "add" | "subtract" | "multiply" | "divide";
 export type OperatorCatalogId =
   | "amplitude_scalar"
   | "trace_rms_normalize"
@@ -34,15 +35,21 @@ export type OperatorCatalogId =
   | "phase_rotation"
   | "lowpass_filter"
   | "highpass_filter"
-  | "bandpass_filter";
+  | "bandpass_filter"
+  | "volume_arithmetic";
 
 interface OperatorCatalogDefinition {
   id: OperatorCatalogId;
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b";
-  create: (section: SectionView | null) => ProcessingOperation;
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v";
+  create: (viewerModel: ViewerModel) => ProcessingOperation;
+}
+
+interface CopiedSessionPipeline {
+  pipeline: ProcessingPipeline;
+  checkpointAfterOperationIndexes: number[];
 }
 
 const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
@@ -84,7 +91,7 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     description: "Zero-phase FFT lowpass with a cosine high-cut taper.",
     keywords: ["lowpass", "filter", "frequency", "spectral", "highcut", "noise"],
     shortcut: "l",
-    create: (section) => defaultLowpassFilter(section)
+    create: (viewerModel) => defaultLowpassFilter(viewerModel.section)
   },
   {
     id: "highpass_filter",
@@ -92,7 +99,7 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     description: "Zero-phase FFT highpass with a cosine low-cut taper.",
     keywords: ["highpass", "filter", "frequency", "spectral", "lowcut", "drift"],
     shortcut: "i",
-    create: (section) => defaultHighpassFilter(section)
+    create: (viewerModel) => defaultHighpassFilter(viewerModel.section)
   },
   {
     id: "bandpass_filter",
@@ -100,7 +107,15 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     description: "Zero-phase FFT bandpass with cosine tapers.",
     keywords: ["bandpass", "filter", "frequency", "spectral", "highcut", "lowcut"],
     shortcut: "b",
-    create: (section) => defaultBandpassFilter(section)
+    create: (viewerModel) => defaultBandpassFilter(viewerModel.section)
+  },
+  {
+    id: "volume_arithmetic",
+    label: "Volume Arithmetic",
+    description: "Sample-by-sample arithmetic with another compatible workspace volume.",
+    keywords: ["volume", "arithmetic", "subtract", "difference", "add", "multiply", "divide", "cube"],
+    shortcut: "v",
+    create: (viewerModel) => defaultVolumeArithmetic(viewerModel)
   }
 ] as const;
 
@@ -109,7 +124,7 @@ export interface OperatorCatalogItem {
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b";
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v";
 }
 
 export const operatorCatalogItems: readonly OperatorCatalogItem[] = OPERATOR_CATALOG.map(
@@ -135,6 +150,34 @@ function createEmptyPipeline(): ProcessingPipeline {
 
 function pipelineName(pipeline: ProcessingPipeline): string {
   return pipeline.name?.trim() || "Untitled pipeline";
+}
+
+function nextDuplicateName(sourceName: string, existingNames: string[]): string {
+  const trimmedSourceName = sourceName.trim() || "Pipeline";
+  const sourceMatch = /^(.*?)(?:_(\d+))?$/.exec(trimmedSourceName);
+  const baseName = sourceMatch?.[1]?.trim() || trimmedSourceName;
+  const lowerBaseName = baseName.toLowerCase();
+  let maxSuffix = 0;
+
+  for (const existingName of existingNames) {
+    const trimmedExistingName = existingName.trim();
+    if (!trimmedExistingName) {
+      continue;
+    }
+
+    const existingMatch = /^(.*?)(?:_(\d+))?$/.exec(trimmedExistingName);
+    const existingBaseName = existingMatch?.[1]?.trim() || trimmedExistingName;
+    if (existingBaseName.toLowerCase() !== lowerBaseName) {
+      continue;
+    }
+
+    const suffix = existingMatch?.[2] ? Number(existingMatch[2]) : 0;
+    if (Number.isFinite(suffix)) {
+      maxSuffix = Math.max(maxSuffix, suffix);
+    }
+  }
+
+  return `${baseName}_${maxSuffix + 1}`;
 }
 
 function sectionKey(viewerModel: ViewerModel): string {
@@ -171,11 +214,71 @@ function cloneOperation(operation: ProcessingOperation): ProcessingOperation {
   if ("highpass_filter" in operation) {
     return { highpass_filter: { ...operation.highpass_filter } };
   }
+  if ("volume_arithmetic" in operation) {
+    return { volume_arithmetic: { ...operation.volume_arithmetic } };
+  }
   return {
     bandpass_filter: {
       ...operation.bandpass_filter
     }
   };
+}
+
+function cloneCheckpointAfterOperationIndexes(indexes: readonly number[]): number[] {
+  return [...indexes];
+}
+
+function normalizeCheckpointAfterOperationIndexes(indexes: readonly number[], operationCount: number): number[] {
+  if (operationCount <= 1) {
+    return [];
+  }
+
+  const maxCheckpointIndex = operationCount - 2;
+  return [...new Set(indexes)]
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= maxCheckpointIndex)
+    .sort((left, right) => left - right);
+}
+
+function remapCheckpointIndexesForInsert(indexes: readonly number[], insertIndex: number, operationCount: number): number[] {
+  return normalizeCheckpointAfterOperationIndexes(
+    indexes.map((value) => (value >= insertIndex ? value + 1 : value)),
+    operationCount
+  );
+}
+
+function remapCheckpointIndexesForRemove(indexes: readonly number[], removeIndex: number, operationCount: number): number[] {
+  return normalizeCheckpointAfterOperationIndexes(
+    indexes.flatMap((value) => {
+      if (value === removeIndex) {
+        return [];
+      }
+      return [value > removeIndex ? value - 1 : value];
+    }),
+    operationCount
+  );
+}
+
+function remapCheckpointIndexesForMove(
+  indexes: readonly number[],
+  fromIndex: number,
+  toIndex: number,
+  operationCount: number
+): number[] {
+  return normalizeCheckpointAfterOperationIndexes(
+    indexes.map((value) => {
+      if (value === fromIndex) {
+        return toIndex;
+      }
+      if (fromIndex < toIndex && value > fromIndex && value <= toIndex) {
+        return value - 1;
+      }
+      if (fromIndex > toIndex && value >= toIndex && value < fromIndex) {
+        return value + 1;
+      }
+      return value;
+    }),
+    operationCount
+  );
 }
 
 function normalizePresetId(value: string): string {
@@ -224,14 +327,21 @@ function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
                   }
                 }
               : "highpass_filter" in operation
-                ? {
-                    highpass_filter: {
-                      f1_hz: operation.highpass_filter.f1_hz,
-                      f2_hz: operation.highpass_filter.f2_hz,
-                      phase: operation.highpass_filter.phase,
-                      window: operation.highpass_filter.window
-                    }
+              ? {
+                  highpass_filter: {
+                    f1_hz: operation.highpass_filter.f1_hz,
+                    f2_hz: operation.highpass_filter.f2_hz,
+                    phase: operation.highpass_filter.phase,
+                    window: operation.highpass_filter.window
                   }
+                }
+                : "volume_arithmetic" in operation
+                  ? {
+                      volume_arithmetic: {
+                        operator: operation.volume_arithmetic.operator,
+                        secondary_store_path: operation.volume_arithmetic.secondary_store_path
+                      }
+                    }
                 : {
               bandpass_filter: {
                 f1_hz: operation.bandpass_filter.f1_hz,
@@ -320,6 +430,40 @@ function defaultBandpassFilter(section: SectionView | null): ProcessingOperation
   };
 }
 
+function volumeStoreLabel(storePath: string): string {
+  const normalizedPath = storePath.trim();
+  const separatorIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+  const filename = separatorIndex >= 0 ? normalizedPath.slice(separatorIndex + 1) : normalizedPath;
+  return filename.replace(/\.[^.]+$/, "") || "volume";
+}
+
+function volumeArithmeticSecondaryOptions(viewerModel: ViewerModel): { storePath: string; label: string }[] {
+  const primaryChunkShape = viewerModel.dataset?.descriptor.chunk_shape ?? null;
+  return viewerModel.compatibleSecondaryCompareCandidates
+    .filter((candidate) => {
+      if (!primaryChunkShape) {
+        return true;
+      }
+      const entry = viewerModel.workspaceEntries.find((workspaceEntry) => workspaceEntry.entry_id === candidate.entryId);
+      const secondaryChunkShape = entry?.last_dataset?.descriptor.chunk_shape ?? null;
+      return !!secondaryChunkShape && secondaryChunkShape.every((value, index) => value === primaryChunkShape[index]);
+    })
+    .map((candidate) => ({
+      storePath: candidate.storePath,
+      label: candidate.displayName || volumeStoreLabel(candidate.storePath)
+    }));
+}
+
+function defaultVolumeArithmetic(viewerModel: ViewerModel): ProcessingOperation {
+  const secondaryOptions = volumeArithmeticSecondaryOptions(viewerModel);
+  return {
+    volume_arithmetic: {
+      operator: "subtract",
+      secondary_store_path: secondaryOptions[0]?.storePath ?? ""
+    }
+  };
+}
+
 export interface ProcessingModelOptions {
   viewerModel: ViewerModel;
 }
@@ -362,7 +506,8 @@ export class ProcessingModel {
   #sessionPipelineCounter = 0;
   #hydratedDatasetEntryId: string | null = null;
   #runOutputPathRequestId = 0;
-  #copiedSessionPipeline: ProcessingPipeline | null = null;
+  #copiedSessionPipeline: CopiedSessionPipeline | null = null;
+  #copiedOperation: ProcessingOperation | null = null;
 
   constructor(options: ProcessingModelOptions) {
     this.viewerModel = options.viewerModel;
@@ -413,6 +558,10 @@ export class ProcessingModel {
           ? activeEntry.session_pipelines.map((entry) => ({
               pipeline_id: entry.pipeline_id,
               pipeline: clonePipeline(entry.pipeline),
+              checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
+                entry.checkpoint_after_operation_indexes ?? [],
+                entry.pipeline.operations.length
+              ),
               updated_at_unix_s: entry.updated_at_unix_s
             }))
           : [this.createSessionPipelineEntry("Pipeline 1")];
@@ -462,6 +611,19 @@ export class ProcessingModel {
 
   get activeSessionPipeline(): WorkspacePipelineEntry | null {
     return this.sessionPipelines.find((entry) => entry.pipeline_id === this.activeSessionPipelineId) ?? null;
+  }
+
+  get checkpointAfterOperationIndexes(): number[] {
+    return cloneCheckpointAfterOperationIndexes(
+      this.activeSessionPipeline?.checkpoint_after_operation_indexes ?? []
+    );
+  }
+
+  get checkpointWarning(): string | null {
+    const checkpointCount = this.checkpointAfterOperationIndexes.length;
+    return checkpointCount > 5
+      ? "More than 5 checkpoints will materially increase full-volume run time."
+      : null;
   }
 
   get sessionPipelineItems(): WorkspacePipelineEntry[] {
@@ -520,8 +682,20 @@ export class ProcessingModel {
     return pipelineName(this.pipeline);
   }
 
+  get activePrimaryVolumeLabel(): string {
+    return this.viewerModel.activeDatasetDisplayName;
+  }
+
+  get volumeArithmeticSecondaryOptions(): { storePath: string; label: string }[] {
+    return volumeArithmeticSecondaryOptions(this.viewerModel);
+  }
+
   get canRemoveSessionPipeline(): boolean {
     return this.sessionPipelines.length > 1;
+  }
+
+  get canToggleSelectedCheckpoint(): boolean {
+    return this.pipeline.operations.length > 1 && this.selectedStepIndex < this.pipeline.operations.length - 1;
   }
 
   get resolvedRunOutputPath(): string | null {
@@ -603,7 +777,10 @@ export class ProcessingModel {
     if (!source) {
       return;
     }
-    const duplicate = this.createCopiedSessionPipelineEntry(source.pipeline);
+    const duplicate = this.createCopiedSessionPipelineEntry(
+      source.pipeline,
+      source.checkpoint_after_operation_indexes ?? []
+    );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
@@ -635,34 +812,40 @@ export class ProcessingModel {
       return;
     }
 
+    this.removeSessionPipeline(activePipelineId);
+  };
+
+  removeSessionPipeline = (pipelineId: string): void => {
     if (this.sessionPipelines.length <= 1) {
-      const replacement = this.createSessionPipelineEntry(this.nextEmptySessionPipelineName());
-      this.sessionPipelines = [replacement];
-      this.activeSessionPipelineId = replacement.pipeline_id;
-      this.pipeline = clonePipeline(replacement.pipeline);
-      this.selectedStepIndex = 0;
-      this.editingParams = false;
-      this.clearPreviewState();
-      void this.persistSessionPipelines();
       return;
     }
 
-    const activeIndex = this.sessionPipelines.findIndex((entry) => entry.pipeline_id === activePipelineId);
-    const nextSessionPipelines = this.sessionPipelines.filter((entry) => entry.pipeline_id !== activePipelineId);
-    const fallbackEntry = nextSessionPipelines[Math.max(0, activeIndex - 1)] ?? nextSessionPipelines[0];
+    const activeIndex = this.sessionPipelines.findIndex((entry) => entry.pipeline_id === pipelineId);
+    if (activeIndex < 0) {
+      return;
+    }
+
+    const removingActivePipeline = this.activeSessionPipelineId === pipelineId;
+    const nextSessionPipelines = this.sessionPipelines.filter((entry) => entry.pipeline_id !== pipelineId);
     this.sessionPipelines = nextSessionPipelines;
-    this.activeSessionPipelineId = fallbackEntry.pipeline_id;
-    this.pipeline = clonePipeline(fallbackEntry.pipeline);
-    this.viewerModel.setSelectedPresetId(fallbackEntry.pipeline.preset_id ?? null);
-    this.selectedStepIndex = 0;
-    this.editingParams = false;
-    this.clearPreviewState();
+
+    if (removingActivePipeline) {
+      const fallbackEntry = nextSessionPipelines[Math.max(0, activeIndex - 1)] ?? nextSessionPipelines[0];
+      this.activeSessionPipelineId = fallbackEntry?.pipeline_id ?? null;
+      this.pipeline = clonePipeline(fallbackEntry?.pipeline ?? createEmptyPipeline());
+      this.viewerModel.setSelectedPresetId(fallbackEntry?.pipeline.preset_id ?? null);
+      this.selectedStepIndex = 0;
+      this.editingParams = false;
+      this.clearPreviewState();
+    }
+
     void this.persistSessionPipelines();
   };
 
   private createSessionPipelineEntry(
     suggestedName: string,
-    template: ProcessingPipeline = createEmptyPipeline()
+    template: ProcessingPipeline = createEmptyPipeline(),
+    checkpointAfterOperationIndexes: number[] = []
   ): WorkspacePipelineEntry {
     this.#sessionPipelineCounter += 1;
     const pipeline = clonePipeline(template);
@@ -670,6 +853,10 @@ export class ProcessingModel {
     return {
       pipeline_id: `session-pipeline-${Date.now()}-${this.#sessionPipelineCounter}`,
       pipeline,
+      checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
+        checkpointAfterOperationIndexes,
+        pipeline.operations.length
+      ),
       updated_at_unix_s: pipelineTimestamp()
     };
   }
@@ -687,17 +874,31 @@ export class ProcessingModel {
     return `Pipeline ${index}`;
   }
 
-  private createCopiedSessionPipelineEntry(source: ProcessingPipeline): WorkspacePipelineEntry {
+  private createCopiedSessionPipelineEntry(
+    source: ProcessingPipeline,
+    checkpointAfterOperationIndexes: number[]
+  ): WorkspacePipelineEntry {
     const pipeline = clonePipeline(source);
     pipeline.preset_id = null;
-    pipeline.name = `${pipelineName(source)}_copy`;
-    return this.createSessionPipelineEntry(pipeline.name, pipeline);
+    pipeline.name = nextDuplicateName(
+      pipelineName(source),
+      this.sessionPipelines.map((entry) => pipelineName(entry.pipeline))
+    );
+    return this.createSessionPipelineEntry(pipeline.name, pipeline, checkpointAfterOperationIndexes);
   }
 
   copyActiveSessionPipeline = (): void => {
-    const activePipeline = this.activeSessionPipeline?.pipeline ?? this.pipeline;
-    this.#copiedSessionPipeline = clonePipeline(activePipeline);
-    this.viewerModel.note("Copied active session pipeline.", "ui", "info", pipelineName(activePipeline));
+    const activePipeline = this.activeSessionPipeline;
+    if (!activePipeline) {
+      return;
+    }
+    this.#copiedSessionPipeline = {
+      pipeline: clonePipeline(activePipeline.pipeline),
+      checkpointAfterOperationIndexes: cloneCheckpointAfterOperationIndexes(
+        activePipeline.checkpoint_after_operation_indexes ?? []
+      )
+    };
+    this.viewerModel.note("Copied active session pipeline.", "ui", "info", pipelineName(activePipeline.pipeline));
   };
 
   pasteCopiedSessionPipeline = (): void => {
@@ -705,7 +906,10 @@ export class ProcessingModel {
       return;
     }
 
-    const duplicate = this.createCopiedSessionPipelineEntry(this.#copiedSessionPipeline);
+    const duplicate = this.createCopiedSessionPipelineEntry(
+      this.#copiedSessionPipeline.pipeline,
+      this.#copiedSessionPipeline.checkpointAfterOperationIndexes
+    );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
@@ -716,18 +920,60 @@ export class ProcessingModel {
     void this.persistSessionPipelines();
   };
 
+  copySelectedOperation = (): void => {
+    const selectedOperation = this.selectedOperation;
+    if (!selectedOperation) {
+      return;
+    }
+
+    this.#copiedOperation = cloneOperation(selectedOperation);
+    this.viewerModel.note("Copied selected pipeline step.", "ui", "info", describeOperation(selectedOperation));
+  };
+
+  pasteCopiedOperation = (): void => {
+    if (!this.#copiedOperation) {
+      return;
+    }
+
+    this.insertOperation(this.#copiedOperation);
+  };
+
+  toggleCheckpointAfterOperation = (index: number): void => {
+    if (index < 0 || index >= this.pipeline.operations.length - 1) {
+      return;
+    }
+
+    const nextCheckpointIndexes = this.checkpointAfterOperationIndexes.includes(index)
+      ? this.checkpointAfterOperationIndexes.filter((value) => value !== index)
+      : [...this.checkpointAfterOperationIndexes, index];
+    this.updateActiveSessionPipeline(this.pipeline, nextCheckpointIndexes);
+  };
+
+  openProcessingArtifact = async (storePath: string): Promise<void> => {
+    if (!storePath.trim()) {
+      return;
+    }
+    await this.viewerModel.openDerivedDatasetAt(storePath, this.viewerModel.axis, this.viewerModel.index);
+  };
+
   private persistSessionPipelines(): Promise<void> {
     return this.viewerModel.updateActiveEntryPipelines(
       this.sessionPipelines.map((entry) => ({
         pipeline_id: entry.pipeline_id,
         updated_at_unix_s: entry.updated_at_unix_s,
-        pipeline: clonePipeline(entry.pipeline)
+        pipeline: clonePipeline(entry.pipeline),
+        checkpoint_after_operation_indexes: cloneCheckpointAfterOperationIndexes(
+          entry.checkpoint_after_operation_indexes ?? []
+        )
       })),
       this.activeSessionPipelineId
     );
   }
 
-  private updateActiveSessionPipeline(nextPipeline: ProcessingPipeline): void {
+  private updateActiveSessionPipeline(
+    nextPipeline: ProcessingPipeline,
+    checkpointAfterOperationIndexes: number[] | null = null
+  ): void {
     const activePipelineId = this.activeSessionPipelineId;
     const snapshot = clonePipeline(nextPipeline);
     this.pipeline = snapshot;
@@ -741,6 +987,10 @@ export class ProcessingModel {
         ? {
             pipeline_id: entry.pipeline_id,
             pipeline: clonePipeline(snapshot),
+            checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
+              checkpointAfterOperationIndexes ?? entry.checkpoint_after_operation_indexes ?? [],
+              snapshot.operations.length
+            ),
             updated_at_unix_s: pipelineTimestamp()
           }
         : entry
@@ -823,12 +1073,16 @@ export class ProcessingModel {
     this.insertOperatorById("bandpass_filter");
   };
 
+  addVolumeArithmeticAfterSelected = (): void => {
+    this.insertOperatorById("volume_arithmetic");
+  };
+
   insertOperatorById = (operatorId: OperatorCatalogId): void => {
     const operator = OPERATOR_CATALOG.find((candidate) => candidate.id === operatorId);
     if (!operator) {
       return;
     }
-    this.insertOperation(operator.create(this.viewerModel.section));
+    this.insertOperation(operator.create(this.viewerModel));
   };
 
   insertOperation = (operation: ProcessingOperation): void => {
@@ -836,22 +1090,42 @@ export class ProcessingModel {
     const insertIndex = this.pipeline.operations.length === 0 ? 0 : this.selectedStepIndex + 1;
     next.operations.splice(insertIndex, 0, cloneOperation(operation));
     next.revision += 1;
-    this.updateActiveSessionPipeline(next);
+    this.updateActiveSessionPipeline(
+      next,
+      remapCheckpointIndexesForInsert(this.checkpointAfterOperationIndexes, insertIndex, next.operations.length)
+    );
     this.selectedStepIndex = insertIndex;
     this.editingParams = true;
     this.invalidatePreview();
   };
 
   removeSelected = (): void => {
-    if (!this.selectedOperation) {
+    this.removeOperationAt(this.selectedStepIndex);
+  };
+
+  removeOperationAt = (index: number): void => {
+    if (!this.pipeline.operations[index]) {
       return;
     }
+
+    const removedSelectedOperation = index === this.selectedStepIndex;
     const next = clonePipeline(this.pipeline);
-    next.operations.splice(this.selectedStepIndex, 1);
+    next.operations.splice(index, 1);
     next.revision += 1;
-    this.updateActiveSessionPipeline(next);
-    this.selectedStepIndex = Math.max(0, Math.min(this.selectedStepIndex, next.operations.length - 1));
-    this.editingParams = false;
+    this.updateActiveSessionPipeline(
+      next,
+      remapCheckpointIndexesForRemove(this.checkpointAfterOperationIndexes, index, next.operations.length)
+    );
+    if (next.operations.length === 0) {
+      this.selectedStepIndex = 0;
+    } else if (index < this.selectedStepIndex) {
+      this.selectedStepIndex -= 1;
+    } else if (index === this.selectedStepIndex) {
+      this.selectedStepIndex = Math.min(index, next.operations.length - 1);
+    }
+    if (removedSelectedOperation || next.operations.length === 0) {
+      this.editingParams = false;
+    }
     this.invalidatePreview();
   };
 
@@ -863,7 +1137,15 @@ export class ProcessingModel {
     const [operation] = next.operations.splice(this.selectedStepIndex, 1);
     next.operations.splice(this.selectedStepIndex - 1, 0, operation);
     next.revision += 1;
-    this.updateActiveSessionPipeline(next);
+    this.updateActiveSessionPipeline(
+      next,
+      remapCheckpointIndexesForMove(
+        this.checkpointAfterOperationIndexes,
+        this.selectedStepIndex,
+        this.selectedStepIndex - 1,
+        next.operations.length
+      )
+    );
     this.selectedStepIndex -= 1;
     this.invalidatePreview();
   };
@@ -876,7 +1158,15 @@ export class ProcessingModel {
     const [operation] = next.operations.splice(this.selectedStepIndex, 1);
     next.operations.splice(this.selectedStepIndex + 1, 0, operation);
     next.revision += 1;
-    this.updateActiveSessionPipeline(next);
+    this.updateActiveSessionPipeline(
+      next,
+      remapCheckpointIndexesForMove(
+        this.checkpointAfterOperationIndexes,
+        this.selectedStepIndex,
+        this.selectedStepIndex + 1,
+        next.operations.length
+      )
+    );
     this.selectedStepIndex += 1;
     this.invalidatePreview();
   };
@@ -1005,8 +1295,44 @@ export class ProcessingModel {
     this.invalidatePreview();
   };
 
+  setSelectedVolumeArithmeticOperator = (value: VolumeArithmeticOperator): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isVolumeArithmetic(selected)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isVolumeArithmetic(operation)) {
+      return;
+    }
+
+    operation.volume_arithmetic.operator = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
+  setSelectedVolumeArithmeticSecondaryStorePath = (value: string): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isVolumeArithmetic(selected)) {
+      return;
+    }
+
+    const next = clonePipeline(this.pipeline);
+    const operation = next.operations[this.selectedStepIndex];
+    if (!isVolumeArithmetic(operation)) {
+      return;
+    }
+
+    operation.volume_arithmetic.secondary_store_path = value.trim();
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next);
+    this.invalidatePreview();
+  };
+
   replacePipeline = (pipeline: ProcessingPipeline): void => {
-    this.updateActiveSessionPipeline(clonePipeline(pipeline));
+    this.updateActiveSessionPipeline(clonePipeline(pipeline), []);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.invalidatePreview();
@@ -1266,6 +1592,10 @@ export class ProcessingModel {
         event.preventDefault();
         this.addBandpassAfterSelected();
         break;
+      case "v":
+        event.preventDefault();
+        this.addVolumeArithmeticAfterSelected();
+        break;
       case "x":
       case "Delete":
         event.preventDefault();
@@ -1293,6 +1623,10 @@ export class ProcessingModel {
       case "r":
         event.preventDefault();
         await this.runOnVolume();
+        break;
+      case "F9":
+        event.preventDefault();
+        this.toggleCheckpointAfterOperation(this.selectedStepIndex);
         break;
     }
   };
@@ -1407,6 +1741,9 @@ export class ProcessingModel {
       store_path: this.viewerModel.activeStorePath,
       output_store_path: outputStorePath,
       overwrite_existing: overwriteExisting,
+      checkpoints: this.checkpointAfterOperationIndexes.map((after_operation_index) => ({
+        after_operation_index
+      })),
       pipeline: clonePipeline(this.pipeline)
     };
     const response = await runProcessing(request);
@@ -1442,6 +1779,9 @@ export function describeOperation(operation: ProcessingOperation): string {
   if (isBandpassFilter(operation)) {
     const { f1_hz, f2_hz, f3_hz, f4_hz } = operation.bandpass_filter;
     return `bandpass (${f1_hz}/${f2_hz}/${f3_hz}/${f4_hz} Hz)`;
+  }
+  if (isVolumeArithmetic(operation)) {
+    return `${operation.volume_arithmetic.operator} volume (${volumeStoreLabel(operation.volume_arithmetic.secondary_store_path)})`;
   }
   return "trace RMS normalize";
 }
@@ -1507,6 +1847,17 @@ export function isPhaseRotation(
   };
 } {
   return typeof operation !== "string" && "phase_rotation" in operation;
+}
+
+export function isVolumeArithmetic(
+  operation: ProcessingOperation
+): operation is {
+  volume_arithmetic: {
+    operator: VolumeArithmeticOperator;
+    secondary_store_path: string;
+  };
+} {
+  return typeof operation !== "string" && "volume_arithmetic" in operation;
 }
 
 const [internalGetProcessingModelContext, internalSetProcessingModelContext] =

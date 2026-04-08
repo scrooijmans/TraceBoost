@@ -103,6 +103,14 @@ function operationSlug(
       .map((value) => String(value).replace(".", "_"))
       .join("-")}`;
   }
+  if ("volume_arithmetic" in operation) {
+    const secondaryStem =
+      fileStem(operation.volume_arithmetic.secondary_store_path)
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "volume";
+    return `volume-${operation.volume_arithmetic.operator}-${secondaryStem}`;
+  }
   return `bandpass-${[
     operation.bandpass_filter.f1_hz,
     operation.bandpass_filter.f2_hz,
@@ -438,19 +446,17 @@ export async function upsertDatasetEntry(
   }
 
   const entries = loadLocalRegistry();
+  const explicitEntryId = request.entry_id?.trim() || null;
   const trimmedSource = request.source_path?.trim() || null;
   const trimmedPreferredStore = request.preferred_store_path?.trim() || null;
   const trimmedImportedStore = request.imported_store_path?.trim() || null;
-  const existingIndex =
-    (request.entry_id
-      ? entries.findIndex((entry) => entry.entry_id === request.entry_id)
-      : -1) >= 0
-      ? entries.findIndex((entry) => entry.entry_id === request.entry_id)
-      : entries.findIndex(
-          (entry) =>
-            (trimmedSource && entry.source_path === trimmedSource) ||
-            (trimmedImportedStore && entry.imported_store_path === trimmedImportedStore)
-        );
+  const existingIndex = explicitEntryId
+    ? entries.findIndex((entry) => entry.entry_id === explicitEntryId)
+    : entries.findIndex(
+        (entry) =>
+          (trimmedSource && entry.source_path === trimmedSource) ||
+          (trimmedImportedStore && entry.imported_store_path === trimmedImportedStore)
+      );
   const now = Math.floor(Date.now() / 1000);
   const entry: DatasetRegistryEntry =
     existingIndex >= 0
@@ -472,7 +478,7 @@ export async function upsertDatasetEntry(
           status: entries[existingIndex].status
         }
       : {
-          entry_id: request.entry_id ?? `dataset-${now}-${entries.length + 1}`,
+          entry_id: explicitEntryId ?? `dataset-${now}-${entries.length + 1}`,
           display_name:
             request.display_name?.trim() ||
             request.dataset?.descriptor.label ||

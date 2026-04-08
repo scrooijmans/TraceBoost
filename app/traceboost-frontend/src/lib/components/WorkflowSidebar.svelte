@@ -26,17 +26,34 @@
   }
 
   function datasetLabel(displayName: string, fallbackPath: string | null | undefined, entryId: string): string {
-    const preferredPathLabel = fileStem(fallbackPath);
-    if (preferredPathLabel) {
-      return stripGeneratedHashSuffix(preferredPathLabel);
-    }
-
     const trimmedDisplayName = displayName.trim();
     if (trimmedDisplayName) {
       return stripGeneratedHashSuffix(trimmedDisplayName);
     }
 
+    const preferredPathLabel = fileStem(fallbackPath);
+    if (preferredPathLabel) {
+      return stripGeneratedHashSuffix(preferredPathLabel);
+    }
+
     return entryId;
+  }
+
+  function handleVolumeListKeyDown(event: KeyboardEvent): void {
+    if (!(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key === "c" && viewerModel.activeEntryId) {
+      event.preventDefault();
+      viewerModel.copyActiveWorkspaceEntry();
+    }
+
+    if (key === "v") {
+      event.preventDefault();
+      void viewerModel.pasteCopiedWorkspaceEntry();
+    }
   }
 </script>
 
@@ -72,7 +89,13 @@
 
   <div class="volume-list-shell">
     {#if viewerModel.workspaceEntries.length}
-      <div class="volume-list">
+      <div
+        class="volume-list"
+        role="listbox"
+        tabindex="0"
+        onkeydown={handleVolumeListKeyDown}
+        aria-label="Seismic volumes"
+      >
         {#each viewerModel.workspaceEntries as entry (entry.entry_id)}
           {@const visibleLabel = datasetLabel(
             entry.display_name,
@@ -98,7 +121,7 @@
               aria-label={`Remove ${visibleLabel}`}
               title={`Remove ${visibleLabel}`}
             >
-              ×
+              X
             </button>
           </div>
         {/each}
@@ -106,7 +129,7 @@
     {:else}
       <div class="empty-state">
         <span class="empty-title">No volumes loaded</span>
-        <p>Use <strong>File &gt; Open Volume…</strong> to open a `.tbvol` or import a `.segy`.</p>
+        <p>Use <strong>File &gt; Open Volume...</strong> to open a `.tbvol` or import a `.segy`.</p>
       </div>
     {/if}
   </div>
@@ -187,6 +210,7 @@
   .volume-list {
     display: grid;
     gap: 6px;
+    outline: none;
   }
 
   .volume-row {
@@ -243,6 +267,19 @@
     background: #1b1b1b;
     color: #6f6f6f;
     cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 120ms ease,
+      border-color 120ms ease,
+      background 120ms ease,
+      color 120ms ease;
+  }
+
+  .volume-row:hover .volume-remove,
+  .volume-row:focus-within .volume-remove {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .volume-remove:hover:not(:disabled) {

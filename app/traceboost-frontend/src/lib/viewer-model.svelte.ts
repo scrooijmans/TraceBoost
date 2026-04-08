@@ -46,6 +46,7 @@ export interface ViewerModelOptions {
 
 interface OpenDatasetOptions {
   entryId?: string | null;
+  displayName?: string | null;
   sourcePath?: string | null;
   sessionPipelines?: WorkspacePipelineEntry[] | null;
   activeSessionPipelineId?: string | null;
@@ -174,14 +175,14 @@ function userVisibleDatasetName(
   storePath: string | null | undefined,
   fallbackId: string
 ): string {
-  const sourceStem = fileStem(sourcePath);
-  if (sourceStem) {
-    return sourceStem;
-  }
-
   const trimmedDisplayName = trimPath(displayName ?? "");
   if (trimmedDisplayName) {
     return stripGeneratedHashSuffix(trimmedDisplayName);
+  }
+
+  const sourceStem = fileStem(sourcePath);
+  if (sourceStem) {
+    return sourceStem;
   }
 
   const storeStem = fileStem(storePath);
@@ -190,6 +191,34 @@ function userVisibleDatasetName(
   }
 
   return fallbackId;
+}
+
+function nextDuplicateName(sourceName: string, existingNames: string[]): string {
+  const trimmedSourceName = sourceName.trim() || "Dataset";
+  const sourceMatch = /^(.*?)(?:_(\d+))?$/.exec(trimmedSourceName);
+  const baseName = sourceMatch?.[1]?.trim() || trimmedSourceName;
+  const lowerBaseName = baseName.toLowerCase();
+  let maxSuffix = 0;
+
+  for (const existingName of existingNames) {
+    const trimmedExistingName = existingName.trim();
+    if (!trimmedExistingName) {
+      continue;
+    }
+
+    const existingMatch = /^(.*?)(?:_(\d+))?$/.exec(trimmedExistingName);
+    const existingBaseName = existingMatch?.[1]?.trim() || trimmedExistingName;
+    if (existingBaseName.toLowerCase() !== lowerBaseName) {
+      continue;
+    }
+
+    const suffix = existingMatch?.[2] ? Number(existingMatch[2]) : 0;
+    if (Number.isFinite(suffix)) {
+      maxSuffix = Math.max(maxSuffix, suffix);
+    }
+  }
+
+  return `${baseName}_${maxSuffix + 1}`;
 }
 
 function sortWorkspaceEntries(entries: DatasetRegistryEntry[]): DatasetRegistryEntry[] {
@@ -230,7 +259,7 @@ function entryStorePath(entry: DatasetRegistryEntry | null): string {
 function cloneSessionPipelines(
   entries: WorkspacePipelineEntry[] | null | undefined
 ): WorkspacePipelineEntry[] | null {
-  return entries ? entries.map((entry) => ({ ...entry })) : null;
+  return entries ? structuredClone(entries) : null;
 }
 
 function datasetCompareFamily(dataset: DatasetSummary | null): string | null {
@@ -331,6 +360,8 @@ export class ViewerModel {
   #outputPathSource: "auto" | "manual" = "auto";
   #backgroundLoadRequestId = 0;
   #backgroundSectionKey: string | null = null;
+  #copiedWorkspaceEntry: DatasetRegistryEntry | null = null;
+  #workspaceEntryCounter = 0;
 
   constructor(options: ViewerModelOptions) {
     this.tauriRuntime = options.tauriRuntime;
@@ -1164,6 +1195,66 @@ export class ViewerModel {
     }
   };
 
+  copyActiveWorkspaceEntry = (): void => {
+    const activeEntry = this.activeDatasetEntry;
+    if (!activeEntry) {
+      return;
+    }
+
+    this.#copiedWorkspaceEntry = structuredClone(activeEntry);
+    this.note(
+      "Copied active dataset entry.",
+      "ui",
+      "info",
+      userVisibleDatasetName(
+        activeEntry.display_name,
+        activeEntry.source_path,
+        activeEntry.imported_store_path ?? activeEntry.preferred_store_path,
+        activeEntry.entry_id
+      )
+    );
+  };
+
+  pasteCopiedWorkspaceEntry = async (): Promise<void> => {
+    const copiedEntry = this.#copiedWorkspaceEntry;
+    if (!copiedEntry) {
+      return;
+    }
+
+    const storePath = trimPath(entryStorePath(copiedEntry));
+    if (!storePath) {
+      this.note("Copied dataset entry has no runtime store path.", "ui", "warn", copiedEntry.entry_id);
+      return;
+    }
+
+    const nextDisplayName = nextDuplicateName(
+      userVisibleDatasetName(
+        copiedEntry.display_name,
+        copiedEntry.source_path,
+        copiedEntry.imported_store_path ?? copiedEntry.preferred_store_path,
+        copiedEntry.entry_id
+      ),
+      this.workspaceEntries.map((entry) =>
+        userVisibleDatasetName(
+          entry.display_name,
+          entry.source_path,
+          entry.imported_store_path ?? entry.preferred_store_path,
+          entry.entry_id
+        )
+      )
+    );
+
+    await this.openDatasetAt(storePath, this.axis, this.index, {
+      entryId: this.nextWorkspaceEntryId(),
+      displayName: nextDisplayName,
+      sourcePath: copiedEntry.source_path,
+      sessionPipelines: cloneSessionPipelines(copiedEntry.session_pipelines),
+      activeSessionPipelineId: copiedEntry.active_session_pipeline_id,
+      makeActive: true,
+      loadSection: true
+    });
+  };
+
   openDatasetAt = async (
     storePath: string,
     axis: SectionAxis = "inline",
@@ -1182,12 +1273,17 @@ export class ViewerModel {
 
     const hasOwnOption = (key: keyof OpenDatasetOptions): boolean =>
       Object.prototype.hasOwnProperty.call(options, key);
+    const matchingActiveEntry =
+      trimPath(entryStorePath(this.activeDatasetEntry)) === normalizedStorePath ? this.activeDatasetEntry : null;
     const nextEntryId: string | null = hasOwnOption("entryId")
       ? options.entryId ?? null
       : this.activeEntryId;
+    const nextDisplayName: string | null = hasOwnOption("displayName")
+      ? options.displayName ?? null
+      : matchingActiveEntry?.display_name ?? null;
     const nextSourcePath: string = hasOwnOption("sourcePath")
       ? options.sourcePath ?? ""
-      : this.inputPath;
+      : matchingActiveEntry?.source_path ?? this.inputPath;
     const nextSessionPipelines: WorkspacePipelineEntry[] | null = hasOwnOption("sessionPipelines")
       ? cloneSessionPipelines(options.sessionPipelines)
       : this.activeDatasetEntry?.session_pipelines ?? null;
@@ -1203,12 +1299,14 @@ export class ViewerModel {
       const workspaceResponse = await upsertDatasetEntry({
         schema_version: 1,
         entry_id: nextEntryId,
-        display_name: userVisibleDatasetName(
-          response.dataset.descriptor.label,
-          trimPath(nextSourcePath) || null,
-          response.dataset.store_path,
-          nextEntryId ?? response.dataset.descriptor.id
-        ),
+        display_name:
+          nextDisplayName?.trim() ||
+          userVisibleDatasetName(
+            response.dataset.descriptor.label,
+            trimPath(nextSourcePath) || null,
+            response.dataset.store_path,
+            nextEntryId ?? response.dataset.descriptor.id
+          ),
         source_path: trimPath(nextSourcePath) || null,
         preferred_store_path: response.dataset.store_path,
         imported_store_path: response.dataset.store_path,
@@ -1275,6 +1373,11 @@ export class ViewerModel {
       activeSessionPipelineId: activeEntry?.active_session_pipeline_id ?? null
     });
   };
+
+  private nextWorkspaceEntryId(): string {
+    this.#workspaceEntryCounter += 1;
+    return `dataset-copy-${Date.now()}-${this.#workspaceEntryCounter}`;
+  }
 
   runPreflight = async (): Promise<void> => {
     const inputPath = this.inputPath.trim();

@@ -12,6 +12,7 @@
     onCopy,
     onPaste,
     onRemove,
+    onRemoveItem,
     getLabel,
     canRemove
   }: {
@@ -23,6 +24,7 @@
     onCopy: () => void;
     onPaste: () => void;
     onRemove: () => void;
+    onRemoveItem: (pipelineId: string) => void;
     getLabel: (entry: WorkspacePipelineEntry, index: number) => string;
     canRemove: boolean;
   } = $props();
@@ -59,17 +61,33 @@
 
   <div class="pipeline-list" role="listbox" tabindex="0" onkeydown={handleKeyDown} aria-label="Session pipelines">
     {#each pipelines as entry, index (entry.pipeline_id)}
-      <button
-        class:selected={entry.pipeline_id === activePipelineId}
-        class="pipeline-row"
-        onclick={() => onSelect(entry.pipeline_id)}
-      >
-        <span class="pipeline-index">{index + 1}</span>
-        <span class="pipeline-copy">
-          <strong>{getLabel(entry, index)}</strong>
-          <small>{entry.pipeline.operations.length} step{entry.pipeline.operations.length === 1 ? "" : "s"}</small>
-        </span>
-      </button>
+      {@const selected = entry.pipeline_id === activePipelineId}
+      {@const label = getLabel(entry, index)}
+      <div class="pipeline-row-shell">
+        <button
+          class:selected={selected}
+          class="pipeline-row"
+          onclick={() => onSelect(entry.pipeline_id)}
+        >
+          <span class="pipeline-index">{index + 1}</span>
+          <span class="pipeline-copy">
+            <strong>{label}</strong>
+            <small>{entry.pipeline.operations.length} step{entry.pipeline.operations.length === 1 ? "" : "s"}</small>
+          </span>
+        </button>
+        <button
+          class="pipeline-remove"
+          onclick={(event) => {
+            event.stopPropagation();
+            onRemoveItem(entry.pipeline_id);
+          }}
+          disabled={!canRemove}
+          aria-label={`Remove ${label}`}
+          title={`Remove ${label}`}
+        >
+          X
+        </button>
+      </div>
     {/each}
   </div>
 
@@ -129,6 +147,13 @@
     overflow: auto;
     min-height: 0;
     flex: 1;
+    outline: none;
+  }
+
+  .pipeline-row-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
   }
 
   .pipeline-row {
@@ -152,6 +177,39 @@
   .pipeline-row.selected {
     border-color: rgba(74, 222, 128, 0.4);
     background: rgba(74, 222, 128, 0.06);
+  }
+
+  .pipeline-remove {
+    width: 28px;
+    border-radius: 2px;
+    border: 1px solid #2c2c2c;
+    background: #1b1b1b;
+    color: #6f6f6f;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 120ms ease,
+      border-color 120ms ease,
+      background 120ms ease,
+      color 120ms ease;
+  }
+
+  .pipeline-row-shell:hover .pipeline-remove,
+  .pipeline-row-shell:focus-within .pipeline-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .pipeline-remove:hover:not(:disabled) {
+    border-color: #733838;
+    background: #2a1b1b;
+    color: #f08f8f;
+  }
+
+  .pipeline-remove:disabled {
+    cursor: not-allowed;
+    opacity: 0.28;
   }
 
   .pipeline-index {

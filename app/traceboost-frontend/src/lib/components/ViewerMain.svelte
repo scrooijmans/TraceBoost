@@ -31,7 +31,7 @@
   let draftClipMax = $state("");
   let draftColormap = $state<"grayscale" | "red-white-blue">("grayscale");
   let draftPolarity = $state<"normal" | "reversed">("normal");
-  let sectionIndexInput = $state("0");
+  let sectionIndexDraft = $state<number | undefined>(undefined);
 
   const compareViewport = $derived(viewerModel.lastViewport?.viewport ?? null);
   const splitReady = $derived(
@@ -79,10 +79,6 @@
     }
   ]);
 
-  $effect(() => {
-    sectionIndexInput = String(viewerModel.index);
-  });
-
   function handleToolbarToolSelect(toolId: string): void {
     if (toolId === "pointer" || toolId === "crosshair" || toolId === "pan") {
       viewerModel.setChartTool(toolId);
@@ -110,19 +106,19 @@
   }
 
   function commitSectionIndex(): void {
+    const sectionIndexInput = sectionIndexDraft ?? viewerModel.index;
     if (!viewerModel.activeStorePath || viewerModel.loading) {
-      sectionIndexInput = String(viewerModel.index);
+      sectionIndexDraft = undefined;
       return;
     }
 
-    const parsed = Number(sectionIndexInput);
-    if (!Number.isFinite(parsed)) {
-      sectionIndexInput = String(viewerModel.index);
+    if (!Number.isFinite(sectionIndexInput)) {
+      sectionIndexDraft = undefined;
       return;
     }
 
-    const clamped = Math.min(Math.max(Math.round(parsed), 0), sectionAxisLimit);
-    sectionIndexInput = String(clamped);
+    const clamped = Math.min(Math.max(Math.round(sectionIndexInput), 0), sectionAxisLimit);
+    sectionIndexDraft = undefined;
     if (clamped !== viewerModel.index) {
       void viewerModel.load(viewerModel.axis, clamped);
     }
@@ -227,7 +223,12 @@
       <label class="display-chip field">
         <span>Index</span>
         <input
-          bind:value={sectionIndexInput}
+          bind:value={
+            () => sectionIndexDraft ?? viewerModel.index,
+            (value) => {
+              sectionIndexDraft = value;
+            }
+          }
           type="number"
           min="0"
           max={sectionAxisLimit}
@@ -379,18 +380,19 @@
         </p>
       </div>
 
-      <PipelineSessionList
-        pipelines={processingModel.sessionPipelineItems}
-        activePipelineId={processingModel.activeSessionPipelineId}
-        onSelect={processingModel.activateSessionPipeline}
-        onCreate={processingModel.createSessionPipeline}
-        onDuplicate={processingModel.duplicateActiveSessionPipeline}
-        onCopy={processingModel.copyActiveSessionPipeline}
-        onPaste={processingModel.pasteCopiedSessionPipeline}
-        onRemove={processingModel.removeActiveSessionPipeline}
-        getLabel={processingModel.sessionPipelineLabel}
-        canRemove={processingModel.canRemoveSessionPipeline}
-      />
+        <PipelineSessionList
+          pipelines={processingModel.sessionPipelineItems}
+          activePipelineId={processingModel.activeSessionPipelineId}
+          onSelect={processingModel.activateSessionPipeline}
+          onCreate={processingModel.createSessionPipeline}
+          onDuplicate={processingModel.duplicateActiveSessionPipeline}
+          onCopy={processingModel.copyActiveSessionPipeline}
+          onPaste={processingModel.pasteCopiedSessionPipeline}
+          onRemove={processingModel.removeActiveSessionPipeline}
+          onRemoveItem={processingModel.removeSessionPipeline}
+          getLabel={processingModel.sessionPipelineLabel}
+          canRemove={processingModel.canRemoveSessionPipeline}
+        />
     </aside>
 
     <div class="main-column">
@@ -398,7 +400,7 @@
         <div class="definition-header">
           <div class="shortcut-card">
             <span>Shortcuts</span>
-            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, <code>a/n/g/h/l/i/b</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
+            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
           </div>
         </div>
 
@@ -439,18 +441,25 @@
             selectedIndex={processingModel.selectedStepIndex}
             onSelect={processingModel.selectStep}
             onInsertOperator={processingModel.insertOperatorById}
+            onCopy={processingModel.copySelectedOperation}
+            onPaste={processingModel.pasteCopiedOperation}
+            onRemove={processingModel.removeOperationAt}
           />
 
           <PipelineOperatorEditor
             selectedOperation={processingModel.selectedOperation}
             activeJob={processingModel.activeJob}
             processingError={processingModel.error}
+            primaryVolumeLabel={processingModel.activePrimaryVolumeLabel}
+            secondaryVolumeOptions={processingModel.volumeArithmeticSecondaryOptions}
             onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
             onSetAgcWindow={processingModel.setSelectedAgcWindow}
             onSetPhaseRotationAngle={processingModel.setSelectedPhaseRotationAngle}
             onSetLowpassCorner={processingModel.setSelectedLowpassCorner}
             onSetHighpassCorner={processingModel.setSelectedHighpassCorner}
             onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
+            onSetVolumeArithmeticOperator={processingModel.setSelectedVolumeArithmeticOperator}
+            onSetVolumeArithmeticSecondaryStorePath={processingModel.setSelectedVolumeArithmeticSecondaryStorePath}
             onMoveUp={processingModel.moveSelectedUp}
             onMoveDown={processingModel.moveSelectedDown}
             onRemove={processingModel.removeSelected}

@@ -81,11 +81,11 @@ impl WorkspaceState {
             .lock()
             .expect("workspace session mutex poisoned");
 
-        let match_index = request
-            .entry_id
-            .as_ref()
-            .and_then(|entry_id| entries.iter().position(|entry| &entry.entry_id == entry_id))
-            .or_else(|| find_matching_entry(&entries, &request));
+        let match_index = if let Some(entry_id) = request.entry_id.as_ref() {
+            entries.iter().position(|entry| &entry.entry_id == entry_id)
+        } else {
+            find_matching_entry(&entries, &request)
+        };
         let entry_count = entries.len();
 
         let entry = if let Some(index) = match_index {
@@ -160,7 +160,10 @@ impl WorkspaceState {
                 entry_count + 1,
             );
             let mut entry = DatasetRegistryEntry {
-                entry_id: format!("dataset-{now}-{:03}", entry_count + 1),
+                entry_id: request
+                    .entry_id
+                    .clone()
+                    .unwrap_or_else(|| format!("dataset-{now}-{:03}", entry_count + 1)),
                 display_name,
                 source_path: normalize_optional_path(request.source_path.as_deref()),
                 preferred_store_path: normalize_optional_path(
@@ -583,6 +586,48 @@ mod tests {
 
         let restored = state.load_state().expect("load state");
         assert_eq!(restored.entries.len(), 2);
+    }
+
+    #[test]
+    fn explicit_entry_id_allows_duplicate_entry_for_same_store() {
+        let registry = temp_file("registry.json");
+        let session = temp_file("session.json");
+        let state =
+            WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
+
+        state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: Some("dataset-a".to_string()),
+                display_name: Some("Demo".to_string()),
+                source_path: Some("C:/data/demo.segy".to_string()),
+                preferred_store_path: Some("C:/data/demo.tbvol".to_string()),
+                imported_store_path: Some("C:/data/demo.tbvol".to_string()),
+                dataset: None,
+                session_pipelines: None,
+                active_session_pipeline_id: None,
+                make_active: true,
+            })
+            .expect("insert first entry");
+
+        let response = state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: Some("dataset-b".to_string()),
+                display_name: Some("Demo_1".to_string()),
+                source_path: Some("C:/data/demo.segy".to_string()),
+                preferred_store_path: Some("C:/data/demo.tbvol".to_string()),
+                imported_store_path: Some("C:/data/demo.tbvol".to_string()),
+                dataset: None,
+                session_pipelines: None,
+                active_session_pipeline_id: None,
+                make_active: true,
+            })
+            .expect("insert second entry");
+
+        let restored = state.load_state().expect("load state");
+        assert_eq!(restored.entries.len(), 2);
+        assert_eq!(response.entry.entry_id, "dataset-b");
     }
 
     #[test]
