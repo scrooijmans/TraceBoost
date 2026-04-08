@@ -207,9 +207,11 @@
                 <strong>{item.label}</strong>
                 <span>{item.description}</span>
               </span>
-              <span class="catalog-meta">
-                <kbd>{item.shortcut}</kbd>
-              </span>
+              {#if item.shortcut}
+                <span class="catalog-meta">
+                  <kbd>{item.shortcut}</kbd>
+                </span>
+              {/if}
             </button>
           {/each}
         {:else}
@@ -310,7 +312,7 @@
     min-height: 0;
     background: #1a1a1a;
     border: 1px solid #2a2a2a;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .panel-header {
@@ -406,7 +408,7 @@
     right: 10px;
     border: 1px solid #2a2a2a;
     background: #171717;
-    max-height: 180px;
+    max-height: min(420px, calc(100vh - 180px));
     overflow: auto;
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
     z-index: 4;

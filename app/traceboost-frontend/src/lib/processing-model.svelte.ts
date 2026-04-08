@@ -33,17 +33,20 @@ export type OperatorCatalogId =
   | "trace_rms_normalize"
   | "agc_rms"
   | "phase_rotation"
+  | "volume_subtract"
+  | "volume_add"
+  | "volume_multiply"
+  | "volume_divide"
   | "lowpass_filter"
   | "highpass_filter"
-  | "bandpass_filter"
-  | "volume_arithmetic";
+  | "bandpass_filter";
 
 interface OperatorCatalogDefinition {
   id: OperatorCatalogId;
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v";
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v" | null;
   create: (viewerModel: ViewerModel) => ProcessingOperation;
 }
 
@@ -86,6 +89,38 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     create: () => defaultPhaseRotation()
   },
   {
+    id: "volume_subtract",
+    label: "Subtract Volume",
+    description: "Subtract a compatible workspace volume from the active volume.",
+    keywords: ["volume", "arithmetic", "subtract", "difference", "minus", "cube"],
+    shortcut: "v",
+    create: (viewerModel) => defaultVolumeArithmetic(viewerModel, "subtract")
+  },
+  {
+    id: "volume_add",
+    label: "Add Volume",
+    description: "Add a compatible workspace volume to the active volume sample-by-sample.",
+    keywords: ["volume", "arithmetic", "add", "sum", "plus", "cube"],
+    shortcut: null,
+    create: (viewerModel) => defaultVolumeArithmetic(viewerModel, "add")
+  },
+  {
+    id: "volume_multiply",
+    label: "Multiply Volumes",
+    description: "Multiply the active volume by another compatible workspace volume.",
+    keywords: ["volume", "arithmetic", "multiply", "product", "times", "cube"],
+    shortcut: null,
+    create: (viewerModel) => defaultVolumeArithmetic(viewerModel, "multiply")
+  },
+  {
+    id: "volume_divide",
+    label: "Divide Volumes",
+    description: "Divide the active volume by another compatible workspace volume.",
+    keywords: ["volume", "arithmetic", "divide", "ratio", "quotient", "cube"],
+    shortcut: null,
+    create: (viewerModel) => defaultVolumeArithmetic(viewerModel, "divide")
+  },
+  {
     id: "lowpass_filter",
     label: "Lowpass Filter",
     description: "Zero-phase FFT lowpass with a cosine high-cut taper.",
@@ -108,14 +143,6 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     keywords: ["bandpass", "filter", "frequency", "spectral", "highcut", "lowcut"],
     shortcut: "b",
     create: (viewerModel) => defaultBandpassFilter(viewerModel.section)
-  },
-  {
-    id: "volume_arithmetic",
-    label: "Volume Arithmetic",
-    description: "Sample-by-sample arithmetic with another compatible workspace volume.",
-    keywords: ["volume", "arithmetic", "subtract", "difference", "add", "multiply", "divide", "cube"],
-    shortcut: "v",
-    create: (viewerModel) => defaultVolumeArithmetic(viewerModel)
   }
 ] as const;
 
@@ -124,7 +151,7 @@ export interface OperatorCatalogItem {
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v";
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v" | null;
 }
 
 export const operatorCatalogItems: readonly OperatorCatalogItem[] = OPERATOR_CATALOG.map(
@@ -454,11 +481,14 @@ function volumeArithmeticSecondaryOptions(viewerModel: ViewerModel): { storePath
     }));
 }
 
-function defaultVolumeArithmetic(viewerModel: ViewerModel): ProcessingOperation {
+function defaultVolumeArithmetic(
+  viewerModel: ViewerModel,
+  operator: VolumeArithmeticOperator = "subtract"
+): ProcessingOperation {
   const secondaryOptions = volumeArithmeticSecondaryOptions(viewerModel);
   return {
     volume_arithmetic: {
-      operator: "subtract",
+      operator,
       secondary_store_path: secondaryOptions[0]?.storePath ?? ""
     }
   };
@@ -1074,7 +1104,7 @@ export class ProcessingModel {
   };
 
   addVolumeArithmeticAfterSelected = (): void => {
-    this.insertOperatorById("volume_arithmetic");
+    this.insertOperatorById("volume_subtract");
   };
 
   insertOperatorById = (operatorId: OperatorCatalogId): void => {
