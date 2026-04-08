@@ -5,6 +5,19 @@ import { defineConfig, type Plugin } from "vite";
 
 const host = process.env.TAURI_DEV_HOST;
 
+type SegyHeaderValueType = "i16" | "i32";
+
+interface SegyHeaderFieldBody {
+  start_byte?: unknown;
+  value_type?: unknown;
+}
+
+interface SegyGeometryOverrideBody {
+  inline_3d?: SegyHeaderFieldBody | null;
+  crossline_3d?: SegyHeaderFieldBody | null;
+  third_axis?: SegyHeaderFieldBody | null;
+}
+
 function traceboostDevApi(): Plugin {
   const repoRoot = path.resolve(__dirname, "../..");
 
@@ -39,6 +52,36 @@ function traceboostDevApi(): Plugin {
     });
   }
 
+  function appendGeometryOverrideArgs(args: string[], rawOverride: unknown): void {
+    if (!rawOverride || typeof rawOverride !== "object") {
+      return;
+    }
+
+    const geometryOverride = rawOverride as SegyGeometryOverrideBody;
+    appendHeaderFieldArgs(args, "--inline-byte", "--inline-type", geometryOverride.inline_3d);
+    appendHeaderFieldArgs(args, "--crossline-byte", "--crossline-type", geometryOverride.crossline_3d);
+    appendHeaderFieldArgs(args, "--third-axis-byte", "--third-axis-type", geometryOverride.third_axis);
+  }
+
+  function appendHeaderFieldArgs(
+    args: string[],
+    byteFlag: string,
+    typeFlag: string,
+    rawField: SegyHeaderFieldBody | null | undefined
+  ): void {
+    if (!rawField || typeof rawField !== "object") {
+      return;
+    }
+
+    const startByte = typeof rawField.start_byte === "number" ? Math.trunc(rawField.start_byte) : null;
+    if (!startByte || startByte < 1) {
+      return;
+    }
+
+    const valueType: SegyHeaderValueType = rawField.value_type === "i16" ? "i16" : "i32";
+    args.push(byteFlag, String(startByte), typeFlag, valueType);
+  }
+
   return {
     name: "traceboost-dev-api",
     configureServer(server) {
@@ -58,7 +101,12 @@ function traceboostDevApi(): Plugin {
             "traceboost-app",
             "--",
             "preflight-import",
-            inputPath
+            inputPath,
+            ...(() => {
+              const args: string[] = [];
+              appendGeometryOverrideArgs(args, body.geometryOverride);
+              return args;
+            })()
           ]);
           res.setHeader("Content-Type", "application/json");
           res.end(payload);
@@ -90,6 +138,7 @@ function traceboostDevApi(): Plugin {
             inputPath,
             outputStorePath
           ];
+          appendGeometryOverrideArgs(args, body.geometryOverride);
           if (overwriteExisting) {
             args.push("--overwrite-existing");
           }

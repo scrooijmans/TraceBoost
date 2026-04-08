@@ -4,6 +4,9 @@ import type {
   DatasetRegistryEntry,
   DatasetSummary,
   ImportDatasetResponse,
+  SegyGeometryOverride,
+  SegyHeaderField,
+  SegyHeaderValueType,
   SectionAxis,
   SectionInteractionChanged,
   SectionProbeChanged,
@@ -58,6 +61,28 @@ interface ImportDatasetOptions extends OpenDatasetOptions {
   inputPath?: string;
   outputStorePath?: string;
   reuseExistingStore?: boolean;
+  geometryOverride?: SegyGeometryOverride | null;
+}
+
+interface GeometryOverrideDraft {
+  inlineByte: string;
+  inlineType: SegyHeaderValueType;
+  crosslineByte: string;
+  crosslineType: SegyHeaderValueType;
+  thirdAxisByte: string;
+  thirdAxisType: SegyHeaderValueType;
+}
+
+interface ImportGeometryRecoveryState {
+  inputPath: string;
+  outputStorePath: string;
+  preflight: SurveyPreflightResponse;
+  importOptions: ImportDatasetOptions;
+  mode: "candidate" | "manual";
+  selectedCandidateIndex: number;
+  draft: GeometryOverrideDraft;
+  working: boolean;
+  error: string | null;
 }
 
 export type CompareCompatibilityReason =
@@ -124,6 +149,94 @@ function isExistingStoreError(message: string): boolean {
 function describePreflight(preflight: SurveyPreflightResponse): string {
   const gather = preflight.gather_axis_kind ? `, gather axis ${preflight.gather_axis_kind}` : "";
   return `${preflight.classification} (${preflight.stacking_state}, ${preflight.layout}${gather})`;
+}
+
+function canAutoImportPreflight(preflight: SurveyPreflightResponse): boolean {
+  return (
+    preflight.suggested_action === "direct_dense_ingest" ||
+    preflight.suggested_action === "regularize_sparse_survey"
+  );
+}
+
+function sameHeaderField(
+  left: SegyHeaderField | null | undefined,
+  right: SegyHeaderField | null | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return left.start_byte === right.start_byte && left.value_type === right.value_type;
+}
+
+function sameGeometryOverride(
+  left: SegyGeometryOverride | null | undefined,
+  right: SegyGeometryOverride | null | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    sameHeaderField(left.inline_3d, right.inline_3d) &&
+    sameHeaderField(left.crossline_3d, right.crossline_3d) &&
+    sameHeaderField(left.third_axis, right.third_axis)
+  );
+}
+
+function geometryOverrideDraft(
+  geometry: SegyGeometryOverride | null | undefined
+): GeometryOverrideDraft {
+  return {
+    inlineByte: geometry?.inline_3d?.start_byte ? String(geometry.inline_3d.start_byte) : "",
+    inlineType: geometry?.inline_3d?.value_type ?? "i32",
+    crosslineByte: geometry?.crossline_3d?.start_byte ? String(geometry.crossline_3d.start_byte) : "",
+    crosslineType: geometry?.crossline_3d?.value_type ?? "i32",
+    thirdAxisByte: geometry?.third_axis?.start_byte ? String(geometry.third_axis.start_byte) : "",
+    thirdAxisType: geometry?.third_axis?.value_type ?? "i32"
+  };
+}
+
+function geometryOverrideFromDraft(draft: GeometryOverrideDraft): SegyGeometryOverride | null {
+  const parseField = (startByteText: string, valueType: SegyHeaderValueType): SegyHeaderField | null => {
+    const trimmed = startByteText.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return null;
+    }
+    return { start_byte: parsed, value_type: valueType };
+  };
+
+  const geometry: SegyGeometryOverride = {
+    inline_3d: parseField(draft.inlineByte, draft.inlineType),
+    crossline_3d: parseField(draft.crosslineByte, draft.crosslineType),
+    third_axis: parseField(draft.thirdAxisByte, draft.thirdAxisType)
+  };
+
+  if (!geometry.inline_3d && !geometry.crossline_3d && !geometry.third_axis) {
+    return null;
+  }
+  return geometry;
+}
+
+function canRecoverPreflight(preflight: SurveyPreflightResponse): boolean {
+  return Boolean(preflight.suggested_geometry_override) || preflight.geometry_candidates.length > 0;
+}
+
+function suggestedCandidateIndex(preflight: SurveyPreflightResponse): number {
+  if (!preflight.suggested_geometry_override) {
+    return preflight.geometry_candidates.length > 0 ? 0 : -1;
+  }
+  return preflight.geometry_candidates.findIndex((candidate) =>
+    sameGeometryOverride(candidate.geometry, preflight.suggested_geometry_override)
+  );
 }
 
 function trimPath(value: string): string {
@@ -318,6 +431,7 @@ export class ViewerModel {
   activeStorePath = $state("");
   dataset = $state<DatasetSummary | null>(null);
   preflight = $state<SurveyPreflightResponse | null>(null);
+  importGeometryRecovery = $state.raw<ImportGeometryRecoveryState | null>(null);
   axis = $state<SectionAxis>("inline");
   index = $state(0);
   section = $state<SectionView | null>(null);
@@ -786,6 +900,7 @@ export class ViewerModel {
 
     this.inputPath = normalizedPath;
     this.preflight = null;
+    this.importGeometryRecovery = null;
     this.error = null;
 
     if (shouldReplaceOutputPath && suggestedStorePath && suggestedStorePath !== previousOutputStorePath) {
@@ -865,13 +980,40 @@ export class ViewerModel {
     this.busyLabel = "Inspecting volume";
     this.error = null;
     this.preflight = null;
+    this.importGeometryRecovery = null;
     this.note("Started one-shot volume import.", "ui", "info", normalizedPath);
 
     try {
       const preflight = await preflightImport(normalizedPath);
       this.preflight = preflight;
 
-      if (preflight.suggested_action !== "direct_dense_ingest") {
+      if (!canAutoImportPreflight(preflight)) {
+        const outputStorePath =
+          trimPath(matchingEntry?.imported_store_path ?? matchingEntry?.preferred_store_path ?? "") ||
+          (await defaultImportStorePath(normalizedPath));
+        if (canRecoverPreflight(preflight)) {
+          this.loading = false;
+          this.busyLabel = null;
+          this.error = null;
+          this.openImportGeometryRecovery(preflight, {
+            inputPath: normalizedPath,
+            outputStorePath,
+            entryId: matchingEntry?.entry_id ?? null,
+            sourcePath: normalizedPath,
+            sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
+            activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null,
+            makeActive: shouldActivateOpenedVolume,
+            loadSection: shouldActivateOpenedVolume,
+            reuseExistingStore: true
+          });
+          this.note(
+            "SEG-Y import requires geometry review; opened the mapping recovery dialog.",
+            "ui",
+            "warn",
+            normalizedPath
+          );
+          return;
+        }
         throw new Error(
           `This SEG-Y survey cannot be opened automatically yet. Resolved layout: ${describePreflight(preflight)}. Suggested action: ${preflight.suggested_action}.`
         );
@@ -898,6 +1040,137 @@ export class ViewerModel {
       this.busyLabel = null;
       this.error = errorMessage(error, "Failed to open the selected volume.");
       this.note("One-shot volume open failed.", "backend", "error", this.error);
+    }
+  };
+
+  openImportGeometryRecovery = (
+    preflight: SurveyPreflightResponse,
+    importOptions: ImportDatasetOptions
+  ): void => {
+    const preferredIndex = suggestedCandidateIndex(preflight);
+    const initialGeometry =
+      preferredIndex >= 0
+        ? preflight.geometry_candidates[preferredIndex]?.geometry
+        : preflight.suggested_geometry_override ?? preflight.resolved_geometry;
+    this.importGeometryRecovery = {
+      inputPath: trimPath(importOptions.inputPath ?? ""),
+      outputStorePath: trimPath(importOptions.outputStorePath ?? ""),
+      preflight,
+      importOptions,
+      mode: preferredIndex >= 0 ? "candidate" : "manual",
+      selectedCandidateIndex: preferredIndex,
+      draft: geometryOverrideDraft(initialGeometry),
+      working: false,
+      error: null
+    };
+  };
+
+  closeImportGeometryRecovery = (): void => {
+    if (this.importGeometryRecovery?.working) {
+      return;
+    }
+    this.importGeometryRecovery = null;
+  };
+
+  selectImportGeometryCandidate = (candidateIndex: number): void => {
+    const state = this.importGeometryRecovery;
+    if (!state || !state.preflight.geometry_candidates[candidateIndex]) {
+      return;
+    }
+    const candidate = state.preflight.geometry_candidates[candidateIndex];
+    this.importGeometryRecovery = {
+      ...state,
+      mode: "candidate",
+      selectedCandidateIndex: candidateIndex,
+      draft: geometryOverrideDraft(candidate.geometry),
+      error: null
+    };
+  };
+
+  setImportGeometryRecoveryMode = (mode: "candidate" | "manual"): void => {
+    const state = this.importGeometryRecovery;
+    if (!state) {
+      return;
+    }
+    this.importGeometryRecovery = {
+      ...state,
+      mode,
+      error: null
+    };
+  };
+
+  setImportGeometryRecoveryDraft = (
+    field: keyof GeometryOverrideDraft,
+    value: string | SegyHeaderValueType
+  ): void => {
+    const state = this.importGeometryRecovery;
+    if (!state) {
+      return;
+    }
+    this.importGeometryRecovery = {
+      ...state,
+      mode: "manual",
+      draft: {
+        ...state.draft,
+        [field]: value
+      },
+      error: null
+    };
+  };
+
+  confirmImportGeometryRecovery = async (): Promise<void> => {
+    const state = this.importGeometryRecovery;
+    if (!state) {
+      return;
+    }
+
+    const selectedCandidate =
+      state.mode === "candidate" && state.selectedCandidateIndex >= 0
+        ? state.preflight.geometry_candidates[state.selectedCandidateIndex] ?? null
+        : null;
+    const geometryOverride = selectedCandidate?.geometry ?? geometryOverrideFromDraft(state.draft);
+
+    if (!geometryOverride?.inline_3d || !geometryOverride.crossline_3d) {
+      this.importGeometryRecovery = {
+        ...state,
+        error: "Both inline and crossline header mappings are required before import."
+      };
+      return;
+    }
+
+    this.importGeometryRecovery = {
+      ...state,
+      working: true,
+      error: null
+    };
+
+    try {
+      const validatedPreflight = await preflightImport(state.inputPath, geometryOverride);
+      this.preflight = validatedPreflight;
+      if (!canAutoImportPreflight(validatedPreflight)) {
+        throw new Error(
+          `The selected geometry mapping still resolves as ${describePreflight(validatedPreflight)}.`
+        );
+      }
+
+      this.importGeometryRecovery = null;
+      await this.importDataset({
+        ...state.importOptions,
+        inputPath: state.inputPath,
+        outputStorePath: state.outputStorePath,
+        geometryOverride
+      });
+    } catch (error) {
+      const message = errorMessage(error, "Failed to validate the selected geometry mapping.");
+      const current = this.importGeometryRecovery;
+      if (current) {
+        this.importGeometryRecovery = {
+          ...current,
+          working: false,
+          error: message
+        };
+      }
+      this.note("Geometry recovery import failed.", "backend", "error", message);
     }
   };
 
@@ -1437,6 +1710,7 @@ export class ViewerModel {
     const makeActive = options.makeActive ?? true;
     const loadSection = options.loadSection ?? makeActive;
     const reuseExistingStore = options.reuseExistingStore ?? false;
+    const geometryOverride = hasOwnOption("geometryOverride") ? options.geometryOverride ?? null : null;
     this.loading = true;
     this.busyLabel = "Importing survey";
     this.error = null;
@@ -1459,7 +1733,7 @@ export class ViewerModel {
       let response: ImportDatasetResponse;
 
       try {
-        response = await importDataset(inputPath, outputStorePath);
+        response = await importDataset(inputPath, outputStorePath, false, geometryOverride);
       } catch (error) {
         const message = errorMessage(error, "Unknown import error");
         if (!isExistingStoreError(message)) {
@@ -1513,7 +1787,7 @@ export class ViewerModel {
         this.busyLabel = "Overwriting runtime store";
         this.error = null;
         this.note("Confirmed overwrite of the existing runtime store.", "ui", "warn", outputStorePath);
-        response = await importDataset(inputPath, outputStorePath, true);
+        response = await importDataset(inputPath, outputStorePath, true, geometryOverride);
       }
 
       this.loading = false;

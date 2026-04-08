@@ -4,7 +4,8 @@ use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seis_contracts_interop::{
-    IPC_SCHEMA_VERSION, ImportDatasetRequest, OpenDatasetRequest, SurveyPreflightRequest,
+    IPC_SCHEMA_VERSION, ImportDatasetRequest, OpenDatasetRequest, SegyGeometryOverride,
+    SegyHeaderField, SegyHeaderValueType, SurveyPreflightRequest,
 };
 use seis_runtime::{
     IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
@@ -70,10 +71,34 @@ enum Command {
     },
     PreflightImport {
         input: PathBuf,
+        #[arg(long)]
+        inline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        inline_type: HeaderTypeArg,
+        #[arg(long)]
+        crossline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        crossline_type: HeaderTypeArg,
+        #[arg(long)]
+        third_axis_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        third_axis_type: HeaderTypeArg,
     },
     ImportDataset {
         input: PathBuf,
         output: PathBuf,
+        #[arg(long)]
+        inline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        inline_type: HeaderTypeArg,
+        #[arg(long)]
+        crossline_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        crossline_type: HeaderTypeArg,
+        #[arg(long)]
+        third_axis_byte: Option<u16>,
+        #[arg(long, value_enum, default_value_t = HeaderTypeArg::I32)]
+        third_axis_type: HeaderTypeArg,
         #[arg(long, default_value_t = false)]
         overwrite_existing: bool,
     },
@@ -194,22 +219,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             println!("{}", serde_json::to_string_pretty(&summary)?);
         }
-        Command::PreflightImport { input } => {
+        Command::PreflightImport {
+            input,
+            inline_byte,
+            inline_type,
+            crossline_byte,
+            crossline_type,
+            third_axis_byte,
+            third_axis_type,
+        } => {
             let response = preflight_dataset(SurveyPreflightRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 input_path: input.to_string_lossy().into_owned(),
+                geometry_override: build_geometry_override(
+                    inline_byte,
+                    inline_type,
+                    crossline_byte,
+                    crossline_type,
+                    third_axis_byte,
+                    third_axis_type,
+                ),
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::ImportDataset {
             input,
             output,
+            inline_byte,
+            inline_type,
+            crossline_byte,
+            crossline_type,
+            third_axis_byte,
+            third_axis_type,
             overwrite_existing,
         } => {
             let response = import_dataset(ImportDatasetRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 input_path: input.to_string_lossy().into_owned(),
                 output_store_path: output.to_string_lossy().into_owned(),
+                geometry_override: build_geometry_override(
+                    inline_byte,
+                    inline_type,
+                    crossline_byte,
+                    crossline_type,
+                    third_axis_byte,
+                    third_axis_type,
+                ),
                 overwrite_existing,
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
@@ -262,6 +317,45 @@ fn build_ingest_geometry(
     geometry.third_axis_field =
         third_axis_byte.map(|start_byte| header_field("THIRD_AXIS", start_byte, third_axis_type));
     geometry
+}
+
+fn build_geometry_override(
+    inline_byte: Option<u16>,
+    inline_type: HeaderTypeArg,
+    crossline_byte: Option<u16>,
+    crossline_type: HeaderTypeArg,
+    third_axis_byte: Option<u16>,
+    third_axis_type: HeaderTypeArg,
+) -> Option<SegyGeometryOverride> {
+    let geometry = SegyGeometryOverride {
+        inline_3d: inline_byte.map(|start_byte| SegyHeaderField {
+            start_byte,
+            value_type: segy_header_value_type(inline_type),
+        }),
+        crossline_3d: crossline_byte.map(|start_byte| SegyHeaderField {
+            start_byte,
+            value_type: segy_header_value_type(crossline_type),
+        }),
+        third_axis: third_axis_byte.map(|start_byte| SegyHeaderField {
+            start_byte,
+            value_type: segy_header_value_type(third_axis_type),
+        }),
+    };
+    if geometry.inline_3d.is_none()
+        && geometry.crossline_3d.is_none()
+        && geometry.third_axis.is_none()
+    {
+        None
+    } else {
+        Some(geometry)
+    }
+}
+
+fn segy_header_value_type(value_type: HeaderTypeArg) -> SegyHeaderValueType {
+    match value_type {
+        HeaderTypeArg::I16 => SegyHeaderValueType::I16,
+        HeaderTypeArg::I32 => SegyHeaderValueType::I32,
+    }
 }
 
 fn header_field(
