@@ -7,14 +7,15 @@ use std::path::{Path, PathBuf};
 use schemars::schema_for;
 use seis_contracts_core::{
     AmplitudeSpectrumCurve, AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, AxisSummaryF32,
-    AxisSummaryI32, DatasetId, FrequencyPhaseMode, FrequencyWindowShape,
-    GatherInterpolationMode, GatherProcessingOperation, GatherProcessingPipeline, GatherRequest,
-    GatherSelector, GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary,
-    InterpretationPoint, ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus,
-    ProcessingPipelineFamily, ProcessingPipelineSpec, SectionAxis, SectionRequest,
-    SectionSpectrumSelection, SectionTileRequest, SemblancePanel,
-    TraceLocalProcessingOperation, TraceLocalProcessingPipeline, TraceLocalProcessingPreset,
-    VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse, VolumeDescriptor,
+    AxisSummaryI32, DatasetId, FrequencyPhaseMode, FrequencyWindowShape, GatherInterpolationMode,
+    GatherProcessingOperation, GatherProcessingPipeline, GatherRequest, GatherSelector,
+    GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary, InterpretationPoint,
+    ProcessingJobArtifact, ProcessingJobArtifactKind, ProcessingJobProgress, ProcessingJobState,
+    ProcessingJobStatus, ProcessingPipelineFamily, ProcessingPipelineSpec, SectionAxis,
+    SectionRequest, SectionSpectrumSelection, SectionTileRequest, SemblancePanel,
+    TraceLocalProcessingCheckpoint, TraceLocalProcessingOperation, TraceLocalProcessingPipeline,
+    TraceLocalProcessingPreset, TraceLocalVolumeArithmeticOperator, VelocityFunctionSource,
+    VelocityScanRequest, VelocityScanResponse, VolumeDescriptor,
 };
 use seis_contracts_interop::{
     CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetRegistryEntry,
@@ -25,19 +26,19 @@ use seis_contracts_interop::{
     PreviewGatherProcessingRequest, PreviewGatherProcessingResponse, PreviewResponse,
     PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
     RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunTraceLocalProcessingRequest,
-    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SuggestedImportAction, SurveyPreflightRequest,
-    SurveyPreflightResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
-    WorkspacePipelineEntry, WorkspaceSession,
+    RunGatherProcessingResponse, RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse,
+    SavePipelinePresetRequest, SavePipelinePresetResponse, SaveWorkspaceSessionRequest,
+    SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
+    SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, WorkspacePipelineEntry,
+    WorkspaceSession,
 };
 use seis_contracts_views::{
     GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
-    GatherViewportChanged, PreviewView, SectionColorMap, SectionCoordinate,
-    SectionDisplayDefaults, SectionInteractionChanged, SectionMetadata, SectionPolarity,
-    SectionPrimaryMode, SectionProbe, SectionProbeChanged, SectionRenderMode, SectionUnits,
-    SectionView, SectionViewport, SectionViewportChanged,
+    GatherViewportChanged, PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
+    SectionInteractionChanged, SectionMetadata, SectionPolarity, SectionPrimaryMode, SectionProbe,
+    SectionProbeChanged, SectionRenderMode, SectionUnits, SectionView, SectionViewport,
+    SectionViewportChanged,
 };
 use ts_rs::TS;
 
@@ -92,12 +93,16 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "ProcessingPreset.ts",
         "TraceLocalProcessingOperation.ts",
         "TraceLocalProcessingPipeline.ts",
+        "TraceLocalProcessingCheckpoint.ts",
+        "TraceLocalVolumeArithmeticOperator.ts",
         "GatherProcessingOperation.ts",
         "GatherProcessingPipeline.ts",
         "ProcessingPipelineFamily.ts",
         "ProcessingPipelineSpec.ts",
         "ProcessingJobState.ts",
         "ProcessingJobProgress.ts",
+        "ProcessingJobArtifactKind.ts",
+        "ProcessingJobArtifact.ts",
         "ProcessingJobStatus.ts",
         "TraceLocalProcessingPreset.ts",
         "InterpretationPoint.ts",
@@ -197,12 +202,16 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     AmplitudeSpectrumResponse::export_all_to(output_dir)?;
     TraceLocalProcessingOperation::export_all_to(output_dir)?;
     TraceLocalProcessingPipeline::export_all_to(output_dir)?;
+    TraceLocalProcessingCheckpoint::export_all_to(output_dir)?;
+    TraceLocalVolumeArithmeticOperator::export_all_to(output_dir)?;
     GatherProcessingOperation::export_all_to(output_dir)?;
     GatherProcessingPipeline::export_all_to(output_dir)?;
     ProcessingPipelineFamily::export_all_to(output_dir)?;
     ProcessingPipelineSpec::export_all_to(output_dir)?;
     ProcessingJobState::export_all_to(output_dir)?;
     ProcessingJobProgress::export_all_to(output_dir)?;
+    ProcessingJobArtifactKind::export_all_to(output_dir)?;
+    ProcessingJobArtifact::export_all_to(output_dir)?;
     ProcessingJobStatus::export_all_to(output_dir)?;
     TraceLocalProcessingPreset::export_all_to(output_dir)?;
     InterpretationPoint::export_all_to(output_dir)?;
@@ -317,12 +326,16 @@ export type { AmplitudeSpectrumRequest } from "./AmplitudeSpectrumRequest";
 export type { AmplitudeSpectrumResponse } from "./AmplitudeSpectrumResponse";
 export type { TraceLocalProcessingOperation } from "./TraceLocalProcessingOperation";
 export type { TraceLocalProcessingPipeline } from "./TraceLocalProcessingPipeline";
+export type { TraceLocalProcessingCheckpoint } from "./TraceLocalProcessingCheckpoint";
+export type { TraceLocalVolumeArithmeticOperator } from "./TraceLocalVolumeArithmeticOperator";
 export type { GatherProcessingOperation } from "./GatherProcessingOperation";
 export type { GatherProcessingPipeline } from "./GatherProcessingPipeline";
 export type { ProcessingPipelineFamily } from "./ProcessingPipelineFamily";
 export type { ProcessingPipelineSpec } from "./ProcessingPipelineSpec";
 export type { ProcessingJobState } from "./ProcessingJobState";
 export type { ProcessingJobProgress } from "./ProcessingJobProgress";
+export type { ProcessingJobArtifactKind } from "./ProcessingJobArtifactKind";
+export type { ProcessingJobArtifact } from "./ProcessingJobArtifact";
 export type { ProcessingJobStatus } from "./ProcessingJobStatus";
 export type { TraceLocalProcessingPreset } from "./TraceLocalProcessingPreset";
 export type { InterpretationPoint } from "./InterpretationPoint";
@@ -423,12 +436,16 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "AmplitudeSpectrumResponse": schema_for!(AmplitudeSpectrumResponse),
             "TraceLocalProcessingOperation": schema_for!(TraceLocalProcessingOperation),
             "TraceLocalProcessingPipeline": schema_for!(TraceLocalProcessingPipeline),
+            "TraceLocalProcessingCheckpoint": schema_for!(TraceLocalProcessingCheckpoint),
+            "TraceLocalVolumeArithmeticOperator": schema_for!(TraceLocalVolumeArithmeticOperator),
             "GatherProcessingOperation": schema_for!(GatherProcessingOperation),
             "GatherProcessingPipeline": schema_for!(GatherProcessingPipeline),
             "ProcessingPipelineFamily": schema_for!(ProcessingPipelineFamily),
             "ProcessingPipelineSpec": schema_for!(ProcessingPipelineSpec),
             "ProcessingJobState": schema_for!(ProcessingJobState),
             "ProcessingJobProgress": schema_for!(ProcessingJobProgress),
+            "ProcessingJobArtifactKind": schema_for!(ProcessingJobArtifactKind),
+            "ProcessingJobArtifact": schema_for!(ProcessingJobArtifact),
             "ProcessingJobStatus": schema_for!(ProcessingJobStatus),
             "TraceLocalProcessingPreset": schema_for!(TraceLocalProcessingPreset),
             "InterpretationPoint": schema_for!(InterpretationPoint),

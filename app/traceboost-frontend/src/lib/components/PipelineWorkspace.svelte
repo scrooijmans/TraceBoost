@@ -29,7 +29,7 @@
 
     <div class="shortcut-card">
       <span>Shortcuts</span>
-      <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run</p>
+      <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>F9</code> checkpoint, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run</p>
     </div>
   </div>
 

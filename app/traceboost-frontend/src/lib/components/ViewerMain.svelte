@@ -400,7 +400,7 @@
         <div class="definition-header">
           <div class="shortcut-card">
             <span>Shortcuts</span>
-            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
+            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>F9</code> checkpoint, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
           </div>
         </div>
 
@@ -439,11 +439,14 @@
           <PipelineSequenceList
             pipeline={processingModel.pipeline}
             selectedIndex={processingModel.selectedStepIndex}
+            checkpointAfterOperationIndexes={processingModel.checkpointAfterOperationIndexes}
+            checkpointWarning={processingModel.checkpointWarning}
             onSelect={processingModel.selectStep}
             onInsertOperator={processingModel.insertOperatorById}
             onCopy={processingModel.copySelectedOperation}
             onPaste={processingModel.pasteCopiedOperation}
             onRemove={processingModel.removeOperationAt}
+            onToggleCheckpoint={processingModel.toggleCheckpointAfterOperation}
           />
 
           <PipelineOperatorEditor
@@ -464,6 +467,7 @@
             onMoveDown={processingModel.moveSelectedDown}
             onRemove={processingModel.removeSelected}
             onCancelJob={() => processingModel.cancelActiveJob()}
+            onOpenArtifact={(storePath) => processingModel.openProcessingArtifact(storePath)}
           />
         </div>
       </div>

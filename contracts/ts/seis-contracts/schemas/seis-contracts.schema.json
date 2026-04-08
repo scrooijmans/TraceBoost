@@ -332,6 +332,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -378,6 +402,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -1146,6 +1179,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -1192,6 +1249,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -1700,6 +1766,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -1746,6 +1836,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VolumeDescriptor": {
           "properties": {
@@ -3019,6 +3118,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -3065,6 +3188,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -4528,6 +4660,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -4574,6 +4730,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -5183,6 +5348,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -5256,6 +5445,15 @@
             "updated_at_unix_s"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -5775,6 +5973,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -5821,6 +6043,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VolumeDescriptor": {
           "properties": {
@@ -6717,6 +6948,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -6763,6 +7018,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -7447,6 +7711,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -7493,6 +7781,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -8107,6 +8404,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -8153,6 +8474,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -8642,6 +8972,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -8688,6 +9042,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -9424,6 +9787,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -9470,6 +9857,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -9947,6 +10343,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -9993,6 +10413,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -10540,6 +10969,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -10586,6 +11039,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -11158,6 +11620,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -11204,6 +11690,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -11497,6 +11992,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -11543,6 +12062,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -12038,6 +12566,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -12084,6 +12636,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityFunctionSource": {
           "oneOf": [
@@ -12377,6 +12938,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -12450,6 +13035,15 @@
             "updated_at_unix_s"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -12666,6 +13260,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -12739,6 +13357,15 @@
             "updated_at_unix_s"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -14291,6 +14918,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -14337,6 +14988,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VolumeDescriptor": {
           "properties": {
@@ -14598,6 +15258,15 @@
             "cosine_taper"
           ],
           "type": "string"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "oneOf": [
@@ -14779,6 +15448,30 @@
           },
           "required": [
             "bandpass_filter"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "volume_arithmetic": {
+              "properties": {
+                "operator": {
+                  "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                },
+                "secondary_store_path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operator",
+                "secondary_store_path"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "volume_arithmetic"
           ],
           "type": "object"
         }
@@ -14982,8 +15675,41 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -15227,6 +15953,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -15273,6 +16023,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -15301,6 +16060,17 @@
       ],
       "title": "TraceLocalProcessingPreset",
       "type": "object"
+    },
+    "TraceLocalVolumeArithmeticOperator": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "add",
+        "subtract",
+        "multiply",
+        "divide"
+      ],
+      "title": "TraceLocalVolumeArithmeticOperator",
+      "type": "string"
     },
     "UpsertDatasetEntryRequest": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -15700,6 +16470,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -15746,6 +16540,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VolumeDescriptor": {
           "properties": {
@@ -16386,6 +17189,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -16432,6 +17259,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VolumeDescriptor": {
           "properties": {
@@ -16924,6 +17760,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -16970,6 +17830,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         },
         "VelocityAutopickParameters": {
           "properties": {
@@ -17704,6 +18573,30 @@
                 "bandpass_filter"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "volume_arithmetic": {
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "volume_arithmetic"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -17750,6 +18643,15 @@
             "operations"
           ],
           "type": "object"
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ],
+          "type": "string"
         }
       },
       "properties": {

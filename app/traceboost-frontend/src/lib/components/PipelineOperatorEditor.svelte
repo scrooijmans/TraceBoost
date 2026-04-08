@@ -1,45 +1,64 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TraceLocalProcessingOperation as ProcessingOperation } from "@traceboost/seis-contracts";
+  import type {
+    ProcessingJobArtifact,
+    ProcessingJobStatus,
+    TraceLocalProcessingOperation as ProcessingOperation
+  } from "@traceboost/seis-contracts";
   import {
     isAgcRms,
     isAmplitudeScalar,
     isBandpassFilter,
     isHighpassFilter,
     isLowpassFilter,
-    isPhaseRotation
+    isPhaseRotation,
+    isVolumeArithmetic
   } from "../processing-model.svelte";
 
   let {
     selectedOperation,
     activeJob,
     processingError,
+    primaryVolumeLabel,
+    secondaryVolumeOptions,
     onSetAmplitudeScalarFactor,
     onSetAgcWindow = () => {},
     onSetPhaseRotationAngle = () => {},
     onSetLowpassCorner = () => {},
     onSetHighpassCorner = () => {},
     onSetBandpassCorner = () => {},
+    onSetVolumeArithmeticOperator = () => {},
+    onSetVolumeArithmeticSecondaryStorePath = () => {},
     onMoveUp,
     onMoveDown,
     onRemove,
-    onCancelJob
+    onCancelJob,
+    onOpenArtifact
   }: {
     selectedOperation: ProcessingOperation | null;
-    activeJob: { job_id: string; state: string; progress: { completed: number; total: number } } | null;
+    activeJob: ProcessingJobStatus | null;
     processingError: string | null;
+    primaryVolumeLabel: string;
+    secondaryVolumeOptions: { storePath: string; label: string }[];
     onSetAmplitudeScalarFactor: (value: number) => void;
     onSetAgcWindow?: (value: number) => void;
     onSetPhaseRotationAngle?: (value: number) => void;
     onSetLowpassCorner?: (corner: "f3_hz" | "f4_hz", value: number) => void;
     onSetHighpassCorner?: (corner: "f1_hz" | "f2_hz", value: number) => void;
     onSetBandpassCorner?: (corner: "f1_hz" | "f2_hz" | "f3_hz" | "f4_hz", value: number) => void;
+    onSetVolumeArithmeticOperator?: (value: "add" | "subtract" | "multiply" | "divide") => void;
+    onSetVolumeArithmeticSecondaryStorePath?: (value: string) => void;
     onMoveUp: () => void;
     onMoveDown: () => void;
     onRemove: () => void;
     onCancelJob: () => void | Promise<void>;
+    onOpenArtifact: (storePath: string) => void | Promise<void>;
   } = $props();
+
+  function artifactKindLabel(artifact: ProcessingJobArtifact): string {
+    return artifact.kind === "final_output" ? "Final output" : "Checkpoint";
+  }
 </script>
 
 <section class="editor-panel">
@@ -219,6 +238,46 @@
           <p>Zero-phase frequency-domain bandpass with cosine tapers. Runtime validation enforces f1 ≤ f2 ≤ f3 ≤ f4 ≤ Nyquist.</p>
           <p>Phase: {selectedOperation.bandpass_filter.phase}. Window: {selectedOperation.bandpass_filter.window}.</p>
         </div>
+      {:else if isVolumeArithmetic(selectedOperation)}
+        <div class="field-grid">
+          <label class="field">
+            <span>Arithmetic Mode</span>
+            <select
+              value={selectedOperation.volume_arithmetic.operator}
+              onchange={(event) =>
+                onSetVolumeArithmeticOperator((event.currentTarget as HTMLSelectElement).value as "add" | "subtract" | "multiply" | "divide")}
+            >
+              <option value="subtract">Subtract</option>
+              <option value="add">Add</option>
+              <option value="multiply">Multiply</option>
+              <option value="divide">Divide</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Primary Volume</span>
+            <input type="text" value={primaryVolumeLabel} readonly />
+          </label>
+        </div>
+        <label class="field">
+          <span>Secondary Volume</span>
+          <select
+            value={selectedOperation.volume_arithmetic.secondary_store_path}
+            disabled={!secondaryVolumeOptions.length}
+            onchange={(event) =>
+              onSetVolumeArithmeticSecondaryStorePath((event.currentTarget as HTMLSelectElement).value)}
+          >
+            <option value="">Select compatible volume...</option>
+            {#each secondaryVolumeOptions as option (option.storePath)}
+              <option value={option.storePath}>{option.label}</option>
+            {/each}
+          </select>
+          <small>TraceBoost only lists workspace volumes whose geometry fingerprint and tile layout match the active volume.</small>
+        </label>
+        <div class="info-block">
+          <strong>Volume Arithmetic</strong>
+          <p>Combines the active volume with another compatible workspace volume sample-by-sample.</p>
+          <p>Subtract is the usual difference-volume workflow. Multiply and divide treat missing secondary traces as zeros.</p>
+        </div>
       {:else}
         <div class="info-block">
           <strong>Trace RMS Normalize</strong>
@@ -239,11 +298,27 @@
         <strong>Background Job</strong>
         <span>{activeJob.state}</span>
       </div>
+      {#if activeJob.current_stage_label}
+        <div class="job-stage">{activeJob.current_stage_label}</div>
+      {/if}
       <div class="job-progress">
         {activeJob.progress.completed} / {activeJob.progress.total || 0} tiles
       </div>
       {#if activeJob.state === "queued" || activeJob.state === "running"}
         <button class="chip danger" onclick={onCancelJob}>Cancel Job</button>
+      {/if}
+      {#if activeJob.artifacts.length}
+        <div class="artifact-list">
+          {#each activeJob.artifacts as artifact (`${artifact.kind}:${artifact.store_path}`)}
+            <div class="artifact-row">
+              <div class="artifact-copy">
+                <strong>{artifact.label}</strong>
+                <span>{artifactKindLabel(artifact)}</span>
+              </div>
+              <button class="chip" onclick={() => onOpenArtifact(artifact.store_path)}>Open</button>
+            </div>
+          {/each}
+        </div>
       {/if}
     </div>
   {/if}
@@ -308,6 +383,16 @@
   }
 
   .field input {
+    background: #252525;
+    border: 1px solid #333;
+    border-radius: 2px;
+    color: #d0d0d0;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .field select {
     background: #252525;
     border: 1px solid #333;
     border-radius: 2px;
@@ -390,6 +475,49 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .job-stage {
+    font-size: 11px;
+    color: #b9c6d1;
+  }
+
+  .artifact-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+    padding-top: 6px;
+    border-top: 1px solid #2b2b2b;
+  }
+
+  .artifact-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .artifact-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .artifact-copy strong {
+    font-size: 11px;
+    color: #d3d8db;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .artifact-copy span {
+    font-size: 10px;
+    color: #72777a;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 
   .error-bar {

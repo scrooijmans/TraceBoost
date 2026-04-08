@@ -21,6 +21,7 @@ export type { AmplitudeSpectrumRequest } from "./AmplitudeSpectrumRequest";
 export type { AmplitudeSpectrumResponse } from "./AmplitudeSpectrumResponse";
 export type { TraceLocalProcessingOperation } from "./TraceLocalProcessingOperation";
 export type { TraceLocalProcessingPipeline } from "./TraceLocalProcessingPipeline";
+export type { TraceLocalVolumeArithmeticOperator } from "./TraceLocalVolumeArithmeticOperator";
 export type { GatherProcessingOperation } from "./GatherProcessingOperation";
 export type { GatherProcessingPipeline } from "./GatherProcessingPipeline";
 export type { ProcessingPipelineFamily } from "./ProcessingPipelineFamily";

@@ -6,22 +6,21 @@ use std::{
 use seis_contracts_interop::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, DatasetSummary, GatherProcessingPipeline,
     GatherRequest, GatherView, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PreviewGatherProcessingRequest,
+    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse, OpenDatasetRequest,
+    OpenDatasetResponse, PrestackThirdAxisField, PreviewGatherProcessingRequest,
     PreviewGatherProcessingResponse, PreviewTraceLocalProcessingRequest,
-    PreviewTraceLocalProcessingResponse, PrestackThirdAxisField,
-    RunGatherProcessingRequest, RunTraceLocalProcessingRequest, SuggestedImportAction,
-    SurveyPreflightRequest, SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest,
-    VelocityScanResponse,
+    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest,
+    RunTraceLocalProcessingRequest, SuggestedImportAction, SurveyPreflightRequest,
+    SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse,
 };
 use seis_io::HeaderField;
 use seis_runtime::{
     GatherInterpolationMode, IngestOptions, MaterializeOptions, PreviewView, SeisGeometryOptions,
-    SparseSurveyPolicy, TraceLocalProcessingPipeline,
-    amplitude_spectrum_from_reader, describe_prestack_store, describe_store, ingest_prestack_offset_segy,
-    ingest_segy, materialize_gather_processing_store, materialize_processing_volume,
-    open_prestack_store, open_store, preflight_segy, preview_gather_processing_view,
-    preview_processing_section_view, prestack_gather_view, velocity_scan,
+    SparseSurveyPolicy, TraceLocalProcessingPipeline, amplitude_spectrum_from_store,
+    describe_prestack_store, describe_store, ingest_prestack_offset_segy, ingest_segy,
+    materialize_gather_processing_store, materialize_processing_volume, open_prestack_store,
+    open_store, preflight_segy, prestack_gather_view, preview_gather_processing_view,
+    preview_processing_section_view, velocity_scan,
 };
 
 const DEFAULT_SPARSE_FILL_VALUE: f32 = 0.0;
@@ -169,7 +168,8 @@ pub fn preview_gather_processing(
 ) -> Result<PreviewGatherProcessingResponse, Box<dyn std::error::Error>> {
     let handle = open_prestack_store(&request.store_path)?;
     ensure_prestack_dataset_matches(&handle, &request.gather.dataset_id.0)?;
-    let preview = preview_gather_processing_view(&request.store_path, &request.gather, &request.pipeline)?;
+    let preview =
+        preview_gather_processing_view(&request.store_path, &request.gather, &request.pipeline)?;
     Ok(PreviewGatherProcessingResponse {
         schema_version: IPC_SCHEMA_VERSION,
         preview,
@@ -207,7 +207,8 @@ pub fn apply_gather_processing(
         .map(PathBuf::from)
         .unwrap_or_else(|| default_gather_output_store_path(&request.store_path, &pipeline));
     prepare_processing_output_store(&output_store, request.overwrite_existing)?;
-    let derived = materialize_gather_processing_store(&request.store_path, &output_store, &pipeline)?;
+    let derived =
+        materialize_gather_processing_store(&request.store_path, &output_store, &pipeline)?;
     dataset_summary_for_path(&derived.root)
 }
 
@@ -216,9 +217,8 @@ pub fn amplitude_spectrum(
 ) -> Result<AmplitudeSpectrumResponse, Box<dyn std::error::Error>> {
     let handle = open_store(&request.store_path)?;
     ensure_dataset_matches(&handle, &request.section.dataset_id.0)?;
-    let reader = seis_runtime::TbvolReader::open(&handle.root)?;
-    let curve = amplitude_spectrum_from_reader(
-        &reader,
+    let curve = amplitude_spectrum_from_store(
+        &request.store_path,
         request.section.axis,
         request.section.index,
         request
@@ -394,6 +394,14 @@ fn pipeline_slug(pipeline: &TraceLocalProcessingPipeline) -> String {
                 format_factor(*f3_hz),
                 format_factor(*f4_hz)
             ),
+            seis_runtime::ProcessingOperation::VolumeArithmetic {
+                operator,
+                secondary_store_path,
+            } => format!(
+                "volume-{}-{}",
+                volume_arithmetic_operator_slug(*operator),
+                store_path_slug(secondary_store_path)
+            ),
         };
         parts.push(label);
     }
@@ -467,7 +475,10 @@ fn velocity_model_slug(model: &VelocityFunctionSource) -> String {
         }
         VelocityFunctionSource::TimeVelocityPairs { .. } => "time-velocity-pairs".to_string(),
         VelocityFunctionSource::VelocityAssetReference { asset_id } => {
-            format!("velocity-asset-{}", asset_id.replace(' ', "-").to_ascii_lowercase())
+            format!(
+                "velocity-asset-{}",
+                asset_id.replace(' ', "-").to_ascii_lowercase()
+            )
         }
     }
 }
@@ -476,6 +487,45 @@ fn optional_factor_slug(value: Option<f32>) -> String {
     value
         .map(format_factor)
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn volume_arithmetic_operator_slug(
+    operator: seis_runtime::TraceLocalVolumeArithmeticOperator,
+) -> &'static str {
+    match operator {
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Add => "add",
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Subtract => "subtract",
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Multiply => "multiply",
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Divide => "divide",
+    }
+}
+
+fn store_path_slug(store_path: &str) -> String {
+    Path::new(store_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            value
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>()
+        })
+        .map(|value| {
+            value
+                .split('-')
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>()
+                .join("-")
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "volume".to_string())
 }
 
 fn format_factor(value: f32) -> String {
