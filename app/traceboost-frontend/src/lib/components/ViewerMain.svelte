@@ -4,6 +4,7 @@
   import type { ChartToolbarActionItem, ChartToolbarToolItem } from "@geoviz/svelte-toolbar";
   import { ChartInteractionToolbar } from "@geoviz/svelte-toolbar";
   import { SeismicSectionChart } from "@geoviz/svelte";
+  import type { SegyGeometryCandidate, SegyHeaderField } from "@traceboost/seis-contracts";
   import PipelineControlBar from "./PipelineControlBar.svelte";
   import PipelineOperatorEditor from "./PipelineOperatorEditor.svelte";
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
@@ -34,6 +35,7 @@
   let sectionIndexDraft = $state<number | undefined>(undefined);
 
   const compareViewport = $derived(viewerModel.lastViewport?.viewport ?? null);
+  const geometryRecovery = $derived(viewerModel.importGeometryRecovery);
   const splitReady = $derived(
     viewerModel.compareSplitEnabled &&
       !!processingModel.displaySection &&
@@ -78,6 +80,17 @@
       disabled: !processingModel.displaySection
     }
   ]);
+
+  function describeSegyHeaderField(field: SegyHeaderField | null | undefined): string {
+    if (!field) {
+      return "unset";
+    }
+    return `${field.start_byte} (${field.value_type.toUpperCase()})`;
+  }
+
+  function describeSegyGeometryCandidate(candidate: SegyGeometryCandidate): string {
+    return `inline ${describeSegyHeaderField(candidate.geometry.inline_3d)}, crossline ${describeSegyHeaderField(candidate.geometry.crossline_3d)}`;
+  }
 
   function handleToolbarToolSelect(toolId: string): void {
     if (toolId === "pointer" || toolId === "crosshair" || toolId === "pan") {
@@ -397,13 +410,6 @@
 
     <div class="main-column">
       <div class="definition-pane">
-        <div class="definition-header">
-          <div class="shortcut-card">
-            <span>Shortcuts</span>
-            <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>F9</code> checkpoint, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run volume</p>
-          </div>
-        </div>
-
         <PipelineControlBar
           pipeline={processingModel.pipeline}
           previewState={processingModel.previewState}
@@ -437,7 +443,9 @@
 
         <div class="definition-grid">
           <PipelineSequenceList
-            pipeline={processingModel.pipeline}
+            operations={processingModel.workspaceOperations}
+            traceLocalOperationCount={processingModel.pipeline.operations.length}
+            hasSubvolumeCrop={processingModel.hasSubvolumeCrop}
             selectedIndex={processingModel.selectedStepIndex}
             checkpointAfterOperationIndexes={processingModel.checkpointAfterOperationIndexes}
             checkpointWarning={processingModel.checkpointWarning}
@@ -454,6 +462,7 @@
             activeJob={processingModel.activeJob}
             processingError={processingModel.error}
             primaryVolumeLabel={processingModel.activePrimaryVolumeLabel}
+            sourceSubvolumeBounds={processingModel.sourceSubvolumeBounds}
             secondaryVolumeOptions={processingModel.volumeArithmeticSecondaryOptions}
             onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
             onSetAgcWindow={processingModel.setSelectedAgcWindow}
@@ -463,6 +472,9 @@
             onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
             onSetVolumeArithmeticOperator={processingModel.setSelectedVolumeArithmeticOperator}
             onSetVolumeArithmeticSecondaryStorePath={processingModel.setSelectedVolumeArithmeticSecondaryStorePath}
+            onSetSubvolumeCropBound={processingModel.setSelectedSubvolumeCropBound}
+            canMoveUp={processingModel.canMoveSelectedUp}
+            canMoveDown={processingModel.canMoveSelectedDown}
             onMoveUp={processingModel.moveSelectedUp}
             onMoveDown={processingModel.moveSelectedDown}
             onRemove={processingModel.removeSelected}
@@ -619,6 +631,185 @@
   </div>
 {/if}
 
+{#if geometryRecovery}
+  <div class="import-geometry-backdrop" role="presentation" onclick={() => viewerModel.closeImportGeometryRecovery()}>
+    <div
+      class="import-geometry-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Review SEG-Y geometry mapping"
+      tabindex="0"
+      onclick={(event) => event.stopPropagation()}
+      onkeydown={(event) => event.stopPropagation()}
+    >
+      <div class="import-geometry-header">
+        <h3>Review SEG-Y Geometry Mapping</h3>
+        <p>
+          TraceBoost could not import this SEG-Y with the default inline/crossline mapping. Review a suggested
+          mapping or enter the header bytes manually, then continue the import.
+        </p>
+      </div>
+
+      <div class="import-geometry-summary">
+        <div class="import-geometry-summary-row">
+          <span>Resolved default mapping</span>
+          <strong>
+            inline {describeSegyHeaderField(geometryRecovery.preflight.resolved_geometry.inline_3d)} /
+            crossline {describeSegyHeaderField(geometryRecovery.preflight.resolved_geometry.crossline_3d)}
+          </strong>
+        </div>
+        <div class="import-geometry-summary-row">
+          <span>Current result</span>
+          <strong>{geometryRecovery.preflight.classification} • {geometryRecovery.preflight.layout}</strong>
+        </div>
+      </div>
+
+      {#if geometryRecovery.preflight.geometry_candidates.length}
+        <div class="import-geometry-mode">
+          <label class="import-geometry-mode-option">
+            <input
+              type="radio"
+              name="geometry-mode"
+              checked={geometryRecovery.mode === "candidate"}
+              onchange={() => viewerModel.setImportGeometryRecoveryMode("candidate")}
+            />
+            <span>Use suggested mappings</span>
+          </label>
+          <label class="import-geometry-mode-option">
+            <input
+              type="radio"
+              name="geometry-mode"
+              checked={geometryRecovery.mode === "manual"}
+              onchange={() => viewerModel.setImportGeometryRecoveryMode("manual")}
+            />
+            <span>Enter bytes manually</span>
+          </label>
+        </div>
+
+        {#if geometryRecovery.mode === "candidate"}
+          <div class="import-geometry-candidates">
+            {#each geometryRecovery.preflight.geometry_candidates as candidate, candidateIndex (candidate.label)}
+              <label
+                class:selected={geometryRecovery.selectedCandidateIndex === candidateIndex}
+                class="import-geometry-candidate"
+              >
+                <input
+                  type="radio"
+                  name="geometry-candidate"
+                  checked={geometryRecovery.selectedCandidateIndex === candidateIndex}
+                  onchange={() => viewerModel.selectImportGeometryCandidate(candidateIndex)}
+                />
+                <div class="import-geometry-candidate-copy">
+                  <strong>{candidate.label}</strong>
+                  <span>
+                    {candidate.classification} • {candidate.inline_count} x {candidate.crossline_count}
+                    {#if candidate.auto_selectable}
+                      • recommended
+                    {/if}
+                  </span>
+                  <code>{describeSegyGeometryCandidate(candidate)}</code>
+                </div>
+              </label>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+
+      <div class="import-geometry-manual">
+        <div class="import-geometry-manual-header">
+          <span>Manual Override</span>
+          <small>Advanced: use this when the suggested list does not match the survey.</small>
+        </div>
+
+        <div class="import-geometry-grid">
+          <label class="import-geometry-field">
+            <span>Inline byte</span>
+            <input
+              type="number"
+              min="1"
+              value={geometryRecovery.draft.inlineByte}
+              disabled={geometryRecovery.mode !== "manual" || geometryRecovery.working}
+              oninput={(event) =>
+                viewerModel.setImportGeometryRecoveryDraft(
+                  "inlineByte",
+                  (event.currentTarget as HTMLInputElement).value
+                )}
+            />
+          </label>
+
+          <label class="import-geometry-field">
+            <span>Inline type</span>
+            <select
+              value={geometryRecovery.draft.inlineType}
+              disabled={geometryRecovery.mode !== "manual" || geometryRecovery.working}
+              onchange={(event) =>
+                viewerModel.setImportGeometryRecoveryDraft(
+                  "inlineType",
+                  (event.currentTarget as HTMLSelectElement).value as "i16" | "i32"
+                )}
+            >
+              <option value="i32">I32</option>
+              <option value="i16">I16</option>
+            </select>
+          </label>
+
+          <label class="import-geometry-field">
+            <span>Crossline byte</span>
+            <input
+              type="number"
+              min="1"
+              value={geometryRecovery.draft.crosslineByte}
+              disabled={geometryRecovery.mode !== "manual" || geometryRecovery.working}
+              oninput={(event) =>
+                viewerModel.setImportGeometryRecoveryDraft(
+                  "crosslineByte",
+                  (event.currentTarget as HTMLInputElement).value
+                )}
+            />
+          </label>
+
+          <label class="import-geometry-field">
+            <span>Crossline type</span>
+            <select
+              value={geometryRecovery.draft.crosslineType}
+              disabled={geometryRecovery.mode !== "manual" || geometryRecovery.working}
+              onchange={(event) =>
+                viewerModel.setImportGeometryRecoveryDraft(
+                  "crosslineType",
+                  (event.currentTarget as HTMLSelectElement).value as "i16" | "i32"
+                )}
+            >
+              <option value="i32">I32</option>
+              <option value="i16">I16</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {#if geometryRecovery.error}
+        <p class="import-geometry-error">{geometryRecovery.error}</p>
+      {/if}
+
+      <div class="import-geometry-actions">
+        <button
+          class="settings-btn secondary"
+          onclick={() => viewerModel.closeImportGeometryRecovery()}
+          disabled={geometryRecovery.working}
+        >
+          Cancel
+        </button>
+        <button
+          class="settings-btn primary"
+          onclick={() => viewerModel.confirmImportGeometryRecovery()}
+          disabled={geometryRecovery.working}
+        >
+          {geometryRecovery.working ? "Validating Mapping..." : "Use Mapping And Import"}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .sidebar-toggle {
     position: fixed;
@@ -700,11 +891,8 @@
     min-height: 0;
     display: grid;
     gap: 8px;
-  }
-
-  .definition-header {
-    display: flex;
-    justify-content: flex-end;
+    position: relative;
+    z-index: 8;
   }
 
   .definition-grid {
@@ -720,33 +908,8 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-  }
-
-  .shortcut-card {
-    flex-shrink: 0;
-    min-width: 220px;
-    border: 1px solid #2a2a2a;
-    background: #1e1e1e;
-    padding: 7px 10px;
-  }
-
-  .shortcut-card span {
-    display: block;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #555;
-    margin-bottom: 3px;
-  }
-
-  .shortcut-card p {
-    margin: 0;
-    font-size: 11px;
-    color: #888;
-  }
-
-  code {
-    font-family: "Cascadia Mono", "Consolas", monospace;
+    position: relative;
+    z-index: 1;
   }
 
   .chart-frame {
@@ -1046,6 +1209,183 @@
     border-color: rgba(107, 166, 206, 0.36);
   }
 
+  .import-geometry-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 10, 12, 0.7);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 30;
+  }
+
+  .import-geometry-dialog {
+    width: min(720px, 100%);
+    max-height: min(84vh, 820px);
+    overflow: auto;
+    background: linear-gradient(180deg, rgba(22, 27, 31, 0.98), rgba(14, 18, 21, 0.98));
+    border: 1px solid rgba(122, 167, 142, 0.35);
+    border-radius: 18px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .import-geometry-header h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    color: #eef4ef;
+  }
+
+  .import-geometry-header p {
+    margin: 0;
+    color: #b8c3bc;
+    line-height: 1.45;
+  }
+
+  .import-geometry-summary {
+    display: grid;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .import-geometry-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: baseline;
+  }
+
+  .import-geometry-summary-row span {
+    color: #90a29a;
+  }
+
+  .import-geometry-summary-row strong {
+    color: #edf5f0;
+    text-align: right;
+  }
+
+  .import-geometry-mode {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  .import-geometry-mode-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #d6ded8;
+  }
+
+  .import-geometry-candidates {
+    display: grid;
+    gap: 10px;
+  }
+
+  .import-geometry-candidate {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+  }
+
+  .import-geometry-candidate.selected {
+    border-color: rgba(115, 190, 146, 0.65);
+    background: rgba(79, 145, 104, 0.12);
+  }
+
+  .import-geometry-candidate-copy {
+    display: grid;
+    gap: 4px;
+  }
+
+  .import-geometry-candidate-copy strong {
+    color: #edf5f0;
+  }
+
+  .import-geometry-candidate-copy span {
+    color: #9fb0a9;
+  }
+
+  .import-geometry-candidate-copy code {
+    color: #d7e8dc;
+    font-size: 11px;
+  }
+
+  .import-geometry-manual {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .import-geometry-manual-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+  }
+
+  .import-geometry-manual-header span {
+    color: #edf5f0;
+    font-weight: 600;
+  }
+
+  .import-geometry-manual-header small {
+    color: #90a29a;
+  }
+
+  .import-geometry-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .import-geometry-field {
+    display: grid;
+    gap: 6px;
+  }
+
+  .import-geometry-field span {
+    color: #aebbb4;
+  }
+
+  .import-geometry-field input,
+  .import-geometry-field select {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(10, 13, 15, 0.7);
+    color: #eef4ef;
+    padding: 8px 10px;
+  }
+
+  .import-geometry-error {
+    margin: 0;
+    color: #ff9f9f;
+  }
+
+  .import-geometry-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
   @media (max-width: 900px) {
     .workspace-columns {
       grid-template-columns: 1fr;
@@ -1063,21 +1403,26 @@
       padding-bottom: 10px;
     }
 
-    .definition-header {
-      justify-content: stretch;
-    }
-
-    .shortcut-card {
-      min-width: 0;
-      width: 100%;
-    }
-
     .definition-grid {
       grid-template-columns: 1fr;
     }
 
     .display-settings-grid {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .import-geometry-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .import-geometry-summary-row,
+    .import-geometry-manual-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .import-geometry-summary-row strong {
+      text-align: left;
     }
   }
 </style>

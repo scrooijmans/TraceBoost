@@ -9,19 +9,29 @@ import type {
   LoadWorkspaceStateResponse,
   ListPipelinePresetsResponse,
   OpenDatasetResponse,
+  PreviewSubvolumeProcessingRequest,
+  PreviewSubvolumeProcessingResponse,
   PreviewTraceLocalProcessingResponse as PreviewProcessingResponse,
   TraceLocalProcessingPreset as ProcessingPreset,
   RemoveDatasetEntryResponse,
+  RunSubvolumeProcessingRequest,
+  RunSubvolumeProcessingResponse,
   RunTraceLocalProcessingResponse as RunProcessingResponse,
   SaveWorkspaceSessionRequest,
   SaveWorkspaceSessionResponse,
   SavePipelinePresetResponse,
+  SegyGeometryOverride,
+  SetDatasetNativeCoordinateReferenceRequest,
+  SetDatasetNativeCoordinateReferenceResponse,
   SetActiveDatasetEntryResponse,
   SectionAxis,
   SectionView,
   SurveyPreflightResponse,
   PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
+  ResolveSurveyMapRequest,
+  ResolveSurveyMapResponse,
   RunTraceLocalProcessingRequest as RunProcessingRequest,
+  SubvolumeProcessingPipeline,
   UpsertDatasetEntryRequest,
   UpsertDatasetEntryResponse,
   WorkspaceSession
@@ -44,6 +54,13 @@ export interface DiagnosticsEvent {
   timestamp: string;
   message: string;
   durationMs?: number | null;
+  fields?: Record<string, unknown> | null;
+}
+
+export interface FrontendDiagnosticsEventRequest {
+  stage: string;
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
   fields?: Record<string, unknown> | null;
 }
 
@@ -127,7 +144,8 @@ function defaultWorkspaceSession(): WorkspaceSession {
     active_store_path: null,
     active_axis: "inline",
     active_index: 0,
-    selected_preset_id: null
+    selected_preset_id: null,
+    display_coordinate_reference_id: null
   };
 }
 
@@ -229,23 +247,28 @@ function resolveEntryStatus(entry: DatasetRegistryEntry): DatasetRegistryStatus 
   return entry.imported_store_path ? "imported" : "linked";
 }
 
-export async function preflightImport(inputPath: string): Promise<SurveyPreflightResponse> {
+export async function preflightImport(
+  inputPath: string,
+  geometryOverride: SegyGeometryOverride | null = null
+): Promise<SurveyPreflightResponse> {
   if (isTauriEnvironment()) {
-    return invokeTauri<SurveyPreflightResponse>("preflight_import_command", { inputPath });
+    return invokeTauri<SurveyPreflightResponse>("preflight_import_command", { inputPath, geometryOverride });
   }
 
-  return postJson<SurveyPreflightResponse>("/api/preflight", { inputPath });
+  return postJson<SurveyPreflightResponse>("/api/preflight", { inputPath, geometryOverride });
 }
 
 export async function importDataset(
   inputPath: string,
   outputStorePath: string,
-  overwriteExisting = false
+  overwriteExisting = false,
+  geometryOverride: SegyGeometryOverride | null = null
 ): Promise<ImportDatasetResponse> {
   if (isTauriEnvironment()) {
     return invokeTauri<ImportDatasetResponse>("import_dataset_command", {
       inputPath,
       outputStorePath,
+      geometryOverride,
       overwriteExisting
     });
   }
@@ -253,6 +276,7 @@ export async function importDataset(
   return postJson<ImportDatasetResponse>("/api/import", {
     inputPath,
     outputStorePath,
+    geometryOverride,
     overwriteExisting
   });
 }
@@ -307,6 +331,24 @@ export async function previewProcessing(
   return postJson<PreviewProcessingResponse>("/api/processing/preview", request as Record<string, unknown>);
 }
 
+export async function previewSubvolumeProcessing(
+  request: PreviewSubvolumeProcessingRequest
+): Promise<PreviewSubvolumeProcessingResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<PreviewSubvolumeProcessingResponse>("preview_subvolume_processing_command", { request });
+  }
+
+  return postJson<PreviewSubvolumeProcessingResponse>("/api/processing/subvolume/preview", request as Record<string, unknown>);
+}
+
+export async function emitFrontendDiagnosticsEvent(request: FrontendDiagnosticsEventRequest): Promise<void> {
+  if (!isTauriEnvironment()) {
+    return;
+  }
+
+  await invokeTauri<void>("emit_frontend_diagnostics_event_command", { request });
+}
+
 export async function fetchAmplitudeSpectrum(
   request: AmplitudeSpectrumRequest
 ): Promise<AmplitudeSpectrumResponse> {
@@ -325,6 +367,16 @@ export async function runProcessing(
   }
 
   return postJson<RunProcessingResponse>("/api/processing/run", request as Record<string, unknown>);
+}
+
+export async function runSubvolumeProcessing(
+  request: RunSubvolumeProcessingRequest
+): Promise<RunSubvolumeProcessingResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<RunSubvolumeProcessingResponse>("run_subvolume_processing_command", { request });
+  }
+
+  return postJson<RunSubvolumeProcessingResponse>("/api/processing/subvolume/run", request as Record<string, unknown>);
 }
 
 export async function defaultProcessingStorePath(
@@ -356,6 +408,38 @@ export async function defaultProcessingStorePath(
     .replace(/\..+$/, "")
     .replace("T", "-");
   return `${directory}${sourceStem}.${pipelineStem || "pipeline"}.${timestamp}.tbvol`;
+}
+
+export async function defaultSubvolumeProcessingStorePath(
+  storePath: string,
+  pipeline: SubvolumeProcessingPipeline
+): Promise<string> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<string>("default_subvolume_processing_store_path_command", {
+      storePath,
+      pipeline
+    });
+  }
+
+  const normalizedStorePath = storePath.trim();
+  const separatorIndex = Math.max(normalizedStorePath.lastIndexOf("/"), normalizedStorePath.lastIndexOf("\\"));
+  const directory = separatorIndex >= 0 ? normalizedStorePath.slice(0, separatorIndex + 1) : "";
+  const filename = separatorIndex >= 0 ? normalizedStorePath.slice(separatorIndex + 1) : normalizedStorePath;
+  const sourceStem = filename.replace(/\.[^.]+$/, "") || "dataset";
+  const namedPipeline = pipeline.name?.trim();
+  const prefixLabel =
+    pipeline.trace_local_pipeline?.operations.map((operation) => operationSlug(operation)).join("-") ?? "";
+  const cropLabel = `crop-il-${pipeline.crop.inline_min}-${pipeline.crop.inline_max}-xl-${pipeline.crop.xline_min}-${pipeline.crop.xline_max}-z-${pipeline.crop.z_min_ms}-${pipeline.crop.z_max_ms}`;
+  const pipelineStem = (namedPipeline || [prefixLabel, cropLabel].filter(Boolean).join("-") || "crop-subvolume")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\..+$/, "")
+    .replace("T", "-");
+  return `${directory}${sourceStem}.${pipelineStem || "crop-subvolume"}.${timestamp}.tbvol`;
 }
 
 export async function getProcessingJob(jobId: string): Promise<GetProcessingJobResponse> {
@@ -586,13 +670,106 @@ export async function saveWorkspaceSession(
     active_store_path: request.active_store_path ?? null,
     active_axis: request.active_axis,
     active_index: request.active_index,
-    selected_preset_id: request.selected_preset_id ?? null
+    selected_preset_id: request.selected_preset_id ?? null,
+    display_coordinate_reference_id: request.display_coordinate_reference_id ?? null
   };
   saveLocalSession(session);
   return {
     schema_version: SCHEMA_VERSION,
     session
   };
+}
+
+export async function setDatasetNativeCoordinateReference(
+  request: SetDatasetNativeCoordinateReferenceRequest
+): Promise<SetDatasetNativeCoordinateReferenceResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<SetDatasetNativeCoordinateReferenceResponse>(
+      "set_dataset_native_coordinate_reference_command",
+      { request }
+    );
+  }
+
+  const entries = loadLocalRegistry();
+  const index = entries.findIndex(
+    (entry) =>
+      entry.imported_store_path === request.store_path || entry.preferred_store_path === request.store_path
+  );
+  if (index >= 0 && entries[index]) {
+    const entry = entries[index];
+    entries[index] = {
+      ...entry,
+      last_dataset: entry.last_dataset
+        ? {
+            ...entry.last_dataset,
+            descriptor: {
+              ...entry.last_dataset.descriptor,
+              spatial: entry.last_dataset.descriptor.spatial
+                ? {
+                    ...entry.last_dataset.descriptor.spatial,
+                    coordinate_reference: request.coordinate_reference_id
+                      ? {
+                          ...(entry.last_dataset.descriptor.spatial.coordinate_reference ?? {
+                            id: null,
+                            name: null,
+                            geodetic_datum: null,
+                            unit: null
+                          }),
+                          id: request.coordinate_reference_id,
+                          name:
+                            request.coordinate_reference_name ??
+                            entry.last_dataset.descriptor.spatial.coordinate_reference?.name ??
+                            null
+                        }
+                      : entry.last_dataset.descriptor.coordinate_reference_binding?.detected ??
+                        entry.last_dataset.descriptor.spatial.coordinate_reference
+                  }
+                : entry.last_dataset.descriptor.spatial,
+              coordinate_reference_binding: entry.last_dataset.descriptor.coordinate_reference_binding
+                ? {
+                    ...entry.last_dataset.descriptor.coordinate_reference_binding,
+                    effective: request.coordinate_reference_id
+                      ? {
+                          ...(entry.last_dataset.descriptor.coordinate_reference_binding.effective ??
+                            entry.last_dataset.descriptor.coordinate_reference_binding.detected ?? {
+                              id: null,
+                              name: null,
+                              geodetic_datum: null,
+                              unit: null
+                            }),
+                          id: request.coordinate_reference_id,
+                          name:
+                            request.coordinate_reference_name ??
+                            entry.last_dataset.descriptor.coordinate_reference_binding.effective?.name ??
+                            entry.last_dataset.descriptor.coordinate_reference_binding.detected?.name ??
+                            null
+                        }
+                      : entry.last_dataset.descriptor.coordinate_reference_binding.detected,
+                    source: request.coordinate_reference_id ? "user_override" : "header"
+                  }
+                : entry.last_dataset.descriptor.coordinate_reference_binding
+            }
+          }
+        : null
+    };
+    saveLocalRegistry(sortEntries(entries));
+  }
+
+  const datasetResponse = await openDataset(request.store_path);
+  return {
+    schema_version: SCHEMA_VERSION,
+    dataset: datasetResponse.dataset
+  };
+}
+
+export async function resolveSurveyMap(
+  request: ResolveSurveyMapRequest
+): Promise<ResolveSurveyMapResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ResolveSurveyMapResponse>("resolve_survey_map_command", { request });
+  }
+
+  throw new Error("Survey map resolution is only available in the desktop runtime.");
 }
 
 export async function getDiagnosticsStatus(): Promise<DiagnosticsStatus | null> {

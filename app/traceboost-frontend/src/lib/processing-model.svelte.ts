@@ -1,25 +1,33 @@
-import { createContext } from "svelte";
+import { createContext, tick } from "svelte";
 import type {
   AmplitudeSpectrumRequest,
   AmplitudeSpectrumResponse,
   PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
+  PreviewSubvolumeProcessingRequest,
   ProcessingJobStatus,
+  SubvolumeCropOperation,
+  SubvolumeProcessingPipeline,
   TraceLocalProcessingOperation as ProcessingOperation,
   TraceLocalProcessingPipeline as ProcessingPipeline,
   TraceLocalProcessingPreset as ProcessingPreset,
   RunTraceLocalProcessingRequest as RunProcessingRequest,
+  RunSubvolumeProcessingRequest,
   SectionView,
   WorkspacePipelineEntry
 } from "@traceboost/seis-contracts";
 import {
   cancelProcessingJob,
   defaultProcessingStorePath,
+  defaultSubvolumeProcessingStorePath,
   deletePipelinePreset,
+  emitFrontendDiagnosticsEvent,
   fetchAmplitudeSpectrum,
   getProcessingJob,
   listPipelinePresets,
   previewProcessing,
+  previewSubvolumeProcessing,
   runProcessing,
+  runSubvolumeProcessing,
   savePipelinePreset
 } from "./bridge";
 import { confirmOverwriteStore, pickOutputStorePath } from "./file-dialog";
@@ -28,6 +36,22 @@ import type { ViewerModel } from "./viewer-model.svelte";
 type PreviewState = "raw" | "preview" | "stale";
 type SpectrumAmplitudeScale = "db" | "linear";
 type VolumeArithmeticOperator = "add" | "subtract" | "multiply" | "divide";
+export interface SourceSubvolumeBounds {
+  inlineMin: number;
+  inlineMax: number;
+  xlineMin: number;
+  xlineMax: number;
+  zMinMs: number;
+  zMaxMs: number;
+  zUnits: string | null;
+}
+export type WorkspaceOperation =
+  | ProcessingOperation
+  | {
+      crop_subvolume: SubvolumeCropOperation;
+    };
+const SESSION_PIPELINE_PERSIST_DEBOUNCE_MS = 200;
+const RUN_OUTPUT_PATH_REFRESH_DEBOUNCE_MS = 150;
 export type OperatorCatalogId =
   | "amplitude_scalar"
   | "trace_rms_normalize"
@@ -37,6 +61,7 @@ export type OperatorCatalogId =
   | "volume_add"
   | "volume_multiply"
   | "volume_divide"
+  | "crop_subvolume"
   | "lowpass_filter"
   | "highpass_filter"
   | "bandpass_filter";
@@ -46,12 +71,14 @@ interface OperatorCatalogDefinition {
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v" | null;
-  create: (viewerModel: ViewerModel) => ProcessingOperation;
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v" | "c" | null;
+  create: (viewerModel: ViewerModel) => WorkspaceOperation;
 }
 
 interface CopiedSessionPipeline {
   pipeline: ProcessingPipeline;
+  subvolumeCrop: SubvolumeCropOperation | null;
+  subvolumeCropDisplayIndex: number | null;
   checkpointAfterOperationIndexes: number[];
 }
 
@@ -121,6 +148,14 @@ const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
     create: (viewerModel) => defaultVolumeArithmetic(viewerModel, "divide")
   },
   {
+    id: "crop_subvolume",
+    label: "Crop Subvolume",
+    description: "Write a strict subvolume bounded by inline, xline, and time windows.",
+    keywords: ["crop", "subvolume", "subset", "window", "inline", "xline", "time", "cube"],
+    shortcut: "c",
+    create: (viewerModel) => ({ crop_subvolume: defaultSubvolumeCrop(viewerModel) })
+  },
+  {
     id: "lowpass_filter",
     label: "Lowpass Filter",
     description: "Zero-phase FFT lowpass with a cosine high-cut taper.",
@@ -151,7 +186,7 @@ export interface OperatorCatalogItem {
   label: string;
   description: string;
   keywords: string[];
-  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v" | null;
+  shortcut: "a" | "n" | "g" | "h" | "l" | "i" | "b" | "v" | "c" | null;
 }
 
 export const operatorCatalogItems: readonly OperatorCatalogItem[] = OPERATOR_CATALOG.map(
@@ -177,6 +212,39 @@ function createEmptyPipeline(): ProcessingPipeline {
 
 function pipelineName(pipeline: ProcessingPipeline): string {
   return pipeline.name?.trim() || "Untitled pipeline";
+}
+
+function nowMs(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 16);
+  });
+}
+
+function estimateSectionPayloadBytes(section: SectionView): number {
+  return (
+    section.horizontal_axis_f64le.length +
+    (section.inline_axis_f64le?.length ?? 0) +
+    (section.xline_axis_f64le?.length ?? 0) +
+    section.sample_axis_f32le.length +
+    section.amplitudes_f32le.length
+  );
+}
+
+function previewOperationIds(pipeline: ProcessingPipeline): string[] {
+  return pipeline.operations.map((operation) => {
+    if (typeof operation === "string") {
+      return operation;
+    }
+    return Object.keys(operation)[0] ?? "unknown";
+  });
 }
 
 function nextDuplicateName(sourceName: string, existingNames: string[]): string {
@@ -249,6 +317,28 @@ function cloneOperation(operation: ProcessingOperation): ProcessingOperation {
       ...operation.bandpass_filter
     }
   };
+}
+
+function cloneSubvolumeCrop(crop: SubvolumeCropOperation | null | undefined): SubvolumeCropOperation | null {
+  return crop ? { ...crop } : null;
+}
+
+function normalizeSubvolumeCropDisplayIndex(
+  cropDisplayIndex: number | null | undefined,
+  operationCount: number,
+  hasSubvolumeCrop: boolean
+): number | null {
+  if (!hasSubvolumeCrop) {
+    return null;
+  }
+  if (cropDisplayIndex === null || cropDisplayIndex === undefined || !Number.isInteger(cropDisplayIndex)) {
+    return operationCount;
+  }
+  return Math.max(0, Math.min(cropDisplayIndex, operationCount));
+}
+
+function cloneWorkspaceOperation(operation: WorkspaceOperation): WorkspaceOperation {
+  return isCropSubvolume(operation) ? { crop_subvolume: { ...operation.crop_subvolume } } : cloneOperation(operation);
 }
 
 function cloneCheckpointAfterOperationIndexes(indexes: readonly number[]): number[] {
@@ -383,6 +473,16 @@ function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
   });
 }
 
+function workspaceRunOutputSignature(
+  pipeline: ProcessingPipeline,
+  subvolumeCrop: SubvolumeCropOperation | null
+): string {
+  return JSON.stringify({
+    pipeline: JSON.parse(pipelineRunOutputSignature(pipeline)),
+    subvolume_crop: subvolumeCrop
+  });
+}
+
 function defaultPhaseRotation(): ProcessingOperation {
   return {
     phase_rotation: {
@@ -494,6 +594,77 @@ function defaultVolumeArithmetic(
   };
 }
 
+function defaultSubvolumeCrop(viewerModel: ViewerModel): SubvolumeCropOperation {
+  const summary = viewerModel.dataset?.descriptor.geometry?.summary;
+  const inlineAxis = summary?.inline_axis;
+  const xlineAxis = summary?.xline_axis;
+  const sampleAxis = summary?.sample_axis;
+  return {
+    inline_min: inlineAxis?.first ?? 0,
+    inline_max: inlineAxis?.last ?? 0,
+    xline_min: xlineAxis?.first ?? 0,
+    xline_max: xlineAxis?.last ?? 0,
+    z_min_ms: sampleAxis?.first ?? 0,
+    z_max_ms: sampleAxis?.last ?? 0
+  };
+}
+
+function buildSubvolumeProcessingPipeline(
+  pipeline: ProcessingPipeline,
+  crop: SubvolumeCropOperation
+): SubvolumeProcessingPipeline {
+  return {
+    schema_version: pipeline.schema_version,
+    revision: pipeline.revision,
+    preset_id: pipeline.preset_id,
+    name: pipeline.name,
+    description: pipeline.description,
+    trace_local_pipeline: pipeline.operations.length ? clonePipeline(pipeline) : null,
+    crop: { ...crop }
+  };
+}
+
+function workspaceOperations(
+  pipeline: ProcessingPipeline,
+  subvolumeCrop: SubvolumeCropOperation | null,
+  subvolumeCropDisplayIndex: number | null
+): WorkspaceOperation[] {
+  const operations: WorkspaceOperation[] = pipeline.operations.map((operation) => cloneOperation(operation));
+  if (subvolumeCrop) {
+    const displayIndex = normalizeSubvolumeCropDisplayIndex(
+      subvolumeCropDisplayIndex,
+      pipeline.operations.length,
+      true
+    )!;
+    operations.splice(displayIndex, 0, { crop_subvolume: { ...subvolumeCrop } });
+  }
+  return operations;
+}
+
+function workspaceOperationAt(
+  pipeline: ProcessingPipeline,
+  subvolumeCrop: SubvolumeCropOperation | null,
+  subvolumeCropDisplayIndex: number | null,
+  index: number
+): WorkspaceOperation | null {
+  if (subvolumeCrop) {
+    const displayIndex = normalizeSubvolumeCropDisplayIndex(
+      subvolumeCropDisplayIndex,
+      pipeline.operations.length,
+      true
+    )!;
+    if (index === displayIndex) {
+      return { crop_subvolume: { ...subvolumeCrop } };
+    }
+    const traceOperationIndex = index > displayIndex ? index - 1 : index;
+    return pipeline.operations[traceOperationIndex] ?? null;
+  }
+  if (index < pipeline.operations.length) {
+    return pipeline.operations[index] ?? null;
+  }
+  return null;
+}
+
 export interface ProcessingModelOptions {
   viewerModel: ViewerModel;
 }
@@ -502,6 +673,8 @@ export class ProcessingModel {
   readonly viewerModel: ViewerModel;
 
   pipeline = $state<ProcessingPipeline>(createEmptyPipeline());
+  subvolumeCrop = $state<SubvolumeCropOperation | null>(null);
+  subvolumeCropDisplayIndex = $state<number | null>(null);
   sessionPipelines = $state.raw<WorkspacePipelineEntry[]>([]);
   activeSessionPipelineId = $state<string | null>(null);
   selectedStepIndex = $state(0);
@@ -537,7 +710,9 @@ export class ProcessingModel {
   #hydratedDatasetEntryId: string | null = null;
   #runOutputPathRequestId = 0;
   #copiedSessionPipeline: CopiedSessionPipeline | null = null;
-  #copiedOperation: ProcessingOperation | null = null;
+  #copiedOperation: WorkspaceOperation | null = null;
+  #persistSessionPipelinesTimer: number | null = null;
+  #runOutputPathRefreshTimer: number | null = null;
 
   constructor(options: ProcessingModelOptions) {
     this.viewerModel = options.viewerModel;
@@ -574,6 +749,12 @@ export class ProcessingModel {
           this.sessionPipelines = [fallback];
           this.activeSessionPipelineId = fallback.pipeline_id;
           this.pipeline = clonePipeline(fallback.pipeline);
+          this.subvolumeCrop = cloneSubvolumeCrop(fallback.subvolume_crop);
+          this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+            fallback.subvolume_crop_display_index,
+            fallback.pipeline.operations.length,
+            fallback.subvolume_crop !== null
+          );
         }
         return;
       }
@@ -588,8 +769,14 @@ export class ProcessingModel {
           ? activeEntry.session_pipelines.map((entry) => ({
               pipeline_id: entry.pipeline_id,
               pipeline: clonePipeline(entry.pipeline),
+              subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop),
+              subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
+                entry.subvolume_crop_display_index,
+                entry.pipeline.operations.length,
+                entry.subvolume_crop !== null
+              ),
               checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-                entry.checkpoint_after_operation_indexes ?? [],
+                entry.subvolume_crop ? [] : entry.checkpoint_after_operation_indexes ?? [],
                 entry.pipeline.operations.length
               ),
               updated_at_unix_s: entry.updated_at_unix_s
@@ -606,28 +793,58 @@ export class ProcessingModel {
       this.sessionPipelines = nextSessionPipelines;
       this.activeSessionPipelineId = activePipeline?.pipeline_id ?? null;
       this.pipeline = clonePipeline(activePipeline?.pipeline ?? createEmptyPipeline());
+      this.subvolumeCrop = cloneSubvolumeCrop(activePipeline?.subvolume_crop);
+      this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+        activePipeline?.subvolume_crop_display_index,
+        activePipeline?.pipeline.operations.length ?? 0,
+        activePipeline?.subvolume_crop !== null
+      );
       this.selectedStepIndex = 0;
       this.editingParams = false;
       this.clearPreviewState();
     });
 
     $effect(() => {
+      const runOutputSettingsOpen = this.runOutputSettingsOpen;
+      const runOutputPathMode = this.runOutputPathMode;
       const activeStorePath = this.viewerModel.activeStorePath;
-      const signature = pipelineRunOutputSignature(this.pipeline);
+      const signature = workspaceRunOutputSignature(this.pipeline, this.subvolumeCrop);
 
       if (!activeStorePath) {
         this.defaultRunOutputPath = null;
         this.resolvingRunOutputPath = false;
+        if (this.#runOutputPathRefreshTimer !== null && typeof window !== "undefined") {
+          window.clearTimeout(this.#runOutputPathRefreshTimer);
+          this.#runOutputPathRefreshTimer = null;
+        }
         return;
       }
 
-      void this.refreshDefaultRunOutputPath(activeStorePath, clonePipeline(this.pipeline), signature);
+      if (!runOutputSettingsOpen || runOutputPathMode !== "default") {
+        return;
+      }
+
+      this.scheduleDefaultRunOutputPathRefresh(
+        activeStorePath,
+        clonePipeline(this.pipeline),
+        cloneSubvolumeCrop(this.subvolumeCrop),
+        signature
+      );
     });
   }
 
   mount = (): (() => void) => {
     void this.refreshPresets();
     return () => {
+      if (this.#persistSessionPipelinesTimer !== null && typeof window !== "undefined") {
+        window.clearTimeout(this.#persistSessionPipelinesTimer);
+        this.#persistSessionPipelinesTimer = null;
+        void this.persistSessionPipelinesNow();
+      }
+      if (this.#runOutputPathRefreshTimer !== null && typeof window !== "undefined") {
+        window.clearTimeout(this.#runOutputPathRefreshTimer);
+        this.#runOutputPathRefreshTimer = null;
+      }
       if (this.#jobPollTimer !== null && typeof window !== "undefined") {
         window.clearTimeout(this.#jobPollTimer);
       }
@@ -635,12 +852,48 @@ export class ProcessingModel {
     };
   };
 
-  get selectedOperation(): ProcessingOperation | null {
-    return this.pipeline.operations[this.selectedStepIndex] ?? null;
+  get selectedOperation(): WorkspaceOperation | null {
+    return workspaceOperationAt(
+      this.pipeline,
+      this.subvolumeCrop,
+      this.subvolumeCropDisplayIndex,
+      this.selectedStepIndex
+    );
   }
 
   get activeSessionPipeline(): WorkspacePipelineEntry | null {
     return this.sessionPipelines.find((entry) => entry.pipeline_id === this.activeSessionPipelineId) ?? null;
+  }
+
+  get normalizedSubvolumeCropDisplayIndex(): number | null {
+    return normalizeSubvolumeCropDisplayIndex(
+      this.subvolumeCropDisplayIndex,
+      this.pipeline.operations.length,
+      this.subvolumeCrop !== null
+    );
+  }
+
+  private traceOperationIndexForDisplayIndex(displayIndex: number): number | null {
+    if (displayIndex < 0) {
+      return null;
+    }
+    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
+    if (cropDisplayIndex !== null && displayIndex === cropDisplayIndex) {
+      return null;
+    }
+    return cropDisplayIndex !== null && displayIndex > cropDisplayIndex ? displayIndex - 1 : displayIndex;
+  }
+
+  private traceInsertIndexForDisplayIndex(displayIndex: number): number {
+    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
+    const clampedDisplayIndex = Math.max(0, Math.min(displayIndex, this.workspaceOperations.length));
+    return cropDisplayIndex !== null && clampedDisplayIndex > cropDisplayIndex
+      ? clampedDisplayIndex - 1
+      : clampedDisplayIndex;
+  }
+
+  private selectedTraceOperationIndex(): number | null {
+    return this.traceOperationIndexForDisplayIndex(this.selectedStepIndex);
   }
 
   get checkpointAfterOperationIndexes(): number[] {
@@ -661,7 +914,7 @@ export class ProcessingModel {
   }
 
   get hasOperations(): boolean {
-    return this.pipeline.operations.length > 0;
+    return this.pipeline.operations.length > 0 || this.subvolumeCrop !== null;
   }
 
   get selectedStepLabel(): string | null {
@@ -720,12 +973,44 @@ export class ProcessingModel {
     return volumeArithmeticSecondaryOptions(this.viewerModel);
   }
 
+  get sourceSubvolumeBounds(): SourceSubvolumeBounds | null {
+    const summary = this.viewerModel.dataset?.descriptor.geometry?.summary;
+    if (!summary) {
+      return null;
+    }
+    return {
+      inlineMin: summary.inline_axis.first,
+      inlineMax: summary.inline_axis.last,
+      xlineMin: summary.xline_axis.first,
+      xlineMax: summary.xline_axis.last,
+      zMinMs: summary.sample_axis.first,
+      zMaxMs: summary.sample_axis.last,
+      zUnits: summary.sample_axis.units
+    };
+  }
+
+  get workspaceOperations(): WorkspaceOperation[] {
+    return workspaceOperations(this.pipeline, this.subvolumeCrop, this.subvolumeCropDisplayIndex);
+  }
+
+  get hasSubvolumeCrop(): boolean {
+    return this.subvolumeCrop !== null;
+  }
+
+  get canMoveSelectedUp(): boolean {
+    return this.selectedStepIndex > 0;
+  }
+
+  get canMoveSelectedDown(): boolean {
+    return this.selectedStepIndex < this.workspaceOperations.length - 1;
+  }
+
   get canRemoveSessionPipeline(): boolean {
     return this.sessionPipelines.length > 1;
   }
 
   get canToggleSelectedCheckpoint(): boolean {
-    return this.pipeline.operations.length > 1 && this.selectedStepIndex < this.pipeline.operations.length - 1;
+    return !this.subvolumeCrop && this.pipeline.operations.length > 1 && this.selectedStepIndex < this.pipeline.operations.length - 1;
   }
 
   get resolvedRunOutputPath(): string | null {
@@ -743,10 +1028,11 @@ export class ProcessingModel {
   setRunOutputSettingsOpen = (open: boolean): void => {
     this.runOutputSettingsOpen = open;
     if (open && this.viewerModel.activeStorePath && !this.defaultRunOutputPath && !this.resolvingRunOutputPath) {
-      void this.refreshDefaultRunOutputPath(
+      this.scheduleDefaultRunOutputPathRefresh(
         this.viewerModel.activeStorePath,
         clonePipeline(this.pipeline),
-        pipelineRunOutputSignature(this.pipeline)
+        cloneSubvolumeCrop(this.subvolumeCrop),
+        workspaceRunOutputSignature(this.pipeline, this.subvolumeCrop)
       );
     }
   };
@@ -795,11 +1081,17 @@ export class ProcessingModel {
     this.sessionPipelines = [...this.sessionPipelines, nextEntry];
     this.activeSessionPipelineId = nextEntry.pipeline_id;
     this.pipeline = clonePipeline(nextEntry.pipeline);
+    this.subvolumeCrop = cloneSubvolumeCrop(nextEntry.subvolume_crop);
+    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+      nextEntry.subvolume_crop_display_index,
+      nextEntry.pipeline.operations.length,
+      nextEntry.subvolume_crop !== null
+    );
     this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
-    void this.persistSessionPipelines();
+    this.schedulePersistSessionPipelines();
   };
 
   duplicateActiveSessionPipeline = (): void => {
@@ -809,16 +1101,24 @@ export class ProcessingModel {
     }
     const duplicate = this.createCopiedSessionPipelineEntry(
       source.pipeline,
+      source.subvolume_crop ?? null,
+      source.subvolume_crop_display_index ?? null,
       source.checkpoint_after_operation_indexes ?? []
     );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
+    this.subvolumeCrop = cloneSubvolumeCrop(duplicate.subvolume_crop);
+    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+      duplicate.subvolume_crop_display_index,
+      duplicate.pipeline.operations.length,
+      duplicate.subvolume_crop !== null
+    );
     this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
-    void this.persistSessionPipelines();
+    this.schedulePersistSessionPipelines();
   };
 
   activateSessionPipeline = (pipelineId: string): void => {
@@ -829,11 +1129,17 @@ export class ProcessingModel {
 
     this.activeSessionPipelineId = pipelineId;
     this.pipeline = clonePipeline(entry.pipeline);
+    this.subvolumeCrop = cloneSubvolumeCrop(entry.subvolume_crop);
+    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+      entry.subvolume_crop_display_index,
+      entry.pipeline.operations.length,
+      entry.subvolume_crop !== null
+    );
     this.viewerModel.setSelectedPresetId(entry.pipeline.preset_id ?? null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
-    void this.persistSessionPipelines();
+    this.schedulePersistSessionPipelines();
   };
 
   removeActiveSessionPipeline = (): void => {
@@ -863,18 +1169,26 @@ export class ProcessingModel {
       const fallbackEntry = nextSessionPipelines[Math.max(0, activeIndex - 1)] ?? nextSessionPipelines[0];
       this.activeSessionPipelineId = fallbackEntry?.pipeline_id ?? null;
       this.pipeline = clonePipeline(fallbackEntry?.pipeline ?? createEmptyPipeline());
+      this.subvolumeCrop = cloneSubvolumeCrop(fallbackEntry?.subvolume_crop);
+      this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+        fallbackEntry?.subvolume_crop_display_index,
+        fallbackEntry?.pipeline.operations.length ?? 0,
+        fallbackEntry?.subvolume_crop !== null
+      );
       this.viewerModel.setSelectedPresetId(fallbackEntry?.pipeline.preset_id ?? null);
       this.selectedStepIndex = 0;
       this.editingParams = false;
       this.clearPreviewState();
     }
 
-    void this.persistSessionPipelines();
+    this.schedulePersistSessionPipelines();
   };
 
   private createSessionPipelineEntry(
     suggestedName: string,
     template: ProcessingPipeline = createEmptyPipeline(),
+    subvolumeCrop: SubvolumeCropOperation | null = null,
+    subvolumeCropDisplayIndex: number | null = null,
     checkpointAfterOperationIndexes: number[] = []
   ): WorkspacePipelineEntry {
     this.#sessionPipelineCounter += 1;
@@ -883,8 +1197,14 @@ export class ProcessingModel {
     return {
       pipeline_id: `session-pipeline-${Date.now()}-${this.#sessionPipelineCounter}`,
       pipeline,
+      subvolume_crop: cloneSubvolumeCrop(subvolumeCrop),
+      subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
+        subvolumeCropDisplayIndex,
+        pipeline.operations.length,
+        subvolumeCrop !== null
+      ),
       checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-        checkpointAfterOperationIndexes,
+        subvolumeCrop ? [] : checkpointAfterOperationIndexes,
         pipeline.operations.length
       ),
       updated_at_unix_s: pipelineTimestamp()
@@ -906,6 +1226,8 @@ export class ProcessingModel {
 
   private createCopiedSessionPipelineEntry(
     source: ProcessingPipeline,
+    subvolumeCrop: SubvolumeCropOperation | null,
+    subvolumeCropDisplayIndex: number | null,
     checkpointAfterOperationIndexes: number[]
   ): WorkspacePipelineEntry {
     const pipeline = clonePipeline(source);
@@ -914,7 +1236,13 @@ export class ProcessingModel {
       pipelineName(source),
       this.sessionPipelines.map((entry) => pipelineName(entry.pipeline))
     );
-    return this.createSessionPipelineEntry(pipeline.name, pipeline, checkpointAfterOperationIndexes);
+    return this.createSessionPipelineEntry(
+      pipeline.name,
+      pipeline,
+      subvolumeCrop,
+      subvolumeCropDisplayIndex,
+      checkpointAfterOperationIndexes
+    );
   }
 
   copyActiveSessionPipeline = (): void => {
@@ -924,6 +1252,12 @@ export class ProcessingModel {
     }
     this.#copiedSessionPipeline = {
       pipeline: clonePipeline(activePipeline.pipeline),
+      subvolumeCrop: cloneSubvolumeCrop(activePipeline.subvolume_crop),
+      subvolumeCropDisplayIndex: normalizeSubvolumeCropDisplayIndex(
+        activePipeline.subvolume_crop_display_index,
+        activePipeline.pipeline.operations.length,
+        activePipeline.subvolume_crop !== null
+      ),
       checkpointAfterOperationIndexes: cloneCheckpointAfterOperationIndexes(
         activePipeline.checkpoint_after_operation_indexes ?? []
       )
@@ -938,16 +1272,24 @@ export class ProcessingModel {
 
     const duplicate = this.createCopiedSessionPipelineEntry(
       this.#copiedSessionPipeline.pipeline,
+      this.#copiedSessionPipeline.subvolumeCrop,
+      this.#copiedSessionPipeline.subvolumeCropDisplayIndex,
       this.#copiedSessionPipeline.checkpointAfterOperationIndexes
     );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
+    this.subvolumeCrop = cloneSubvolumeCrop(duplicate.subvolume_crop);
+    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+      duplicate.subvolume_crop_display_index,
+      duplicate.pipeline.operations.length,
+      duplicate.subvolume_crop !== null
+    );
     this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.clearPreviewState();
-    void this.persistSessionPipelines();
+    this.schedulePersistSessionPipelines();
   };
 
   copySelectedOperation = (): void => {
@@ -956,7 +1298,7 @@ export class ProcessingModel {
       return;
     }
 
-    this.#copiedOperation = cloneOperation(selectedOperation);
+    this.#copiedOperation = cloneWorkspaceOperation(selectedOperation);
     this.viewerModel.note("Copied selected pipeline step.", "ui", "info", describeOperation(selectedOperation));
   };
 
@@ -969,6 +1311,9 @@ export class ProcessingModel {
   };
 
   toggleCheckpointAfterOperation = (index: number): void => {
+    if (this.subvolumeCrop) {
+      return;
+    }
     if (index < 0 || index >= this.pipeline.operations.length - 1) {
       return;
     }
@@ -976,7 +1321,12 @@ export class ProcessingModel {
     const nextCheckpointIndexes = this.checkpointAfterOperationIndexes.includes(index)
       ? this.checkpointAfterOperationIndexes.filter((value) => value !== index)
       : [...this.checkpointAfterOperationIndexes, index];
-    this.updateActiveSessionPipeline(this.pipeline, nextCheckpointIndexes);
+    this.updateActiveSessionPipeline(
+      this.pipeline,
+      this.subvolumeCrop,
+      this.subvolumeCropDisplayIndex,
+      nextCheckpointIndexes
+    );
   };
 
   openProcessingArtifact = async (storePath: string): Promise<void> => {
@@ -986,12 +1336,18 @@ export class ProcessingModel {
     await this.viewerModel.openDerivedDatasetAt(storePath, this.viewerModel.axis, this.viewerModel.index);
   };
 
-  private persistSessionPipelines(): Promise<void> {
+  private persistSessionPipelinesNow(): Promise<void> {
     return this.viewerModel.updateActiveEntryPipelines(
       this.sessionPipelines.map((entry) => ({
         pipeline_id: entry.pipeline_id,
         updated_at_unix_s: entry.updated_at_unix_s,
         pipeline: clonePipeline(entry.pipeline),
+        subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop),
+        subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
+          entry.subvolume_crop_display_index,
+          entry.pipeline.operations.length,
+          entry.subvolume_crop !== null
+        ),
         checkpoint_after_operation_indexes: cloneCheckpointAfterOperationIndexes(
           entry.checkpoint_after_operation_indexes ?? []
         )
@@ -1000,13 +1356,37 @@ export class ProcessingModel {
     );
   }
 
+  private schedulePersistSessionPipelines(): void {
+    if (typeof window === "undefined") {
+      void this.persistSessionPipelinesNow();
+      return;
+    }
+
+    if (this.#persistSessionPipelinesTimer !== null) {
+      window.clearTimeout(this.#persistSessionPipelinesTimer);
+    }
+
+    this.#persistSessionPipelinesTimer = window.setTimeout(() => {
+      this.#persistSessionPipelinesTimer = null;
+      void this.persistSessionPipelinesNow();
+    }, SESSION_PIPELINE_PERSIST_DEBOUNCE_MS);
+  }
+
   private updateActiveSessionPipeline(
     nextPipeline: ProcessingPipeline,
+    nextSubvolumeCrop: SubvolumeCropOperation | null = this.subvolumeCrop,
+    nextSubvolumeCropDisplayIndex: number | null = this.subvolumeCropDisplayIndex,
     checkpointAfterOperationIndexes: number[] | null = null
   ): void {
     const activePipelineId = this.activeSessionPipelineId;
     const snapshot = clonePipeline(nextPipeline);
     this.pipeline = snapshot;
+    this.subvolumeCrop = cloneSubvolumeCrop(nextSubvolumeCrop);
+    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
+      nextSubvolumeCropDisplayIndex,
+      snapshot.operations.length,
+      nextSubvolumeCrop !== null
+    );
 
     if (!activePipelineId) {
       return;
@@ -1017,15 +1397,21 @@ export class ProcessingModel {
         ? {
             pipeline_id: entry.pipeline_id,
             pipeline: clonePipeline(snapshot),
+            subvolume_crop: cloneSubvolumeCrop(nextSubvolumeCrop),
+            subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
+              nextSubvolumeCropDisplayIndex,
+              snapshot.operations.length,
+              nextSubvolumeCrop !== null
+            ),
             checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-              checkpointAfterOperationIndexes ?? entry.checkpoint_after_operation_indexes ?? [],
+              nextSubvolumeCrop ? [] : checkpointAfterOperationIndexes ?? entry.checkpoint_after_operation_indexes ?? [],
               snapshot.operations.length
             ),
             updated_at_unix_s: pipelineTimestamp()
           }
         : entry
     );
-    void this.persistSessionPipelines();
+    this.schedulePersistSessionPipelines();
   }
 
   private clearPreviewState(): void {
@@ -1060,11 +1446,12 @@ export class ProcessingModel {
   };
 
   selectStep = (index: number): void => {
-    if (this.pipeline.operations.length === 0) {
+    const operationCount = this.workspaceOperations.length;
+    if (operationCount === 0) {
       this.selectedStepIndex = 0;
       return;
     }
-    this.selectedStepIndex = Math.max(0, Math.min(index, this.pipeline.operations.length - 1));
+    this.selectedStepIndex = Math.max(0, Math.min(index, operationCount - 1));
   };
 
   selectNextStep = (): void => {
@@ -1107,6 +1494,10 @@ export class ProcessingModel {
     this.insertOperatorById("volume_subtract");
   };
 
+  addCropSubvolumeAfterSelected = (): void => {
+    this.insertOperatorById("crop_subvolume");
+  };
+
   insertOperatorById = (operatorId: OperatorCatalogId): void => {
     const operator = OPERATOR_CATALOG.find((candidate) => candidate.id === operatorId);
     if (!operator) {
@@ -1115,16 +1506,41 @@ export class ProcessingModel {
     this.insertOperation(operator.create(this.viewerModel));
   };
 
-  insertOperation = (operation: ProcessingOperation): void => {
+  insertOperation = (operation: WorkspaceOperation): void => {
+    if (isCropSubvolume(operation)) {
+      this.insertCropSubvolume(operation.crop_subvolume);
+      return;
+    }
     const next = clonePipeline(this.pipeline);
-    const insertIndex = this.pipeline.operations.length === 0 ? 0 : this.selectedStepIndex + 1;
+    const insertDisplayIndex = this.workspaceOperations.length === 0 ? 0 : this.selectedStepIndex + 1;
+    const insertIndex = this.traceInsertIndexForDisplayIndex(insertDisplayIndex);
     next.operations.splice(insertIndex, 0, cloneOperation(operation));
     next.revision += 1;
     this.updateActiveSessionPipeline(
       next,
+      this.subvolumeCrop,
+      this.normalizedSubvolumeCropDisplayIndex,
       remapCheckpointIndexesForInsert(this.checkpointAfterOperationIndexes, insertIndex, next.operations.length)
     );
-    this.selectedStepIndex = insertIndex;
+    this.selectedStepIndex = insertDisplayIndex;
+    this.editingParams = true;
+    this.invalidatePreview();
+  };
+
+  insertCropSubvolume = (crop: SubvolumeCropOperation = defaultSubvolumeCrop(this.viewerModel)): void => {
+    if (this.subvolumeCrop) {
+      this.selectedStepIndex = this.normalizedSubvolumeCropDisplayIndex ?? this.pipeline.operations.length;
+      this.editingParams = true;
+      return;
+    }
+    const insertDisplayIndex = this.workspaceOperations.length === 0 ? 0 : this.selectedStepIndex + 1;
+    this.updateActiveSessionPipeline(
+      clonePipeline(this.pipeline),
+      crop,
+      insertDisplayIndex,
+      []
+    );
+    this.selectedStepIndex = insertDisplayIndex;
     this.editingParams = true;
     this.invalidatePreview();
   };
@@ -1134,24 +1550,46 @@ export class ProcessingModel {
   };
 
   removeOperationAt = (index: number): void => {
-    if (!this.pipeline.operations[index]) {
+    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
+    if (cropDisplayIndex !== null && index === cropDisplayIndex) {
+      this.updateActiveSessionPipeline(
+        clonePipeline(this.pipeline),
+        null,
+        null,
+        this.checkpointAfterOperationIndexes
+      );
+      this.selectedStepIndex = Math.max(0, Math.min(index - 1, this.pipeline.operations.length - 1));
+      this.editingParams = this.pipeline.operations.length > 0;
+      this.invalidatePreview();
+      return;
+    }
+
+    const traceOperationIndex = this.traceOperationIndexForDisplayIndex(index);
+    if (traceOperationIndex === null || !this.pipeline.operations[traceOperationIndex]) {
       return;
     }
 
     const removedSelectedOperation = index === this.selectedStepIndex;
     const next = clonePipeline(this.pipeline);
-    next.operations.splice(index, 1);
+    next.operations.splice(traceOperationIndex, 1);
     next.revision += 1;
     this.updateActiveSessionPipeline(
       next,
-      remapCheckpointIndexesForRemove(this.checkpointAfterOperationIndexes, index, next.operations.length)
+      this.subvolumeCrop,
+      this.normalizedSubvolumeCropDisplayIndex,
+      remapCheckpointIndexesForRemove(
+        this.checkpointAfterOperationIndexes,
+        traceOperationIndex,
+        next.operations.length
+      )
     );
+    const nextWorkspaceOperationCount = next.operations.length + (this.subvolumeCrop ? 1 : 0);
     if (next.operations.length === 0) {
-      this.selectedStepIndex = 0;
+      this.selectedStepIndex = this.subvolumeCrop ? 0 : 0;
     } else if (index < this.selectedStepIndex) {
       this.selectedStepIndex -= 1;
     } else if (index === this.selectedStepIndex) {
-      this.selectedStepIndex = Math.min(index, next.operations.length - 1);
+      this.selectedStepIndex = Math.min(index, nextWorkspaceOperationCount - 1);
     }
     if (removedSelectedOperation || next.operations.length === 0) {
       this.editingParams = false;
@@ -1160,43 +1598,95 @@ export class ProcessingModel {
   };
 
   moveSelectedUp = (): void => {
-    if (this.selectedStepIndex <= 0 || !this.selectedOperation) {
+    if (!this.canMoveSelectedUp || !this.selectedOperation) {
       return;
     }
-    const next = clonePipeline(this.pipeline);
-    const [operation] = next.operations.splice(this.selectedStepIndex, 1);
-    next.operations.splice(this.selectedStepIndex - 1, 0, operation);
-    next.revision += 1;
-    this.updateActiveSessionPipeline(
-      next,
-      remapCheckpointIndexesForMove(
-        this.checkpointAfterOperationIndexes,
-        this.selectedStepIndex,
-        this.selectedStepIndex - 1,
-        next.operations.length
-      )
-    );
+    const currentIndex = this.selectedStepIndex;
+    const targetIndex = currentIndex - 1;
+    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
+    if (cropDisplayIndex !== null && currentIndex === cropDisplayIndex) {
+      this.updateActiveSessionPipeline(
+        clonePipeline(this.pipeline),
+        this.subvolumeCrop,
+        targetIndex,
+        this.checkpointAfterOperationIndexes
+      );
+    } else if (cropDisplayIndex !== null && targetIndex === cropDisplayIndex) {
+      this.updateActiveSessionPipeline(
+        clonePipeline(this.pipeline),
+        this.subvolumeCrop,
+        currentIndex,
+        this.checkpointAfterOperationIndexes
+      );
+    } else {
+      const fromIndex = this.traceOperationIndexForDisplayIndex(currentIndex);
+      const toIndex = this.traceOperationIndexForDisplayIndex(targetIndex);
+      if (fromIndex === null || toIndex === null) {
+        return;
+      }
+      const next = clonePipeline(this.pipeline);
+      const [operation] = next.operations.splice(fromIndex, 1);
+      next.operations.splice(toIndex, 0, operation);
+      next.revision += 1;
+      this.updateActiveSessionPipeline(
+        next,
+        this.subvolumeCrop,
+        cropDisplayIndex,
+        remapCheckpointIndexesForMove(
+          this.checkpointAfterOperationIndexes,
+          fromIndex,
+          toIndex,
+          next.operations.length
+        )
+      );
+    }
     this.selectedStepIndex -= 1;
     this.invalidatePreview();
   };
 
   moveSelectedDown = (): void => {
-    if (!this.selectedOperation || this.selectedStepIndex >= this.pipeline.operations.length - 1) {
+    if (!this.canMoveSelectedDown || !this.selectedOperation) {
       return;
     }
-    const next = clonePipeline(this.pipeline);
-    const [operation] = next.operations.splice(this.selectedStepIndex, 1);
-    next.operations.splice(this.selectedStepIndex + 1, 0, operation);
-    next.revision += 1;
-    this.updateActiveSessionPipeline(
-      next,
-      remapCheckpointIndexesForMove(
-        this.checkpointAfterOperationIndexes,
-        this.selectedStepIndex,
-        this.selectedStepIndex + 1,
-        next.operations.length
-      )
-    );
+    const currentIndex = this.selectedStepIndex;
+    const targetIndex = currentIndex + 1;
+    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
+    if (cropDisplayIndex !== null && currentIndex === cropDisplayIndex) {
+      this.updateActiveSessionPipeline(
+        clonePipeline(this.pipeline),
+        this.subvolumeCrop,
+        targetIndex,
+        this.checkpointAfterOperationIndexes
+      );
+    } else if (cropDisplayIndex !== null && targetIndex === cropDisplayIndex) {
+      this.updateActiveSessionPipeline(
+        clonePipeline(this.pipeline),
+        this.subvolumeCrop,
+        currentIndex,
+        this.checkpointAfterOperationIndexes
+      );
+    } else {
+      const fromIndex = this.traceOperationIndexForDisplayIndex(currentIndex);
+      const toIndex = this.traceOperationIndexForDisplayIndex(targetIndex);
+      if (fromIndex === null || toIndex === null) {
+        return;
+      }
+      const next = clonePipeline(this.pipeline);
+      const [operation] = next.operations.splice(fromIndex, 1);
+      next.operations.splice(toIndex, 0, operation);
+      next.revision += 1;
+      this.updateActiveSessionPipeline(
+        next,
+        this.subvolumeCrop,
+        cropDisplayIndex,
+        remapCheckpointIndexesForMove(
+          this.checkpointAfterOperationIndexes,
+          fromIndex,
+          toIndex,
+          next.operations.length
+        )
+      );
+    }
     this.selectedStepIndex += 1;
     this.invalidatePreview();
   };
@@ -1222,7 +1712,11 @@ export class ProcessingModel {
       return;
     }
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isAmplitudeScalar(operation)) {
       return;
     }
@@ -1239,7 +1733,11 @@ export class ProcessingModel {
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isAgcRms(operation)) {
       return;
     }
@@ -1257,7 +1755,11 @@ export class ProcessingModel {
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isLowpassFilter(operation)) {
       return;
     }
@@ -1275,7 +1777,11 @@ export class ProcessingModel {
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isHighpassFilter(operation)) {
       return;
     }
@@ -1296,7 +1802,11 @@ export class ProcessingModel {
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isBandpassFilter(operation)) {
       return;
     }
@@ -1314,7 +1824,11 @@ export class ProcessingModel {
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isPhaseRotation(operation)) {
       return;
     }
@@ -1332,7 +1846,11 @@ export class ProcessingModel {
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isVolumeArithmetic(operation)) {
       return;
     }
@@ -1345,12 +1863,16 @@ export class ProcessingModel {
 
   setSelectedVolumeArithmeticSecondaryStorePath = (value: string): void => {
     const selected = this.selectedOperation;
-    if (!selected || !isVolumeArithmetic(selected)) {
+    if (!selected || isCropSubvolume(selected) || !isVolumeArithmetic(selected)) {
       return;
     }
 
     const next = clonePipeline(this.pipeline);
-    const operation = next.operations[this.selectedStepIndex];
+    const selectedIndex = this.selectedTraceOperationIndex();
+    if (selectedIndex === null) {
+      return;
+    }
+    const operation = next.operations[selectedIndex];
     if (!isVolumeArithmetic(operation)) {
       return;
     }
@@ -1361,8 +1883,36 @@ export class ProcessingModel {
     this.invalidatePreview();
   };
 
+  setSelectedSubvolumeCropBound = (
+    bound:
+      | "inline_min"
+      | "inline_max"
+      | "xline_min"
+      | "xline_max"
+      | "z_min_ms"
+      | "z_max_ms",
+    value: number
+  ): void => {
+    const selected = this.selectedOperation;
+    if (!selected || !isCropSubvolume(selected) || !Number.isFinite(value)) {
+      return;
+    }
+
+    const nextCrop = {
+      ...selected.crop_subvolume,
+      [bound]: value
+    };
+    this.updateActiveSessionPipeline(
+      clonePipeline(this.pipeline),
+      nextCrop,
+      this.normalizedSubvolumeCropDisplayIndex,
+      []
+    );
+    this.invalidatePreview();
+  };
+
   replacePipeline = (pipeline: ProcessingPipeline): void => {
-    this.updateActiveSessionPipeline(clonePipeline(pipeline), []);
+    this.updateActiveSessionPipeline(clonePipeline(pipeline), null, null, []);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.invalidatePreview();
@@ -1375,6 +1925,11 @@ export class ProcessingModel {
   };
 
   savePreset = async (): Promise<void> => {
+    if (this.subvolumeCrop) {
+      this.error = "Crop Subvolume pipelines cannot be saved as library templates.";
+      this.viewerModel.note("Failed to save library template.", "ui", "warn", this.error);
+      return;
+    }
     const presetId =
       normalizePresetId(this.pipeline.preset_id ?? this.pipeline.name ?? `pipeline-${++this.#presetCounter}`) ||
       `pipeline-${++this.#presetCounter}`;
@@ -1423,22 +1978,77 @@ export class ProcessingModel {
 
     this.previewBusy = true;
     this.error = null;
+    const previewStartedMs = nowMs();
+    const section = {
+      dataset_id: this.viewerModel.dataset.descriptor.id,
+      axis: this.viewerModel.axis,
+      index: this.viewerModel.index
+    };
+    const storePath = this.viewerModel.activeStorePath;
+    const operatorIds = previewOperationIds(this.pipeline);
+    const previewMode = this.subvolumeCrop ? "subvolume" : "trace_local";
     try {
-      const request: PreviewProcessingRequest = {
-        schema_version: 1,
-        store_path: this.viewerModel.activeStorePath,
-        section: {
-          dataset_id: this.viewerModel.dataset.descriptor.id,
-          axis: this.viewerModel.axis,
-          index: this.viewerModel.index
-        },
-        pipeline: clonePipeline(this.pipeline)
-      };
-      const response = await previewProcessing(request);
+      const response = this.subvolumeCrop
+        ? await previewSubvolumeProcessing({
+            schema_version: 1,
+            store_path: storePath,
+            section,
+            pipeline: buildSubvolumeProcessingPipeline(this.pipeline, this.subvolumeCrop)
+          } satisfies PreviewSubvolumeProcessingRequest)
+        : await previewProcessing({
+            schema_version: 1,
+            store_path: storePath,
+            section,
+            pipeline: clonePipeline(this.pipeline)
+          } satisfies PreviewProcessingRequest);
+      const previewResolvedMs = nowMs();
       this.previewSection = response.preview.section;
+      const stateAssignedMs = nowMs();
       this.previewState = "preview";
       this.previewLabel = response.preview.processing_label;
       this.previewedSectionKey = sectionKey(this.viewerModel);
+      await tick();
+      const afterTickMs = nowMs();
+      await nextAnimationFrame();
+      const afterFirstFrameMs = nowMs();
+      await nextAnimationFrame();
+      const afterSecondFrameMs = nowMs();
+      const previewSection = response.preview.section;
+      void emitFrontendDiagnosticsEvent({
+        stage: "preview_current_section",
+        level: "info",
+        message: "Frontend preview pipeline timings recorded",
+        fields: {
+          previewMode,
+          storePath,
+          datasetId: section.dataset_id,
+          axis: section.axis,
+          index: section.index,
+          pipelineRevision: this.pipeline.revision,
+          pipelineName: pipelineName(this.pipeline),
+          operatorCount: operatorIds.length,
+          operatorIds,
+          previewReady: response.preview.preview_ready,
+          processingLabel: response.preview.processing_label,
+          traces: previewSection.traces,
+          samples: previewSection.samples,
+          payloadBytes: estimateSectionPayloadBytes(previewSection),
+          frontendAwaitMs: previewResolvedMs - previewStartedMs,
+          frontendStateAssignMs: stateAssignedMs - previewResolvedMs,
+          frontendTickMs: afterTickMs - stateAssignedMs,
+          frontendFirstFrameMs: afterFirstFrameMs - afterTickMs,
+          frontendSecondFrameMs: afterSecondFrameMs - afterFirstFrameMs,
+          frontendCommitToSecondFrameMs: afterSecondFrameMs - stateAssignedMs,
+          frontendTotalMs: afterSecondFrameMs - previewStartedMs
+        }
+      }).catch((error) => {
+        this.viewerModel.note(
+          "Failed to record frontend preview timings.",
+          "backend",
+          "warn",
+          error instanceof Error ? error.message : String(error)
+        );
+      });
       this.viewerModel.note("Processing preview generated.", "backend", "info", this.previewLabel);
     } catch (error) {
       this.error = errorMessage(error, "Failed to preview processing pipeline.");
@@ -1473,7 +2083,9 @@ export class ProcessingModel {
       const rawResponse = await fetchAmplitudeSpectrum(baseRequest);
       this.rawSpectrum = rawResponse;
 
-      if (this.hasOperations) {
+      if (this.subvolumeCrop) {
+        this.processedSpectrum = null;
+      } else if (this.hasOperations) {
         this.processedSpectrum = await fetchAmplitudeSpectrum({
           ...baseRequest,
           pipeline: clonePipeline(this.pipeline)
@@ -1508,7 +2120,12 @@ export class ProcessingModel {
       const outputStorePath =
         this.runOutputPathMode === "custom"
           ? this.customRunOutputPath.trim()
-          : await defaultProcessingStorePath(this.viewerModel.activeStorePath, this.pipeline);
+          : this.subvolumeCrop
+            ? await defaultSubvolumeProcessingStorePath(
+                this.viewerModel.activeStorePath,
+                buildSubvolumeProcessingPipeline(this.pipeline, this.subvolumeCrop)
+              )
+            : await defaultProcessingStorePath(this.viewerModel.activeStorePath, this.pipeline);
       if (!outputStorePath) {
         this.error = "Select an output runtime store path before running the full volume.";
         this.runBusy = false;
@@ -1526,7 +2143,12 @@ export class ProcessingModel {
           const outputStorePath =
             this.resolvedRunOutputPath ??
             (this.viewerModel.activeStorePath
-              ? await defaultProcessingStorePath(this.viewerModel.activeStorePath, this.pipeline)
+              ? this.subvolumeCrop
+                ? await defaultSubvolumeProcessingStorePath(
+                    this.viewerModel.activeStorePath,
+                    buildSubvolumeProcessingPipeline(this.pipeline, this.subvolumeCrop)
+                  )
+                : await defaultProcessingStorePath(this.viewerModel.activeStorePath, this.pipeline)
               : null);
           if (outputStorePath) {
             try {
@@ -1625,6 +2247,10 @@ export class ProcessingModel {
       case "v":
         event.preventDefault();
         this.addVolumeArithmeticAfterSelected();
+        break;
+      case "c":
+        event.preventDefault();
+        this.addCropSubvolumeAfterSelected();
         break;
       case "x":
       case "Delete":
@@ -1741,16 +2367,19 @@ export class ProcessingModel {
   private async refreshDefaultRunOutputPath(
     activeStorePath: string,
     pipeline: ProcessingPipeline,
+    subvolumeCrop: SubvolumeCropOperation | null,
     signature: string
   ): Promise<void> {
     const requestId = ++this.#runOutputPathRequestId;
     this.resolvingRunOutputPath = true;
     try {
-      const nextPath = await defaultProcessingStorePath(activeStorePath, pipeline);
+      const nextPath = subvolumeCrop
+        ? await defaultSubvolumeProcessingStorePath(activeStorePath, buildSubvolumeProcessingPipeline(pipeline, subvolumeCrop))
+        : await defaultProcessingStorePath(activeStorePath, pipeline);
       if (
         requestId !== this.#runOutputPathRequestId ||
         activeStorePath !== this.viewerModel.activeStorePath ||
-        signature !== pipelineRunOutputSignature(this.pipeline)
+        signature !== workspaceRunOutputSignature(this.pipeline, this.subvolumeCrop)
       ) {
         return;
       }
@@ -1767,22 +2396,50 @@ export class ProcessingModel {
     }
   }
 
+  private scheduleDefaultRunOutputPathRefresh(
+    activeStorePath: string,
+    pipeline: ProcessingPipeline,
+    subvolumeCrop: SubvolumeCropOperation | null,
+    signature: string
+  ): void {
+    if (typeof window === "undefined") {
+      void this.refreshDefaultRunOutputPath(activeStorePath, pipeline, subvolumeCrop, signature);
+      return;
+    }
+
+    if (this.#runOutputPathRefreshTimer !== null) {
+      window.clearTimeout(this.#runOutputPathRefreshTimer);
+    }
+
+    this.#runOutputPathRefreshTimer = window.setTimeout(() => {
+      this.#runOutputPathRefreshTimer = null;
+      void this.refreshDefaultRunOutputPath(activeStorePath, pipeline, subvolumeCrop, signature);
+    }, RUN_OUTPUT_PATH_REFRESH_DEBOUNCE_MS);
+  }
+
   private async startRunOnVolume(outputStorePath: string, overwriteExisting: boolean): Promise<void> {
     if (!this.viewerModel.activeStorePath) {
       throw new Error("Open a dataset before running processing on the full volume.");
     }
 
-    const request: RunProcessingRequest = {
-      schema_version: 1,
-      store_path: this.viewerModel.activeStorePath,
-      output_store_path: outputStorePath,
-      overwrite_existing: overwriteExisting,
-      checkpoints: this.checkpointAfterOperationIndexes.map((after_operation_index) => ({
-        after_operation_index
-      })),
-      pipeline: clonePipeline(this.pipeline)
-    };
-    const response = await runProcessing(request);
+    const response = this.subvolumeCrop
+      ? await runSubvolumeProcessing({
+          schema_version: 1,
+          store_path: this.viewerModel.activeStorePath,
+          output_store_path: outputStorePath,
+          overwrite_existing: overwriteExisting,
+          pipeline: buildSubvolumeProcessingPipeline(this.pipeline, this.subvolumeCrop)
+        } satisfies RunSubvolumeProcessingRequest)
+      : await runProcessing({
+          schema_version: 1,
+          store_path: this.viewerModel.activeStorePath,
+          output_store_path: outputStorePath,
+          overwrite_existing: overwriteExisting,
+          checkpoints: this.checkpointAfterOperationIndexes.map((after_operation_index) => ({
+            after_operation_index
+          })),
+          pipeline: clonePipeline(this.pipeline)
+        } satisfies RunProcessingRequest);
     this.activeJob = response.job;
     this.viewerModel.note(
       "Started full-volume processing job.",
@@ -1794,7 +2451,11 @@ export class ProcessingModel {
   }
 }
 
-export function describeOperation(operation: ProcessingOperation): string {
+export function describeOperation(operation: WorkspaceOperation): string {
+  if (isCropSubvolume(operation)) {
+    const { inline_min, inline_max, xline_min, xline_max, z_min_ms, z_max_ms } = operation.crop_subvolume;
+    return `crop subvolume (IL ${inline_min}-${inline_max}, XL ${xline_min}-${xline_max}, Z ${z_min_ms}-${z_max_ms} ms)`;
+  }
   if (isAmplitudeScalar(operation)) {
     return `amplitude scalar (${operation.amplitude_scalar.factor})`;
   }
@@ -1822,20 +2483,26 @@ export function describeOperation(operation: ProcessingOperation): string {
   return "trace RMS normalize";
 }
 
+export function isCropSubvolume(
+  operation: WorkspaceOperation | null | undefined
+): operation is { crop_subvolume: SubvolumeCropOperation } {
+  return Boolean(operation && typeof operation === "object" && "crop_subvolume" in operation);
+}
+
 export function isAmplitudeScalar(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is { amplitude_scalar: { factor: number } } {
-  return typeof operation !== "string" && "amplitude_scalar" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "amplitude_scalar" in operation;
 }
 
 export function isAgcRms(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is { agc_rms: { window_ms: number } } {
-  return typeof operation !== "string" && "agc_rms" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "agc_rms" in operation;
 }
 
 export function isBandpassFilter(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is {
   bandpass_filter: {
     f1_hz: number;
@@ -1846,11 +2513,11 @@ export function isBandpassFilter(
     window: "cosine_taper";
   };
 } {
-  return typeof operation !== "string" && "bandpass_filter" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "bandpass_filter" in operation;
 }
 
 export function isLowpassFilter(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is {
   lowpass_filter: {
     f3_hz: number;
@@ -1859,11 +2526,11 @@ export function isLowpassFilter(
     window: "cosine_taper";
   };
 } {
-  return typeof operation !== "string" && "lowpass_filter" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "lowpass_filter" in operation;
 }
 
 export function isHighpassFilter(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is {
   highpass_filter: {
     f1_hz: number;
@@ -1872,28 +2539,28 @@ export function isHighpassFilter(
     window: "cosine_taper";
   };
 } {
-  return typeof operation !== "string" && "highpass_filter" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "highpass_filter" in operation;
 }
 
 export function isPhaseRotation(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is {
   phase_rotation: {
     angle_degrees: number;
   };
 } {
-  return typeof operation !== "string" && "phase_rotation" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "phase_rotation" in operation;
 }
 
 export function isVolumeArithmetic(
-  operation: ProcessingOperation
+  operation: WorkspaceOperation
 ): operation is {
   volume_arithmetic: {
     operator: VolumeArithmeticOperator;
     secondary_store_path: string;
   };
 } {
-  return typeof operation !== "string" && "volume_arithmetic" in operation;
+  return !isCropSubvolume(operation) && typeof operation !== "string" && "volume_arithmetic" in operation;
 }
 
 const [internalGetProcessingModelContext, internalSetProcessingModelContext] =

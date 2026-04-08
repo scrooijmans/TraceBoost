@@ -1,15 +1,13 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type {
-    TraceLocalProcessingOperation as ProcessingOperation,
-    TraceLocalProcessingPipeline as ProcessingPipeline
-  } from "@traceboost/seis-contracts";
-  import type { OperatorCatalogId } from "../processing-model.svelte";
-  import { describeOperation, operatorCatalogItems } from "../processing-model.svelte";
+  import type { OperatorCatalogId, WorkspaceOperation } from "../processing-model.svelte";
+  import { describeOperation, isCropSubvolume, operatorCatalogItems } from "../processing-model.svelte";
 
   let {
-    pipeline,
+    operations,
+    traceLocalOperationCount,
+    hasSubvolumeCrop,
     selectedIndex,
     checkpointAfterOperationIndexes,
     checkpointWarning,
@@ -20,7 +18,9 @@
     onRemove,
     onToggleCheckpoint
   }: {
-    pipeline: ProcessingPipeline;
+    operations: WorkspaceOperation[];
+    traceLocalOperationCount: number;
+    hasSubvolumeCrop: boolean;
     selectedIndex: number;
     checkpointAfterOperationIndexes: number[];
     checkpointWarning: string | null;
@@ -51,7 +51,7 @@
   const showCatalog = $derived(searchFocused || normalizedQuery.length > 0);
   const checkpointIndexSet = $derived(new Set(checkpointAfterOperationIndexes));
 
-  function summary(operation: ProcessingOperation): string {
+  function summary(operation: WorkspaceOperation): string {
     return describeOperation(operation);
   }
 
@@ -111,7 +111,7 @@
     }
 
     const key = event.key.toLowerCase();
-    if (key === "c" && pipeline.operations.length) {
+    if (key === "c" && operations.length) {
       event.preventDefault();
       onCopy();
     }
@@ -155,7 +155,7 @@
   <header class="panel-header">
     <div>
       <h3>Pipeline</h3>
-      <p>{pipeline.operations.length} step{pipeline.operations.length === 1 ? "" : "s"}</p>
+      <p>{operations.length} step{operations.length === 1 ? "" : "s"}</p>
     </div>
     <div class="header-meta">
       <span>{checkpointAfterOperationIndexes.length} checkpoint{checkpointAfterOperationIndexes.length === 1 ? "" : "s"}</span>
@@ -225,7 +225,11 @@
     <div class="checkpoint-warning">{checkpointWarning}</div>
   {/if}
 
-  {#if pipeline.operations.length}
+  {#if hasSubvolumeCrop}
+    <div class="checkpoint-warning">Crop Subvolume can be placed anywhere visually, but it always executes last.</div>
+  {/if}
+
+  {#if operations.length}
     <div
       class="sequence-list"
       role="listbox"
@@ -233,10 +237,10 @@
       onkeydown={handleSequenceKeydown}
       aria-label="Pipeline steps"
     >
-      {#each pipeline.operations as operation, index (`${index}:${summary(operation)}`)}
+      {#each operations as operation, index (`${index}:${summary(operation)}`)}
         {@const label = summary(operation)}
         {@const checkpointArmed = checkpointIndexSet.has(index)}
-        {@const canToggleCheckpoint = index < pipeline.operations.length - 1}
+        {@const canToggleCheckpoint = !hasSubvolumeCrop && index < traceLocalOperationCount - 1}
         <div
           class="sequence-row-shell"
           role="presentation"
@@ -281,6 +285,9 @@
             <span class="step-index">{index + 1}</span>
             <span class="step-copy">
               <strong>{label}</strong>
+              {#if isCropSubvolume(operation)}
+                <span class="step-note">Executes Last</span>
+              {/if}
             </span>
           </button>
           <button
@@ -300,7 +307,7 @@
   {:else}
     <div class="empty-state">
       <p>No operators in the pipeline.</p>
-      <p class="hint">Use the search above to add scalar, normalize, AGC, phase rotation, frequency filters, or volume arithmetic.</p>
+      <p class="hint">Use the search above to add scalar, normalize, AGC, phase rotation, frequency filters, volume arithmetic, or a terminal subvolume crop.</p>
     </div>
   {/if}
 </section>
@@ -313,6 +320,9 @@
     background: #1a1a1a;
     border: 1px solid #2a2a2a;
     overflow: visible;
+    position: relative;
+    isolation: isolate;
+    z-index: 3;
   }
 
   .panel-header {
@@ -411,7 +421,7 @@
     max-height: min(420px, calc(100vh - 180px));
     overflow: auto;
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
-    z-index: 4;
+    z-index: 20;
   }
 
   .catalog-row {
@@ -603,6 +613,13 @@
     flex-shrink: 0;
   }
 
+  .step-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
   .step-copy strong {
     display: block;
     min-width: 0;
@@ -612,6 +629,13 @@
     font-size: 12px;
     font-weight: 500;
     color: #c0c0c0;
+  }
+
+  .step-note {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8acb9e;
   }
 
   .empty-state {

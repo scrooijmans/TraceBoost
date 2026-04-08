@@ -1,3 +1,11 @@
+pub use ophiolite_project::{
+    CoordinateReferenceBindingDto, CoordinateReferenceDto, CoordinateReferenceSourceDto,
+    ProjectedPoint2Dto, ProjectedPolygon2Dto, ProjectedVector2Dto, ResolvedSurveyMapSourceDto,
+    ResolvedSurveyMapSurveyDto, ResolvedSurveyMapWellDto, SurveyIndexAxisDto, SurveyIndexGridDto,
+    SurveyMapGridTransformDto, SurveyMapSpatialAvailabilityDto, SurveyMapSpatialDescriptorDto,
+    SurveyMapTrajectoryDto, SurveyMapTrajectoryStationDto, SurveyMapTransformDiagnosticsDto,
+    SurveyMapTransformPolicyDto, SurveyMapTransformStatusDto,
+};
 pub use ophiolite_seismic::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DatasetSummary, DeletePipelinePresetRequest,
@@ -6,10 +14,13 @@ pub use ophiolite_seismic::{
     ImportDatasetResponse, ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
     ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PrestackThirdAxisField,
     PreviewCommand, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
-    PreviewResponse, PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
-    ProcessingJobArtifact, ProcessingJobArtifactKind, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse,
-    SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis, SuggestedImportAction,
+    PreviewResponse, PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
+    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse, ProcessingJobArtifact,
+    ProcessingJobArtifactKind, RunGatherProcessingRequest, RunGatherProcessingResponse,
+    RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
+    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    SectionAxis, SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType,
+    SubvolumeCropOperation, SubvolumeProcessingPipeline, SuggestedImportAction,
     SurveyPreflightRequest, SurveyPreflightResponse, TraceLocalProcessingCheckpoint,
     VelocityAutopickParameters, VelocityFunctionEstimate, VelocityFunctionSource,
     VelocityPickStrategy, VelocityScanRequest, VelocityScanResponse,
@@ -35,6 +46,10 @@ pub enum DatasetRegistryStatus {
 pub struct WorkspacePipelineEntry {
     pub pipeline_id: String,
     pub pipeline: TraceLocalProcessingPipeline,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subvolume_crop: Option<SubvolumeCropOperation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subvolume_crop_display_index: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checkpoint_after_operation_indexes: Vec<usize>,
     #[ts(type = "number")]
@@ -68,6 +83,7 @@ pub struct WorkspaceSession {
     pub active_axis: SectionAxis,
     pub active_index: usize,
     pub selected_preset_id: Option<String>,
+    pub display_coordinate_reference_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
@@ -142,6 +158,7 @@ pub struct SaveWorkspaceSessionRequest {
     pub active_axis: SectionAxis,
     pub active_index: usize,
     pub selected_preset_id: Option<String>,
+    pub display_coordinate_reference_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
@@ -149,6 +166,37 @@ pub struct SaveWorkspaceSessionRequest {
 pub struct SaveWorkspaceSessionResponse {
     pub schema_version: u32,
     pub session: WorkspaceSession,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SetDatasetNativeCoordinateReferenceRequest {
+    pub schema_version: u32,
+    pub store_path: String,
+    pub coordinate_reference_id: Option<String>,
+    pub coordinate_reference_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SetDatasetNativeCoordinateReferenceResponse {
+    pub schema_version: u32,
+    pub dataset: DatasetSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ResolveSurveyMapRequest {
+    pub schema_version: u32,
+    pub store_path: String,
+    pub display_coordinate_reference_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ResolveSurveyMapResponse {
+    pub schema_version: u32,
+    pub survey_map: ResolvedSurveyMapSourceDto,
 }
 
 pub fn encode_preview_command(command: &PreviewCommand) -> serde_json::Result<String> {

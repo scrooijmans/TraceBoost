@@ -24,14 +24,19 @@ use seis_contracts_interop::{
     IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, ListPipelinePresetsResponse,
     LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
     PreviewGatherProcessingRequest, PreviewGatherProcessingResponse, PreviewResponse,
+    PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
     PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse,
-    SavePipelinePresetRequest, SavePipelinePresetResponse, SaveWorkspaceSessionRequest,
-    SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
-    SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
-    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, WorkspacePipelineEntry,
-    WorkspaceSession,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, ResolveSurveyMapRequest,
+    ResolveSurveyMapResponse, ResolvedSurveyMapSourceDto, RunGatherProcessingRequest,
+    RunGatherProcessingResponse, RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse,
+    RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse, SavePipelinePresetRequest,
+    SavePipelinePresetResponse, SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
+    SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType,
+    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
+    SetDatasetNativeCoordinateReferenceRequest, SetDatasetNativeCoordinateReferenceResponse,
+    SubvolumeCropOperation, SubvolumeProcessingPipeline, SuggestedImportAction,
+    SurveyPreflightRequest, SurveyPreflightResponse, UpsertDatasetEntryRequest,
+    UpsertDatasetEntryResponse, WorkspacePipelineEntry, WorkspaceSession,
 };
 use seis_contracts_views::{
     GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
@@ -93,6 +98,8 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "ProcessingPreset.ts",
         "TraceLocalProcessingOperation.ts",
         "TraceLocalProcessingPipeline.ts",
+        "SubvolumeCropOperation.ts",
+        "SubvolumeProcessingPipeline.ts",
         "TraceLocalProcessingCheckpoint.ts",
         "TraceLocalVolumeArithmeticOperator.ts",
         "GatherProcessingOperation.ts",
@@ -130,6 +137,10 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SemblancePanel.ts",
         "VelocityScanRequest.ts",
         "VelocityScanResponse.ts",
+        "SegyHeaderValueType.ts",
+        "SegyHeaderField.ts",
+        "SegyGeometryOverride.ts",
+        "SegyGeometryCandidate.ts",
         "SuggestedImportAction.ts",
         "DatasetSummary.ts",
         "SurveyPreflightRequest.ts",
@@ -140,14 +151,14 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "OpenDatasetResponse.ts",
         "PreviewCommand.ts",
         "PreviewResponse.ts",
-        "PreviewProcessingRequest.ts",
-        "PreviewProcessingResponse.ts",
         "PreviewTraceLocalProcessingRequest.ts",
         "PreviewTraceLocalProcessingResponse.ts",
-        "RunProcessingRequest.ts",
-        "RunProcessingResponse.ts",
+        "PreviewSubvolumeProcessingRequest.ts",
+        "PreviewSubvolumeProcessingResponse.ts",
         "RunTraceLocalProcessingRequest.ts",
         "RunTraceLocalProcessingResponse.ts",
+        "RunSubvolumeProcessingRequest.ts",
+        "RunSubvolumeProcessingResponse.ts",
         "PreviewGatherProcessingRequest.ts",
         "PreviewGatherProcessingResponse.ts",
         "RunGatherProcessingRequest.ts",
@@ -174,6 +185,11 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SetActiveDatasetEntryResponse.ts",
         "SaveWorkspaceSessionRequest.ts",
         "SaveWorkspaceSessionResponse.ts",
+        "SetDatasetNativeCoordinateReferenceRequest.ts",
+        "SetDatasetNativeCoordinateReferenceResponse.ts",
+        "ResolvedSurveyMapSourceDto.ts",
+        "ResolveSurveyMapRequest.ts",
+        "ResolveSurveyMapResponse.ts",
         "ipc-schema-version.ts",
         "index.ts",
     ] {
@@ -202,6 +218,8 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     AmplitudeSpectrumResponse::export_all_to(output_dir)?;
     TraceLocalProcessingOperation::export_all_to(output_dir)?;
     TraceLocalProcessingPipeline::export_all_to(output_dir)?;
+    SubvolumeCropOperation::export_all_to(output_dir)?;
+    SubvolumeProcessingPipeline::export_all_to(output_dir)?;
     TraceLocalProcessingCheckpoint::export_all_to(output_dir)?;
     TraceLocalVolumeArithmeticOperator::export_all_to(output_dir)?;
     GatherProcessingOperation::export_all_to(output_dir)?;
@@ -239,6 +257,10 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SemblancePanel::export_all_to(output_dir)?;
     VelocityScanRequest::export_all_to(output_dir)?;
     VelocityScanResponse::export_all_to(output_dir)?;
+    SegyHeaderValueType::export_all_to(output_dir)?;
+    SegyHeaderField::export_all_to(output_dir)?;
+    SegyGeometryOverride::export_all_to(output_dir)?;
+    SegyGeometryCandidate::export_all_to(output_dir)?;
     SuggestedImportAction::export_all_to(output_dir)?;
     DatasetSummary::export_all_to(output_dir)?;
     SurveyPreflightRequest::export_all_to(output_dir)?;
@@ -251,8 +273,12 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     PreviewResponse::export_all_to(output_dir)?;
     PreviewTraceLocalProcessingRequest::export_all_to(output_dir)?;
     PreviewTraceLocalProcessingResponse::export_all_to(output_dir)?;
+    PreviewSubvolumeProcessingRequest::export_all_to(output_dir)?;
+    PreviewSubvolumeProcessingResponse::export_all_to(output_dir)?;
     RunTraceLocalProcessingRequest::export_all_to(output_dir)?;
     RunTraceLocalProcessingResponse::export_all_to(output_dir)?;
+    RunSubvolumeProcessingRequest::export_all_to(output_dir)?;
+    RunSubvolumeProcessingResponse::export_all_to(output_dir)?;
     PreviewGatherProcessingRequest::export_all_to(output_dir)?;
     PreviewGatherProcessingResponse::export_all_to(output_dir)?;
     RunGatherProcessingRequest::export_all_to(output_dir)?;
@@ -279,6 +305,11 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SetActiveDatasetEntryResponse::export_all_to(output_dir)?;
     SaveWorkspaceSessionRequest::export_all_to(output_dir)?;
     SaveWorkspaceSessionResponse::export_all_to(output_dir)?;
+    SetDatasetNativeCoordinateReferenceRequest::export_all_to(output_dir)?;
+    SetDatasetNativeCoordinateReferenceResponse::export_all_to(output_dir)?;
+    ResolvedSurveyMapSourceDto::export_all_to(output_dir)?;
+    ResolveSurveyMapRequest::export_all_to(output_dir)?;
+    ResolveSurveyMapResponse::export_all_to(output_dir)?;
 
     rewrite_generated_numeric_timestamps(&output_dir.join("TraceLocalProcessingPreset.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
@@ -326,6 +357,8 @@ export type { AmplitudeSpectrumRequest } from "./AmplitudeSpectrumRequest";
 export type { AmplitudeSpectrumResponse } from "./AmplitudeSpectrumResponse";
 export type { TraceLocalProcessingOperation } from "./TraceLocalProcessingOperation";
 export type { TraceLocalProcessingPipeline } from "./TraceLocalProcessingPipeline";
+export type { SubvolumeCropOperation } from "./SubvolumeCropOperation";
+export type { SubvolumeProcessingPipeline } from "./SubvolumeProcessingPipeline";
 export type { TraceLocalProcessingCheckpoint } from "./TraceLocalProcessingCheckpoint";
 export type { TraceLocalVolumeArithmeticOperator } from "./TraceLocalVolumeArithmeticOperator";
 export type { GatherProcessingOperation } from "./GatherProcessingOperation";
@@ -363,6 +396,10 @@ export type { SectionInteractionChanged } from "./SectionInteractionChanged";
 export type { SemblancePanel } from "./SemblancePanel";
 export type { VelocityScanRequest } from "./VelocityScanRequest";
 export type { VelocityScanResponse } from "./VelocityScanResponse";
+export type { SegyHeaderValueType } from "./SegyHeaderValueType";
+export type { SegyHeaderField } from "./SegyHeaderField";
+export type { SegyGeometryOverride } from "./SegyGeometryOverride";
+export type { SegyGeometryCandidate } from "./SegyGeometryCandidate";
 export type { SuggestedImportAction } from "./SuggestedImportAction";
 export type { DatasetSummary } from "./DatasetSummary";
 export type { SurveyPreflightRequest } from "./SurveyPreflightRequest";
@@ -375,8 +412,12 @@ export type { PreviewCommand } from "./PreviewCommand";
 export type { PreviewResponse } from "./PreviewResponse";
 export type { PreviewTraceLocalProcessingRequest } from "./PreviewTraceLocalProcessingRequest";
 export type { PreviewTraceLocalProcessingResponse } from "./PreviewTraceLocalProcessingResponse";
+export type { PreviewSubvolumeProcessingRequest } from "./PreviewSubvolumeProcessingRequest";
+export type { PreviewSubvolumeProcessingResponse } from "./PreviewSubvolumeProcessingResponse";
 export type { RunTraceLocalProcessingRequest } from "./RunTraceLocalProcessingRequest";
 export type { RunTraceLocalProcessingResponse } from "./RunTraceLocalProcessingResponse";
+export type { RunSubvolumeProcessingRequest } from "./RunSubvolumeProcessingRequest";
+export type { RunSubvolumeProcessingResponse } from "./RunSubvolumeProcessingResponse";
 export type { PreviewGatherProcessingRequest } from "./PreviewGatherProcessingRequest";
 export type { PreviewGatherProcessingResponse } from "./PreviewGatherProcessingResponse";
 export type { RunGatherProcessingRequest } from "./RunGatherProcessingRequest";
@@ -403,6 +444,11 @@ export type { SetActiveDatasetEntryRequest } from "./SetActiveDatasetEntryReques
 export type { SetActiveDatasetEntryResponse } from "./SetActiveDatasetEntryResponse";
 export type { SaveWorkspaceSessionRequest } from "./SaveWorkspaceSessionRequest";
 export type { SaveWorkspaceSessionResponse } from "./SaveWorkspaceSessionResponse";
+export type { SetDatasetNativeCoordinateReferenceRequest } from "./SetDatasetNativeCoordinateReferenceRequest";
+export type { SetDatasetNativeCoordinateReferenceResponse } from "./SetDatasetNativeCoordinateReferenceResponse";
+export type { ResolvedSurveyMapSourceDto } from "./ResolvedSurveyMapSourceDto";
+export type { ResolveSurveyMapRequest } from "./ResolveSurveyMapRequest";
+export type { ResolveSurveyMapResponse } from "./ResolveSurveyMapResponse";
 export { IPC_SCHEMA_VERSION } from "./ipc-schema-version";
 "#;
 
@@ -436,6 +482,8 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "AmplitudeSpectrumResponse": schema_for!(AmplitudeSpectrumResponse),
             "TraceLocalProcessingOperation": schema_for!(TraceLocalProcessingOperation),
             "TraceLocalProcessingPipeline": schema_for!(TraceLocalProcessingPipeline),
+            "SubvolumeCropOperation": schema_for!(SubvolumeCropOperation),
+            "SubvolumeProcessingPipeline": schema_for!(SubvolumeProcessingPipeline),
             "TraceLocalProcessingCheckpoint": schema_for!(TraceLocalProcessingCheckpoint),
             "TraceLocalVolumeArithmeticOperator": schema_for!(TraceLocalVolumeArithmeticOperator),
             "GatherProcessingOperation": schema_for!(GatherProcessingOperation),
@@ -473,6 +521,10 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SemblancePanel": schema_for!(SemblancePanel),
             "VelocityScanRequest": schema_for!(VelocityScanRequest),
             "VelocityScanResponse": schema_for!(VelocityScanResponse),
+            "SegyHeaderValueType": schema_for!(SegyHeaderValueType),
+            "SegyHeaderField": schema_for!(SegyHeaderField),
+            "SegyGeometryOverride": schema_for!(SegyGeometryOverride),
+            "SegyGeometryCandidate": schema_for!(SegyGeometryCandidate),
             "SuggestedImportAction": schema_for!(SuggestedImportAction),
             "DatasetSummary": schema_for!(DatasetSummary),
             "SurveyPreflightRequest": schema_for!(SurveyPreflightRequest),
@@ -485,8 +537,12 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "PreviewResponse": schema_for!(PreviewResponse),
             "PreviewTraceLocalProcessingRequest": schema_for!(PreviewTraceLocalProcessingRequest),
             "PreviewTraceLocalProcessingResponse": schema_for!(PreviewTraceLocalProcessingResponse),
+            "PreviewSubvolumeProcessingRequest": schema_for!(PreviewSubvolumeProcessingRequest),
+            "PreviewSubvolumeProcessingResponse": schema_for!(PreviewSubvolumeProcessingResponse),
             "RunTraceLocalProcessingRequest": schema_for!(RunTraceLocalProcessingRequest),
             "RunTraceLocalProcessingResponse": schema_for!(RunTraceLocalProcessingResponse),
+            "RunSubvolumeProcessingRequest": schema_for!(RunSubvolumeProcessingRequest),
+            "RunSubvolumeProcessingResponse": schema_for!(RunSubvolumeProcessingResponse),
             "PreviewGatherProcessingRequest": schema_for!(PreviewGatherProcessingRequest),
             "PreviewGatherProcessingResponse": schema_for!(PreviewGatherProcessingResponse),
             "RunGatherProcessingRequest": schema_for!(RunGatherProcessingRequest),
@@ -513,6 +569,11 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SetActiveDatasetEntryResponse": schema_for!(SetActiveDatasetEntryResponse),
             "SaveWorkspaceSessionRequest": schema_for!(SaveWorkspaceSessionRequest),
             "SaveWorkspaceSessionResponse": schema_for!(SaveWorkspaceSessionResponse),
+            "SetDatasetNativeCoordinateReferenceRequest": schema_for!(SetDatasetNativeCoordinateReferenceRequest),
+            "SetDatasetNativeCoordinateReferenceResponse": schema_for!(SetDatasetNativeCoordinateReferenceResponse),
+            "ResolvedSurveyMapSourceDto": schema_for!(ResolvedSurveyMapSourceDto),
+            "ResolveSurveyMapRequest": schema_for!(ResolveSurveyMapRequest),
+            "ResolveSurveyMapResponse": schema_for!(ResolveSurveyMapResponse),
         }
     });
 

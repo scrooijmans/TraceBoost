@@ -1,4 +1,6 @@
 use std::{
+    cmp::Reverse,
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -8,43 +10,107 @@ use seis_contracts_interop::{
     GatherRequest, GatherView, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
     ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse, OpenDatasetRequest,
     OpenDatasetResponse, PrestackThirdAxisField, PreviewGatherProcessingRequest,
-    PreviewGatherProcessingResponse, PreviewTraceLocalProcessingRequest,
-    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest,
-    RunTraceLocalProcessingRequest, SuggestedImportAction, SurveyPreflightRequest,
-    SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse,
+    PreviewGatherProcessingResponse, PreviewSubvolumeProcessingRequest,
+    PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest, RunSubvolumeProcessingRequest,
+    RunTraceLocalProcessingRequest, SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField,
+    SegyHeaderValueType, SubvolumeProcessingPipeline, SuggestedImportAction,
+    SurveyPreflightRequest, SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest,
+    VelocityScanResponse,
 };
 use seis_io::HeaderField;
 use seis_runtime::{
     GatherInterpolationMode, IngestOptions, MaterializeOptions, PreviewView, SeisGeometryOptions,
     SparseSurveyPolicy, TraceLocalProcessingPipeline, amplitude_spectrum_from_store,
     describe_prestack_store, describe_store, ingest_prestack_offset_segy, ingest_segy,
-    materialize_gather_processing_store, materialize_processing_volume, open_prestack_store,
-    open_store, preflight_segy, prestack_gather_view, preview_gather_processing_view,
-    preview_processing_section_view, velocity_scan,
+    materialize_gather_processing_store, materialize_processing_volume,
+    materialize_subvolume_processing_volume, open_prestack_store, open_store, preflight_segy,
+    prestack_gather_view, preview_gather_processing_view, preview_processing_section_view,
+    preview_subvolume_processing_section_view, velocity_scan,
 };
 
 const DEFAULT_SPARSE_FILL_VALUE: f32 = 0.0;
 
+#[derive(Debug, Clone)]
+struct GeometryCandidateSpec {
+    label: &'static str,
+    inline: (u16, SegyHeaderValueType),
+    crossline: (u16, SegyHeaderValueType),
+}
+
+const GEOMETRY_CANDIDATE_SPECS: [GeometryCandidateSpec; 7] = [
+    GeometryCandidateSpec {
+        label: "Legacy EP / trace-in-record (17/13)",
+        inline: (17, SegyHeaderValueType::I32),
+        crossline: (13, SegyHeaderValueType::I32),
+    },
+    GeometryCandidateSpec {
+        label: "CDP / trace-in-record (21/13)",
+        inline: (21, SegyHeaderValueType::I32),
+        crossline: (13, SegyHeaderValueType::I32),
+    },
+    GeometryCandidateSpec {
+        label: "EP / trace-sequence-file (17/9)",
+        inline: (17, SegyHeaderValueType::I32),
+        crossline: (9, SegyHeaderValueType::I32),
+    },
+    GeometryCandidateSpec {
+        label: "CDP / trace-sequence-file (21/9)",
+        inline: (21, SegyHeaderValueType::I32),
+        crossline: (9, SegyHeaderValueType::I32),
+    },
+    GeometryCandidateSpec {
+        label: "Trace-sequence-file / trace-in-record (9/13)",
+        inline: (9, SegyHeaderValueType::I32),
+        crossline: (13, SegyHeaderValueType::I32),
+    },
+    GeometryCandidateSpec {
+        label: "Trace-sequence-line / trace-in-record (1/13)",
+        inline: (1, SegyHeaderValueType::I32),
+        crossline: (13, SegyHeaderValueType::I32),
+    },
+    GeometryCandidateSpec {
+        label: "Trace-sequence-line / trace-sequence-file (1/9)",
+        inline: (1, SegyHeaderValueType::I32),
+        crossline: (9, SegyHeaderValueType::I32),
+    },
+];
+
+fn materialize_options_for_store(
+    input_store_path: &str,
+) -> Result<MaterializeOptions, Box<dyn std::error::Error>> {
+    let chunk_shape = open_store(input_store_path)?.manifest.tile_shape;
+    Ok(MaterializeOptions {
+        chunk_shape,
+        ..MaterializeOptions::default()
+    })
+}
+
 pub fn preflight_dataset(
     request: SurveyPreflightRequest,
 ) -> Result<SurveyPreflightResponse, Box<dyn std::error::Error>> {
-    let preflight = preflight_segy(&request.input_path, &IngestOptions::default())?;
-    Ok(SurveyPreflightResponse {
-        schema_version: IPC_SCHEMA_VERSION,
-        input_path: request.input_path,
-        trace_count: preflight.inspection.trace_count,
-        samples_per_trace: preflight.inspection.samples_per_trace as usize,
-        classification: preflight.geometry.classification,
-        stacking_state: preflight.geometry.stacking_state,
-        organization: preflight.geometry.organization,
-        layout: preflight.geometry.layout,
-        gather_axis_kind: preflight.geometry.gather_axis_kind,
-        suggested_action: suggested_action(preflight.recommended_action),
-        observed_trace_count: preflight.geometry.observed_trace_count,
-        expected_trace_count: preflight.geometry.expected_trace_count,
-        completeness_ratio: preflight.geometry.completeness_ratio,
-        notes: preflight.notes,
-    })
+    let geometry_override = request.geometry_override.clone();
+    let input_path = request.input_path.clone();
+    let preflight = preflight_segy(
+        &request.input_path,
+        &ingest_options_from_geometry_override(geometry_override.as_ref()),
+    )?;
+    let candidates = if geometry_override.is_none()
+        && matches!(
+            preflight.recommended_action,
+            seis_runtime::PreflightAction::ReviewGeometryMapping
+        ) {
+        discover_geometry_candidates(&request.input_path, &preflight)
+    } else {
+        Vec::new()
+    };
+    let suggested_geometry_override = preferred_geometry_override(&candidates);
+    Ok(preflight_response(
+        input_path,
+        &preflight,
+        suggested_geometry_override,
+        candidates,
+    ))
 }
 
 pub fn import_dataset(
@@ -57,6 +123,7 @@ pub fn import_dataset(
         &input,
         &output,
         IngestOptions {
+            geometry: geometry_override_to_seis_options(request.geometry_override.as_ref()),
             sparse_survey_policy: SparseSurveyPolicy::RegularizeToDense {
                 fill_value: DEFAULT_SPARSE_FILL_VALUE,
             },
@@ -156,7 +223,29 @@ pub fn preview_processing(
         schema_version: IPC_SCHEMA_VERSION,
         preview: PreviewView {
             section,
-            processing_label: processing_label(&request.pipeline),
+            processing_label: preview_processing_label(&request.pipeline),
+            preview_ready: true,
+        },
+        pipeline: request.pipeline,
+    })
+}
+
+pub fn preview_subvolume_processing(
+    request: PreviewSubvolumeProcessingRequest,
+) -> Result<PreviewSubvolumeProcessingResponse, Box<dyn std::error::Error>> {
+    let handle = open_store(&request.store_path)?;
+    ensure_dataset_matches(&handle, &request.section.dataset_id.0)?;
+    let section = preview_subvolume_processing_section_view(
+        &request.store_path,
+        request.section.axis,
+        request.section.index,
+        &request.pipeline,
+    )?;
+    Ok(PreviewSubvolumeProcessingResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        preview: PreviewView {
+            section,
+            processing_label: preview_subvolume_processing_label(&request.pipeline),
             preview_ready: true,
         },
         pipeline: request.pipeline,
@@ -186,11 +275,34 @@ pub fn apply_processing(
         .map(PathBuf::from)
         .unwrap_or_else(|| default_output_store_path(&request.store_path, &pipeline));
     prepare_processing_output_store(&output_store, request.overwrite_existing)?;
+    let materialize_options = materialize_options_for_store(&request.store_path)?;
     let derived = materialize_processing_volume(
         &request.store_path,
         &output_store,
         &pipeline,
-        MaterializeOptions::default(),
+        materialize_options,
+    )?;
+    Ok(DatasetSummary {
+        store_path: derived.root.to_string_lossy().into_owned(),
+        descriptor: handle_for_summary(&derived)?,
+    })
+}
+
+pub fn apply_subvolume_processing(
+    request: RunSubvolumeProcessingRequest,
+) -> Result<DatasetSummary, Box<dyn std::error::Error>> {
+    let pipeline = request.pipeline;
+    let output_store = request
+        .output_store_path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_subvolume_output_store_path(&request.store_path, &pipeline));
+    prepare_processing_output_store(&output_store, request.overwrite_existing)?;
+    let materialize_options = materialize_options_for_store(&request.store_path)?;
+    let derived = materialize_subvolume_processing_volume(
+        &request.store_path,
+        &output_store,
+        &pipeline,
+        materialize_options,
     )?;
     Ok(DatasetSummary {
         store_path: derived.root.to_string_lossy().into_owned(),
@@ -234,7 +346,7 @@ pub fn amplitude_spectrum(
         selection: request.selection,
         sample_interval_ms: handle.volume_descriptor().sample_interval_ms,
         curve,
-        processing_label: request.pipeline.as_ref().map(processing_label),
+        processing_label: request.pipeline.as_ref().map(preview_processing_label),
     })
 }
 
@@ -258,6 +370,21 @@ pub fn default_output_store_path(
         .filter(|value| !value.is_empty())
         .unwrap_or("dataset");
     let suffix = pipeline_slug(pipeline);
+    parent.join(format!("{stem}.{suffix}.tbvol"))
+}
+
+pub fn default_subvolume_output_store_path(
+    input_store_path: impl AsRef<Path>,
+    pipeline: &SubvolumeProcessingPipeline,
+) -> PathBuf {
+    let input_store_path = input_store_path.as_ref();
+    let parent = input_store_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = input_store_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("dataset");
+    let suffix = subvolume_pipeline_slug(pipeline);
     parent.join(format!("{stem}.{suffix}.tbvol"))
 }
 
@@ -313,6 +440,250 @@ fn suggested_action(action: seis_runtime::PreflightAction) -> SuggestedImportAct
     }
 }
 
+fn preflight_response(
+    input_path: String,
+    preflight: &seis_runtime::SurveyPreflight,
+    suggested_geometry_override: Option<SegyGeometryOverride>,
+    geometry_candidates: Vec<SegyGeometryCandidate>,
+) -> SurveyPreflightResponse {
+    let mut notes = preflight.notes.clone();
+    if !geometry_candidates.is_empty() {
+        notes.push("TraceBoost found one or more alternate header mappings that may allow import without manual SEG-Y repair.".to_string());
+    }
+    if suggested_geometry_override.is_some() {
+        notes.push(
+            "A single high-confidence alternate mapping was detected; review it before import."
+                .to_string(),
+        );
+    }
+
+    SurveyPreflightResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        input_path,
+        trace_count: preflight.inspection.trace_count,
+        samples_per_trace: preflight.inspection.samples_per_trace as usize,
+        classification: preflight.geometry.classification.clone(),
+        stacking_state: preflight.geometry.stacking_state.clone(),
+        organization: preflight.geometry.organization.clone(),
+        layout: preflight.geometry.layout.clone(),
+        gather_axis_kind: preflight.geometry.gather_axis_kind.clone(),
+        suggested_action: suggested_action(preflight.recommended_action),
+        observed_trace_count: preflight.geometry.observed_trace_count,
+        expected_trace_count: preflight.geometry.expected_trace_count,
+        completeness_ratio: preflight.geometry.completeness_ratio,
+        resolved_geometry: geometry_override_from_preflight(preflight),
+        suggested_geometry_override,
+        geometry_candidates,
+        notes,
+    }
+}
+
+fn discover_geometry_candidates(
+    input_path: &str,
+    baseline: &seis_runtime::SurveyPreflight,
+) -> Vec<SegyGeometryCandidate> {
+    let baseline_geometry = geometry_override_from_preflight(baseline);
+    let mut seen = HashSet::new();
+    let mut candidates = Vec::new();
+
+    for spec in GEOMETRY_CANDIDATE_SPECS {
+        let geometry = SegyGeometryOverride {
+            inline_3d: Some(SegyHeaderField {
+                start_byte: spec.inline.0,
+                value_type: spec.inline.1.clone(),
+            }),
+            crossline_3d: Some(SegyHeaderField {
+                start_byte: spec.crossline.0,
+                value_type: spec.crossline.1.clone(),
+            }),
+            third_axis: None,
+        };
+        if geometry == baseline_geometry {
+            continue;
+        }
+
+        let preflight = match preflight_segy(
+            input_path,
+            &ingest_options_from_geometry_override(Some(&geometry)),
+        ) {
+            Ok(preflight) => preflight,
+            Err(_) => continue,
+        };
+
+        let action = suggested_action(preflight.recommended_action);
+        if !matches!(
+            action,
+            SuggestedImportAction::DirectDenseIngest
+                | SuggestedImportAction::RegularizeSparseSurvey
+        ) {
+            continue;
+        }
+        if !is_plausible_geometry_candidate(&preflight) {
+            continue;
+        }
+
+        let geometry_key = (
+            preflight.geometry.inline_field.start_byte,
+            preflight.geometry.inline_field.value_type.clone(),
+            preflight.geometry.crossline_field.start_byte,
+            preflight.geometry.crossline_field.value_type.clone(),
+            preflight
+                .geometry
+                .third_axis_field
+                .as_ref()
+                .map(|field| (field.start_byte, field.value_type.clone())),
+        );
+        if !seen.insert(geometry_key) {
+            continue;
+        }
+
+        candidates.push(SegyGeometryCandidate {
+            label: spec.label.to_string(),
+            geometry: geometry_override_from_preflight(&preflight),
+            classification: preflight.geometry.classification.clone(),
+            stacking_state: preflight.geometry.stacking_state.clone(),
+            organization: preflight.geometry.organization.clone(),
+            layout: preflight.geometry.layout.clone(),
+            gather_axis_kind: preflight.geometry.gather_axis_kind.clone(),
+            suggested_action: action,
+            inline_count: preflight.geometry.inline_count,
+            crossline_count: preflight.geometry.crossline_count,
+            third_axis_count: preflight.geometry.third_axis_count,
+            observed_trace_count: preflight.geometry.observed_trace_count,
+            expected_trace_count: preflight.geometry.expected_trace_count,
+            completeness_ratio: preflight.geometry.completeness_ratio,
+            auto_selectable: is_high_confidence_dense_candidate(&preflight),
+            notes: preflight.notes.clone(),
+        });
+    }
+
+    candidates.sort_by_key(|candidate| {
+        (
+            Reverse(geometry_candidate_rank(candidate)),
+            Reverse(
+                candidate
+                    .inline_count
+                    .saturating_mul(candidate.crossline_count),
+            ),
+            candidate.label.clone(),
+        )
+    });
+    candidates
+}
+
+fn geometry_candidate_rank(candidate: &SegyGeometryCandidate) -> usize {
+    let action_score = match candidate.suggested_action {
+        SuggestedImportAction::DirectDenseIngest => 3,
+        SuggestedImportAction::RegularizeSparseSurvey => 2,
+        SuggestedImportAction::ReviewGeometryMapping => 1,
+        SuggestedImportAction::UnsupportedInV1 => 0,
+    };
+    let auto_score = usize::from(candidate.auto_selectable);
+    let axis_balance_score = candidate
+        .inline_count
+        .min(candidate.crossline_count)
+        .min(10_000);
+    (action_score * 10_000)
+        + (auto_score * 1_000)
+        + axis_balance_score
+        + ((candidate.completeness_ratio * 100.0).round() as usize)
+}
+
+fn preferred_geometry_override(
+    candidates: &[SegyGeometryCandidate],
+) -> Option<SegyGeometryOverride> {
+    let mut auto_candidates = candidates
+        .iter()
+        .filter(|candidate| candidate.auto_selectable);
+    let first = auto_candidates.next()?;
+    if auto_candidates.next().is_some() {
+        return None;
+    }
+    Some(first.geometry.clone())
+}
+
+fn is_high_confidence_dense_candidate(preflight: &seis_runtime::SurveyPreflight) -> bool {
+    matches!(
+        preflight.recommended_action,
+        seis_runtime::PreflightAction::DirectDenseIngest
+    ) && preflight.geometry.observed_trace_count == preflight.geometry.expected_trace_count
+        && preflight.geometry.inline_count > 1
+        && preflight.geometry.crossline_count > 1
+}
+
+fn is_plausible_geometry_candidate(preflight: &seis_runtime::SurveyPreflight) -> bool {
+    preflight.geometry.inline_count > 1 && preflight.geometry.crossline_count > 1
+}
+
+fn ingest_options_from_geometry_override(
+    geometry_override: Option<&SegyGeometryOverride>,
+) -> IngestOptions {
+    IngestOptions {
+        geometry: geometry_override_to_seis_options(geometry_override),
+        ..IngestOptions::default()
+    }
+}
+
+fn geometry_override_to_seis_options(
+    geometry_override: Option<&SegyGeometryOverride>,
+) -> SeisGeometryOptions {
+    let mut geometry = SeisGeometryOptions::default();
+    if let Some(geometry_override) = geometry_override {
+        geometry.header_mapping.inline_3d = geometry_override
+            .inline_3d
+            .as_ref()
+            .map(|field| contract_header_field_to_runtime("INLINE_3D", field));
+        geometry.header_mapping.crossline_3d = geometry_override
+            .crossline_3d
+            .as_ref()
+            .map(|field| contract_header_field_to_runtime("CROSSLINE_3D", field));
+        geometry.third_axis_field = geometry_override
+            .third_axis
+            .as_ref()
+            .map(|field| contract_header_field_to_runtime("THIRD_AXIS", field));
+    }
+    geometry
+}
+
+fn contract_header_field_to_runtime(name: &'static str, field: &SegyHeaderField) -> HeaderField {
+    match field.value_type {
+        SegyHeaderValueType::I16 => HeaderField::new_i16(name, field.start_byte),
+        SegyHeaderValueType::I32 => HeaderField::new_i32(name, field.start_byte),
+    }
+}
+
+fn geometry_override_from_preflight(
+    preflight: &seis_runtime::SurveyPreflight,
+) -> SegyGeometryOverride {
+    SegyGeometryOverride {
+        inline_3d: Some(contract_header_field_from_spec(
+            &preflight.geometry.inline_field,
+        )),
+        crossline_3d: Some(contract_header_field_from_spec(
+            &preflight.geometry.crossline_field,
+        )),
+        third_axis: preflight
+            .geometry
+            .third_axis_field
+            .as_ref()
+            .map(contract_header_field_from_spec),
+    }
+}
+
+fn contract_header_field_from_spec(spec: &seis_runtime::HeaderFieldSpec) -> SegyHeaderField {
+    SegyHeaderField {
+        start_byte: spec.start_byte,
+        value_type: contract_header_value_type(&spec.value_type),
+    }
+}
+
+fn contract_header_value_type(value_type: &str) -> SegyHeaderValueType {
+    match value_type {
+        "I16" => SegyHeaderValueType::I16,
+        _ => SegyHeaderValueType::I32,
+    }
+}
+
 fn handle_for_summary(
     handle: &seis_runtime::StoreHandle,
 ) -> Result<seis_runtime::VolumeDescriptor, Box<dyn std::error::Error>> {
@@ -347,12 +718,20 @@ fn ensure_prestack_dataset_matches(
     Ok(())
 }
 
-fn processing_label(pipeline: &TraceLocalProcessingPipeline) -> String {
+pub fn preview_processing_label(pipeline: &TraceLocalProcessingPipeline) -> String {
     pipeline
         .name
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| pipeline_slug(pipeline))
+}
+
+pub fn preview_subvolume_processing_label(pipeline: &SubvolumeProcessingPipeline) -> String {
+    pipeline
+        .name
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| subvolume_pipeline_slug(pipeline))
 }
 
 fn pipeline_slug(pipeline: &TraceLocalProcessingPipeline) -> String {
@@ -410,6 +789,32 @@ fn pipeline_slug(pipeline: &TraceLocalProcessingPipeline) -> String {
     } else {
         parts.join("__")
     }
+}
+
+fn subvolume_pipeline_slug(pipeline: &SubvolumeProcessingPipeline) -> String {
+    if let Some(name) = pipeline
+        .name
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return name.replace(' ', "-").to_ascii_lowercase();
+    }
+
+    let mut parts = Vec::new();
+    if let Some(trace_local_pipeline) = pipeline.trace_local_pipeline.as_ref() {
+        parts.push(pipeline_slug(trace_local_pipeline));
+    }
+    parts.push(format!(
+        "crop-il-{}-{}-xl-{}-{}-z-{}-{}",
+        pipeline.crop.inline_min,
+        pipeline.crop.inline_max,
+        pipeline.crop.xline_min,
+        pipeline.crop.xline_max,
+        format_factor(pipeline.crop.z_min_ms),
+        format_factor(pipeline.crop.z_max_ms)
+    ));
+    parts.join("__")
 }
 
 fn gather_pipeline_slug(pipeline: &GatherProcessingPipeline) -> String {

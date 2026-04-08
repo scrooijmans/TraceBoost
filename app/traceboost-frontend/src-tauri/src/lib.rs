@@ -1,12 +1,16 @@
 mod app_paths;
 mod diagnostics;
+mod preview_session;
 mod processing;
 mod processing_cache;
 mod workspace;
 
 #[cfg(test)]
+mod preview_session_bench;
+#[cfg(test)]
 mod processing_cache_bench;
 
+use ophiolite::resolve_dataset_summary_survey_map_source;
 use seis_contracts_interop::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DeletePipelinePresetRequest, DeletePipelinePresetResponse,
@@ -15,37 +19,47 @@ use seis_contracts_interop::{
     ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
     ListPipelinePresetsResponse, LoadWorkspaceStateResponse, OpenDatasetRequest,
     OpenDatasetResponse, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
+    PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
     PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse,
-    SavePipelinePresetRequest, SavePipelinePresetResponse, SaveWorkspaceSessionRequest,
-    SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
-    SurveyPreflightRequest, SurveyPreflightResponse, UpsertDatasetEntryRequest,
-    UpsertDatasetEntryResponse, VelocityScanRequest, VelocityScanResponse,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, ResolveSurveyMapRequest,
+    ResolveSurveyMapResponse, RunGatherProcessingRequest, RunGatherProcessingResponse,
+    RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
+    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
+    SetActiveDatasetEntryResponse, SetDatasetNativeCoordinateReferenceRequest,
+    SetDatasetNativeCoordinateReferenceResponse, SurveyPreflightRequest, SurveyPreflightResponse,
+    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, VelocityScanRequest,
+    VelocityScanResponse,
 };
 use seis_runtime::{
     MaterializeOptions, ProcessingJobArtifact, ProcessingJobArtifactKind, ProcessingPipelineSpec,
-    SectionAxis, SectionView, TbvolManifest, TraceLocalProcessingPipeline,
-    materialize_gather_processing_store_with_progress, materialize_processing_volume_with_progress,
-    open_store,
+    SectionAxis, SectionView, SubvolumeProcessingPipeline, TbvolManifest,
+    TraceLocalProcessingPipeline, materialize_gather_processing_store_with_progress,
+    materialize_processing_volume_with_progress,
+    materialize_subvolume_processing_volume_with_progress, open_store,
+    set_any_store_native_coordinate_reference,
 };
 use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
+    time::Instant,
 };
+use serde::Deserialize;
+use serde_json::{Map, Value};
 use tauri::{
     AppHandle, Emitter, Manager, State,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
 use traceboost_app::{
     amplitude_spectrum, import_dataset, import_prestack_offset_dataset, load_gather,
-    open_dataset_summary, preflight_dataset, preview_gather_processing, preview_processing,
-    run_velocity_scan,
+    open_dataset_summary, preflight_dataset, preview_gather_processing,
+    preview_subvolume_processing, run_velocity_scan,
 };
 
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
+use crate::preview_session::PreviewSessionState;
 use crate::processing::{JobRecord, ProcessingState};
 use crate::processing_cache::{ProcessingCachePolicy, ProcessingCacheState};
 use crate::workspace::WorkspaceState;
@@ -55,6 +69,15 @@ const FILE_OPEN_VOLUME_MENU_EVENT: &str = "menu:file-open-volume";
 const TRACE_LOCAL_CACHE_FAMILY: &str = "trace_local";
 const TBVOL_STORE_FORMAT_VERSION: &str = "tbvol-v1";
 const PROCESSING_CACHE_RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendDiagnosticsEventRequest {
+    stage: String,
+    level: String,
+    message: String,
+    fields: Option<Map<String, Value>>,
+}
 
 fn sanitized_stem(value: &str, fallback: &str) -> String {
     let sanitized: String = value
@@ -204,6 +227,32 @@ fn gather_pipeline_output_slug(pipeline: &seis_runtime::GatherProcessingPipeline
     }
 }
 
+fn subvolume_pipeline_output_slug(pipeline: &SubvolumeProcessingPipeline) -> String {
+    if let Some(name) = pipeline
+        .name
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return sanitized_stem(name, "crop-subvolume");
+    }
+
+    let mut parts = Vec::new();
+    if let Some(trace_local_pipeline) = pipeline.trace_local_pipeline.as_ref() {
+        parts.push(pipeline_output_slug(trace_local_pipeline));
+    }
+    parts.push(format!(
+        "crop-il-{}-{}-xl-{}-{}-z-{}-{}",
+        pipeline.crop.inline_min,
+        pipeline.crop.inline_max,
+        pipeline.crop.xline_min,
+        pipeline.crop.xline_max,
+        format_factor(pipeline.crop.z_min_ms),
+        format_factor(pipeline.crop.z_max_ms)
+    ));
+    sanitized_stem(&parts.join("-"), "crop-subvolume")
+}
+
 fn volume_arithmetic_operator_slug(
     operator: seis_runtime::TraceLocalVolumeArithmeticOperator,
 ) -> &'static str {
@@ -289,6 +338,23 @@ fn default_processing_store_path(
     )
 }
 
+fn default_subvolume_processing_store_path(
+    app_paths: &AppPaths,
+    input_store_path: &str,
+    pipeline: &SubvolumeProcessingPipeline,
+) -> Result<String, String> {
+    fs::create_dir_all(app_paths.derived_volumes_dir()).map_err(|error| error.to_string())?;
+    let source_stem = source_store_stem(input_store_path);
+    let pipeline_stem = subvolume_pipeline_output_slug(pipeline);
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let base_name = format!("{source_stem}.{pipeline_stem}.{timestamp}");
+    Ok(
+        unique_store_candidate(app_paths.derived_volumes_dir(), &base_name, "tbvol")
+            .display()
+            .to_string(),
+    )
+}
+
 fn default_gather_processing_store_path(
     app_paths: &AppPaths,
     input_store_path: &str,
@@ -312,13 +378,6 @@ struct TraceLocalProcessingStage {
     lineage_pipeline: TraceLocalProcessingPipeline,
     stage_label: String,
     artifact: ProcessingJobArtifact,
-    visibility: TraceLocalStageVisibility,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TraceLocalStageVisibility {
-    VisibleArtifact,
-    HiddenPrefix,
 }
 
 fn processing_operation_display_label(operation: &seis_runtime::ProcessingOperation) -> String {
@@ -357,6 +416,22 @@ fn processing_operation_display_label(operation: &seis_runtime::ProcessingOperat
             display_store_stem(secondary_store_path)
         ),
     }
+}
+
+fn preview_processing_operation_ids(pipeline: &TraceLocalProcessingPipeline) -> Vec<&'static str> {
+    pipeline
+        .operations
+        .iter()
+        .map(seis_runtime::ProcessingOperation::operator_id)
+        .collect()
+}
+
+fn preview_processing_operation_labels(pipeline: &TraceLocalProcessingPipeline) -> Vec<String> {
+    pipeline
+        .operations
+        .iter()
+        .map(processing_operation_display_label)
+        .collect()
 }
 
 fn display_store_stem(store_path: &str) -> String {
@@ -506,7 +581,6 @@ fn build_trace_local_processing_stages_from(
             lineage_pipeline: pipeline_prefix(&request.pipeline, end_index),
             stage_label,
             artifact,
-            visibility: TraceLocalStageVisibility::VisibleArtifact,
         });
         segment_start = end_index + 1;
     }
@@ -573,113 +647,6 @@ fn resolve_reused_trace_local_checkpoint(
     Ok(None)
 }
 
-fn hidden_prefix_output_store_path(
-    processing_cache: &ProcessingCacheState,
-    source_fingerprint: &str,
-    prefix_hash: &str,
-    prefix_len: usize,
-) -> String {
-    processing_cache
-        .volumes_dir()
-        .join(format!(
-            "trace-local-{source_fingerprint}-prefix-{prefix_len:02}-{prefix_hash}.tbvol"
-        ))
-        .display()
-        .to_string()
-}
-
-fn maybe_add_hidden_trace_local_prefix_stage(
-    processing_cache: &ProcessingCacheState,
-    request: &RunTraceLocalProcessingRequest,
-    stages: &mut Vec<TraceLocalProcessingStage>,
-    start_operation_index: usize,
-    source_fingerprint: Option<&str>,
-) -> Result<(), String> {
-    if processing_cache.settings().policy == ProcessingCachePolicy::Off {
-        return Ok(());
-    }
-    if request.pipeline.operations.len() <= 1 {
-        return Ok(());
-    }
-    if !request.checkpoints.is_empty() {
-        return Ok(());
-    }
-    if stages.len() != 1 {
-        return Ok(());
-    }
-    let Some(source_fingerprint) = source_fingerprint else {
-        return Ok(());
-    };
-    let hidden_prefix_end_index = request.pipeline.operations.len() - 2;
-    if hidden_prefix_end_index < start_operation_index {
-        return Ok(());
-    }
-
-    let lineage_pipeline = pipeline_prefix(&request.pipeline, hidden_prefix_end_index);
-    let prefix_hash = trace_local_pipeline_hash(&lineage_pipeline)?;
-    if processing_cache
-        .lookup_prefix_artifact(
-            TRACE_LOCAL_CACHE_FAMILY,
-            source_fingerprint,
-            &prefix_hash,
-            hidden_prefix_end_index + 1,
-        )?
-        .is_some()
-    {
-        return Ok(());
-    }
-
-    let operation = request
-        .pipeline
-        .operations
-        .get(hidden_prefix_end_index)
-        .ok_or_else(|| {
-            format!("Missing operation at hidden prefix index {hidden_prefix_end_index}")
-        })?;
-    let stage = TraceLocalProcessingStage {
-        segment_pipeline: pipeline_segment(
-            &request.pipeline,
-            start_operation_index,
-            hidden_prefix_end_index,
-        ),
-        lineage_pipeline,
-        stage_label: format!(
-            "Cached prefix after step {}: {}",
-            hidden_prefix_end_index + 1,
-            processing_operation_display_label(operation)
-        ),
-        artifact: ProcessingJobArtifact {
-            kind: ProcessingJobArtifactKind::Checkpoint,
-            step_index: hidden_prefix_end_index,
-            label: format!("Cached prefix after step {}", hidden_prefix_end_index + 1),
-            store_path: hidden_prefix_output_store_path(
-                processing_cache,
-                source_fingerprint,
-                &prefix_hash,
-                hidden_prefix_end_index + 1,
-            ),
-        },
-        visibility: TraceLocalStageVisibility::HiddenPrefix,
-    };
-
-    let final_stage = stages
-        .pop()
-        .ok_or_else(|| "Missing final processing stage.".to_string())?;
-    stages.push(stage);
-    stages.push(TraceLocalProcessingStage {
-        segment_pipeline: pipeline_segment(
-            &request.pipeline,
-            hidden_prefix_end_index + 1,
-            request.pipeline.operations.len() - 1,
-        ),
-        lineage_pipeline: final_stage.lineage_pipeline,
-        stage_label: final_stage.stage_label,
-        artifact: final_stage.artifact,
-        visibility: TraceLocalStageVisibility::VisibleArtifact,
-    });
-    Ok(())
-}
-
 fn rewrite_trace_local_processing_lineage(
     store_path: &str,
     pipeline: &TraceLocalProcessingPipeline,
@@ -730,6 +697,17 @@ fn trace_local_pipeline_hash(pipeline: &TraceLocalProcessingPipeline) -> Result<
         schema_version: pipeline.schema_version,
         revision: pipeline.revision,
         operations: &pipeline.operations,
+    })
+}
+
+fn materialize_options_for_store(input_store_path: &str) -> Result<MaterializeOptions, String> {
+    let chunk_shape = open_store(input_store_path)
+        .map_err(|error| error.to_string())?
+        .manifest
+        .tile_shape;
+    Ok(MaterializeOptions {
+        chunk_shape,
+        ..MaterializeOptions::default()
     })
 }
 
@@ -858,6 +836,16 @@ fn default_processing_store_path_command(
 }
 
 #[tauri::command]
+fn default_subvolume_processing_store_path_command(
+    app: AppHandle,
+    store_path: String,
+    pipeline: SubvolumeProcessingPipeline,
+) -> Result<String, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    default_subvolume_processing_store_path(&app_paths, &store_path, &pipeline)
+}
+
+#[tauri::command]
 fn default_gather_processing_store_path_command(
     app: AppHandle,
     store_path: String,
@@ -894,6 +882,7 @@ fn preflight_import_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
     input_path: String,
+    geometry_override: Option<seis_contracts_interop::SegyGeometryOverride>,
 ) -> Result<SurveyPreflightResponse, String> {
     let operation = diagnostics.start_operation(
         &app,
@@ -921,6 +910,7 @@ fn preflight_import_command(
     let result = preflight_dataset(SurveyPreflightRequest {
         schema_version: IPC_SCHEMA_VERSION,
         input_path,
+        geometry_override,
     });
 
     match result {
@@ -964,6 +954,7 @@ fn import_dataset_command(
     diagnostics: State<DiagnosticsState>,
     input_path: String,
     output_store_path: String,
+    geometry_override: Option<seis_contracts_interop::SegyGeometryOverride>,
     overwrite_existing: bool,
 ) -> Result<ImportDatasetResponse, String> {
     let operation = diagnostics.start_operation(
@@ -998,6 +989,7 @@ fn import_dataset_command(
         schema_version: IPC_SCHEMA_VERSION,
         input_path,
         output_store_path,
+        geometry_override,
         overwrite_existing,
     });
 
@@ -1288,37 +1280,146 @@ fn load_gather_command(
 }
 
 #[tauri::command]
-fn preview_processing_command(
+async fn preview_processing_command(
     app: AppHandle,
-    diagnostics: State<DiagnosticsState>,
+    diagnostics: State<'_, DiagnosticsState>,
+    preview_sessions: State<'_, PreviewSessionState>,
     request: PreviewTraceLocalProcessingRequest,
 ) -> Result<PreviewTraceLocalProcessingResponse, String> {
+    let axis_name = format!("{:?}", request.section.axis).to_ascii_lowercase();
+    let operator_ids = preview_processing_operation_ids(&request.pipeline);
+    let operator_labels = preview_processing_operation_labels(&request.pipeline);
+    let pipeline_name = request.pipeline.name.clone();
+    let pipeline_revision = request.pipeline.revision;
+    let dataset_id = request.section.dataset_id.0.clone();
     let operation = diagnostics.start_operation(
         &app,
         "preview_processing",
         "Generating processing preview",
         Some(build_fields([
             ("storePath", json_value(&request.store_path)),
-            (
-                "axis",
-                json_value(format!("{:?}", request.section.axis).to_ascii_lowercase()),
-            ),
+            ("datasetId", json_value(&dataset_id)),
+            ("axis", json_value(&axis_name)),
             ("index", json_value(request.section.index)),
             (
                 "operatorCount",
                 json_value(request.pipeline.operations.len()),
             ),
+            ("pipelineRevision", json_value(pipeline_revision)),
+            ("pipelineName", json_value(&pipeline_name)),
+            ("operatorIds", json_value(&operator_ids)),
+            ("operatorLabels", json_value(&operator_labels)),
             ("stage", json_value("preview_section")),
         ])),
     );
 
-    let result = preview_processing(request);
+    diagnostics.verbose_progress(
+        &app,
+        &operation,
+        "Dispatching processing preview to runtime session",
+        Some(build_fields([
+            ("datasetId", json_value(&dataset_id)),
+            ("axis", json_value(&axis_name)),
+            ("index", json_value(request.section.index)),
+            ("operatorCount", json_value(operator_ids.len())),
+            ("pipelineRevision", json_value(pipeline_revision)),
+            ("operatorIds", json_value(&operator_ids)),
+        ])),
+    );
+
+    let preview_sessions = preview_sessions.inner().clone();
+    let request_for_compute = request;
+    let compute_started = Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        preview_sessions.preview_processing(request_for_compute)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let compute_duration_ms = compute_started.elapsed().as_millis();
+
+    match result {
+        Ok((response, reuse)) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Processing preview ready",
+                Some(build_fields([
+                    ("pipelineRevision", json_value(pipeline_revision)),
+                    ("pipelineName", json_value(&pipeline_name)),
+                    ("operatorIds", json_value(&operator_ids)),
+                    ("operatorLabels", json_value(&operator_labels)),
+                    ("previewReady", json_value(response.preview.preview_ready)),
+                    ("traces", json_value(response.preview.section.traces)),
+                    ("samples", json_value(response.preview.section.samples)),
+                    ("computeDurationMs", json_value(compute_duration_ms)),
+                    ("cacheHit", json_value(reuse.cache_hit)),
+                    (
+                        "reusedPrefixOperations",
+                        json_value(reuse.reused_prefix_operations),
+                    ),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Processing preview failed",
+                Some(build_fields([
+                    ("pipelineRevision", json_value(pipeline_revision)),
+                    ("pipelineName", json_value(&pipeline_name)),
+                    ("operatorIds", json_value(&operator_ids)),
+                    ("computeDurationMs", json_value(compute_duration_ms)),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn preview_subvolume_processing_command(
+    app: AppHandle,
+    diagnostics: State<'_, DiagnosticsState>,
+    request: PreviewSubvolumeProcessingRequest,
+) -> Result<PreviewSubvolumeProcessingResponse, String> {
+    let axis_name = format!("{:?}", request.section.axis).to_ascii_lowercase();
+    let trace_local_count = request
+        .pipeline
+        .trace_local_pipeline
+        .as_ref()
+        .map(|pipeline| pipeline.operations.len())
+        .unwrap_or(0);
+    let operation = diagnostics.start_operation(
+        &app,
+        "preview_subvolume_processing",
+        "Generating cropped processing preview",
+        Some(build_fields([
+            ("storePath", json_value(&request.store_path)),
+            ("datasetId", json_value(&request.section.dataset_id.0)),
+            ("axis", json_value(&axis_name)),
+            ("index", json_value(request.section.index)),
+            ("traceLocalOperatorCount", json_value(trace_local_count)),
+            ("inlineMin", json_value(request.pipeline.crop.inline_min)),
+            ("inlineMax", json_value(request.pipeline.crop.inline_max)),
+            ("xlineMin", json_value(request.pipeline.crop.xline_min)),
+            ("xlineMax", json_value(request.pipeline.crop.xline_max)),
+            ("zMinMs", json_value(request.pipeline.crop.z_min_ms)),
+            ("zMaxMs", json_value(request.pipeline.crop.z_max_ms)),
+            ("stage", json_value("preview_subvolume")),
+        ])),
+    );
+
+    let result = preview_subvolume_processing(request);
     match result {
         Ok(response) => {
             diagnostics.complete(
                 &app,
                 &operation,
-                "Processing preview ready",
+                "Subvolume processing preview ready",
                 Some(build_fields([
                     ("previewReady", json_value(response.preview.preview_ready)),
                     ("traces", json_value(response.preview.section.traces)),
@@ -1332,7 +1433,7 @@ fn preview_processing_command(
             diagnostics.fail(
                 &app,
                 &operation,
-                "Processing preview failed",
+                "Subvolume processing preview failed",
                 Some(build_fields([("error", json_value(&message))])),
             );
             Err(message)
@@ -1616,6 +1717,71 @@ fn run_processing_command(
 }
 
 #[tauri::command]
+fn run_subvolume_processing_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    processing: State<ProcessingState>,
+    request: RunSubvolumeProcessingRequest,
+) -> Result<RunSubvolumeProcessingResponse, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    let output_store_path =
+        request
+            .output_store_path
+            .clone()
+            .unwrap_or(default_subvolume_processing_store_path(
+                &app_paths,
+                &request.store_path,
+                &request.pipeline,
+            )?);
+    let queued = processing.enqueue_job(
+        request.store_path.clone(),
+        Some(output_store_path.clone()),
+        seis_runtime::ProcessingPipelineSpec::Subvolume {
+            pipeline: request.pipeline.clone(),
+        },
+    );
+    let job_id = queued.job_id.clone();
+    let record = processing.job_record(&job_id)?;
+
+    diagnostics.emit_session_event(
+        &app,
+        "subvolume_processing_job_queued",
+        log::Level::Info,
+        "Subvolume processing job queued",
+        Some(build_fields([
+            ("jobId", json_value(&job_id)),
+            ("storePath", json_value(&request.store_path)),
+            ("outputStorePath", json_value(&output_store_path)),
+            (
+                "traceLocalOperatorCount",
+                json_value(
+                    request
+                        .pipeline
+                        .trace_local_pipeline
+                        .as_ref()
+                        .map(|pipeline| pipeline.operations.len())
+                        .unwrap_or(0),
+                ),
+            ),
+        ])),
+    );
+
+    let worker_app = app.clone();
+    let worker_request = RunSubvolumeProcessingRequest {
+        output_store_path: Some(output_store_path.clone()),
+        ..request
+    };
+    std::thread::spawn(move || {
+        run_subvolume_processing_job(&worker_app, &record, worker_request);
+    });
+
+    Ok(RunSubvolumeProcessingResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        job: queued,
+    })
+}
+
+#[tauri::command]
 fn run_gather_processing_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
@@ -1776,6 +1942,51 @@ fn save_workspace_session_command(
     workspace.save_session(request)
 }
 
+#[tauri::command]
+fn set_dataset_native_coordinate_reference_command(
+    request: SetDatasetNativeCoordinateReferenceRequest,
+) -> Result<SetDatasetNativeCoordinateReferenceResponse, String> {
+    set_any_store_native_coordinate_reference(
+        &request.store_path,
+        request.coordinate_reference_id.as_deref(),
+        request.coordinate_reference_name.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    let response = open_dataset_summary(OpenDatasetRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: request.store_path,
+    })
+    .map_err(|error| error.to_string())?;
+    Ok(SetDatasetNativeCoordinateReferenceResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        dataset: response.dataset,
+    })
+}
+
+#[tauri::command]
+fn resolve_survey_map_command(
+    app: AppHandle,
+    request: ResolveSurveyMapRequest,
+) -> Result<ResolveSurveyMapResponse, String> {
+    let app_paths = AppPaths::resolve(&app)?;
+    let dataset = open_dataset_summary(OpenDatasetRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: request.store_path,
+    })
+    .map_err(|error| error.to_string())?
+    .dataset;
+    let survey_map = resolve_dataset_summary_survey_map_source(
+        &dataset,
+        request.display_coordinate_reference_id.as_deref(),
+        Some(app_paths.map_transform_cache_dir()),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(ResolveSurveyMapResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        survey_map,
+    })
+}
+
 fn run_processing_job(
     app: &AppHandle,
     record: &JobRecord,
@@ -1850,7 +2061,7 @@ fn run_processing_job(
         }
         _ => None,
     };
-    let mut stages = match build_trace_local_processing_stages_from(
+    let stages = match build_trace_local_processing_stages_from(
         &request,
         &output_store_path,
         &job_id,
@@ -1880,34 +2091,6 @@ fn run_processing_job(
             return;
         }
     };
-    if let (Some(processing_cache), Some(source_fingerprint)) = (
-        app.try_state::<ProcessingCacheState>(),
-        source_fingerprint.as_deref(),
-    ) {
-        if let Err(error) = maybe_add_hidden_trace_local_prefix_stage(
-            &processing_cache,
-            &request,
-            &mut stages,
-            reused_checkpoint
-                .as_ref()
-                .map(|checkpoint| checkpoint.after_operation_index + 1)
-                .unwrap_or(0),
-            Some(source_fingerprint),
-        ) {
-            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
-                diagnostics.emit_session_event(
-                    app,
-                    "processing_hidden_prefix_plan_failed",
-                    log::Level::Warn,
-                    "Hidden prefix planning failed; processing will continue without an automatic cached prefix",
-                    Some(build_fields([
-                        ("jobId", json_value(&job_id)),
-                        ("error", json_value(error)),
-                    ])),
-                );
-            }
-        }
-    }
     let _ = record.mark_running(stages.first().map(|stage| stage.stage_label.clone()));
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
@@ -1965,15 +2148,17 @@ fn run_processing_job(
             prepare_processing_output_store(
                 &current_input_store_path,
                 &stage.artifact.store_path,
-                matches!(stage.visibility, TraceLocalStageVisibility::HiddenPrefix),
+                false,
             )
             .map_err(seis_runtime::SeisRefineError::Message)?;
         }
+        let materialize_options = materialize_options_for_store(&current_input_store_path)
+            .map_err(seis_runtime::SeisRefineError::Message)?;
         materialize_processing_volume_with_progress(
             &current_input_store_path,
             &stage.artifact.store_path,
             &stage.segment_pipeline,
-            MaterializeOptions::default(),
+            materialize_options,
             |completed, total| {
                 if record.cancel_requested() {
                     return Err(seis_runtime::SeisRefineError::Message(
@@ -1986,69 +2171,52 @@ fn run_processing_job(
         )?;
         rewrite_trace_local_processing_lineage(&stage.artifact.store_path, &stage.lineage_pipeline)
             .map_err(seis_runtime::SeisRefineError::Message)?;
-        if matches!(stage.visibility, TraceLocalStageVisibility::VisibleArtifact) {
-            let _ = record.push_artifact(stage.artifact.clone());
-            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
-                diagnostics.emit_session_event(
-                    app,
-                    if matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
-                        "processing_job_output_emitted"
-                    } else {
-                        "processing_job_checkpoint_emitted"
-                    },
-                    log::Level::Info,
-                    if matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
-                        "Processing output emitted"
-                    } else {
-                        "Processing checkpoint emitted"
-                    },
-                    Some(build_fields([
-                        ("jobId", json_value(&job_id)),
-                        ("storePath", json_value(&stage.artifact.store_path)),
-                        ("label", json_value(&stage.artifact.label)),
-                        (
-                            "artifactKind",
-                            json_value(match stage.artifact.kind {
-                                ProcessingJobArtifactKind::Checkpoint => "checkpoint",
-                                ProcessingJobArtifactKind::FinalOutput => "final_output",
-                            }),
-                        ),
-                    ])),
-                );
-            }
-            if let Err(error) =
-                register_processing_store_artifact(app, &request.store_path, &stage.artifact)
-            {
-                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
-                    diagnostics.emit_session_event(
-                        app,
-                        "processing_job_artifact_register_failed",
-                        log::Level::Warn,
-                        "Processing output emitted but workspace registration failed",
-                        Some(build_fields([
-                            ("jobId", json_value(&job_id)),
-                            ("storePath", json_value(&stage.artifact.store_path)),
-                            ("error", json_value(error)),
-                        ])),
-                    );
-                }
-            }
-        } else if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+        let _ = record.push_artifact(stage.artifact.clone());
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
             diagnostics.emit_session_event(
                 app,
-                "processing_hidden_prefix_emitted",
+                if matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
+                    "processing_job_output_emitted"
+                } else {
+                    "processing_job_checkpoint_emitted"
+                },
                 log::Level::Info,
-                "Processing hidden prefix emitted",
+                if matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
+                    "Processing output emitted"
+                } else {
+                    "Processing checkpoint emitted"
+                },
                 Some(build_fields([
                     ("jobId", json_value(&job_id)),
                     ("storePath", json_value(&stage.artifact.store_path)),
-                    ("label", json_value(&stage.stage_label)),
+                    ("label", json_value(&stage.artifact.label)),
+                    (
+                        "artifactKind",
+                        json_value(match stage.artifact.kind {
+                            ProcessingJobArtifactKind::Checkpoint => "checkpoint",
+                            ProcessingJobArtifactKind::FinalOutput => "final_output",
+                        }),
+                    ),
                 ])),
             );
         }
-        if matches!(stage.visibility, TraceLocalStageVisibility::VisibleArtifact)
-            && matches!(stage.artifact.kind, ProcessingJobArtifactKind::Checkpoint)
+        if let Err(error) = register_processing_store_artifact(app, &request.store_path, &stage.artifact)
         {
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "processing_job_artifact_register_failed",
+                    log::Level::Warn,
+                    "Processing output emitted but workspace registration failed",
+                    Some(build_fields([
+                        ("jobId", json_value(&job_id)),
+                        ("storePath", json_value(&stage.artifact.store_path)),
+                        ("error", json_value(error)),
+                    ])),
+                );
+            }
+        }
+        if matches!(stage.artifact.kind, ProcessingJobArtifactKind::Checkpoint) {
             if let (Some(processing_cache), Some(source_fingerprint)) =
                 (app.try_state::<ProcessingCacheState>(), source_fingerprint.as_ref())
             {
@@ -2086,56 +2254,6 @@ fn run_processing_job(
                                     "processing_cache_checkpoint_hash_failed",
                                     log::Level::Warn,
                                     "Processing checkpoint emitted but cache hashing failed",
-                                    Some(build_fields([
-                                        ("jobId", json_value(&job_id)),
-                                        ("storePath", json_value(&stage.artifact.store_path)),
-                                        ("error", json_value(error)),
-                                    ])),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if matches!(stage.visibility, TraceLocalStageVisibility::HiddenPrefix) {
-            if let (Some(processing_cache), Some(source_fingerprint)) =
-                (app.try_state::<ProcessingCacheState>(), source_fingerprint.as_ref())
-            {
-                if processing_cache.settings().policy != ProcessingCachePolicy::Off {
-                    match trace_local_pipeline_hash(&stage.lineage_pipeline) {
-                        Ok(prefix_hash) => {
-                            if let Err(error) = processing_cache.register_hidden_prefix(
-                                TRACE_LOCAL_CACHE_FAMILY,
-                                &stage.artifact.store_path,
-                                source_fingerprint,
-                                &prefix_hash,
-                                stage.artifact.step_index + 1,
-                                PROCESSING_CACHE_RUNTIME_VERSION,
-                                TBVOL_STORE_FORMAT_VERSION,
-                            ) {
-                                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
-                                    diagnostics.emit_session_event(
-                                        app,
-                                        "processing_cache_hidden_prefix_register_failed",
-                                        log::Level::Warn,
-                                        "Hidden prefix emitted but cache registration failed",
-                                        Some(build_fields([
-                                            ("jobId", json_value(&job_id)),
-                                            ("storePath", json_value(&stage.artifact.store_path)),
-                                            ("error", json_value(error)),
-                                        ])),
-                                    );
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
-                                diagnostics.emit_session_event(
-                                    app,
-                                    "processing_cache_hidden_prefix_hash_failed",
-                                    log::Level::Warn,
-                                    "Hidden prefix emitted but cache hashing failed",
                                     Some(build_fields([
                                         ("jobId", json_value(&job_id)),
                                         ("storePath", json_value(&stage.artifact.store_path)),
@@ -2244,6 +2362,181 @@ fn run_processing_job(
                         "Processing job cancelled"
                     } else {
                         "Processing job failed"
+                    },
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "state",
+                            json_value(format!("{:?}", final_status.state).to_ascii_lowercase()),
+                        ),
+                        (
+                            "error",
+                            json_value(final_status.error_message.clone().unwrap_or_default()),
+                        ),
+                    ])),
+                );
+            }
+        }
+    }
+}
+
+fn run_subvolume_processing_job(
+    app: &AppHandle,
+    record: &JobRecord,
+    request: RunSubvolumeProcessingRequest,
+) {
+    let app_paths = match AppPaths::resolve(app) {
+        Ok(paths) => paths,
+        Err(error) => {
+            let _ = record.mark_failed(error.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_job_failed",
+                    log::Level::Error,
+                    "Subvolume processing job failed before initialization",
+                    Some(build_fields([("error", json_value(&error))])),
+                );
+            }
+            return;
+        }
+    };
+
+    let output_store_path = request.output_store_path.clone().unwrap_or_else(|| {
+        default_subvolume_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
+            .unwrap_or_else(|_| "derived-output.tbvol".to_string())
+    });
+    let _ = record.mark_running(Some("Crop Subvolume".to_string()));
+    if let Err(error) = prepare_processing_output_store(
+        &request.store_path,
+        &output_store_path,
+        request.overwrite_existing,
+    ) {
+        let final_status = record.mark_failed(error);
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "subvolume_processing_job_failed",
+                log::Level::Error,
+                "Subvolume processing job failed",
+                Some(build_fields([
+                    ("jobId", json_value(&final_status.job_id)),
+                    (
+                        "error",
+                        json_value(final_status.error_message.clone().unwrap_or_default()),
+                    ),
+                ])),
+            );
+        }
+        return;
+    }
+
+    let job_id = record.snapshot().job_id;
+    let materialize_options = match materialize_options_for_store(&request.store_path) {
+        Ok(options) => options,
+        Err(error) => {
+            let final_status = record.mark_failed(error.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_job_failed",
+                    log::Level::Error,
+                    "Subvolume processing job failed",
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        ("error", json_value(&error)),
+                    ])),
+                );
+            }
+            return;
+        }
+    };
+    let result = materialize_subvolume_processing_volume_with_progress(
+        &request.store_path,
+        &output_store_path,
+        &request.pipeline,
+        materialize_options,
+        |completed, total| {
+            if record.cancel_requested() {
+                return Err(seis_runtime::SeismicStoreError::Message(
+                    "processing cancelled".to_string(),
+                ));
+            }
+            let _ = record.mark_progress(completed, total, Some("Crop Subvolume"));
+            Ok(())
+        },
+    );
+
+    match result {
+        Ok(_) => {
+            let final_artifact = ProcessingJobArtifact {
+                kind: ProcessingJobArtifactKind::FinalOutput,
+                step_index: request
+                    .pipeline
+                    .trace_local_pipeline
+                    .as_ref()
+                    .map(|pipeline| pipeline.operations.len())
+                    .unwrap_or(0),
+                label: "Crop Subvolume".to_string(),
+                store_path: output_store_path.clone(),
+            };
+            let _ = record.push_artifact(final_artifact.clone());
+            if let Err(error) =
+                register_processing_store_artifact(app, &request.store_path, &final_artifact)
+            {
+                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                    diagnostics.emit_session_event(
+                        app,
+                        "subvolume_processing_artifact_register_failed",
+                        log::Level::Warn,
+                        "Subvolume output emitted but workspace registration failed",
+                        Some(build_fields([
+                            ("jobId", json_value(&job_id)),
+                            ("storePath", json_value(&final_artifact.store_path)),
+                            ("error", json_value(error)),
+                        ])),
+                    );
+                }
+            }
+            let final_status = record.mark_completed(output_store_path.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_job_completed",
+                    log::Level::Info,
+                    "Subvolume processing job completed",
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        ("outputStorePath", json_value(&output_store_path)),
+                    ])),
+                );
+            }
+        }
+        Err(error) => {
+            let final_status = if record.cancel_requested() {
+                record.mark_cancelled()
+            } else {
+                record.mark_failed(error.to_string())
+            };
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_job_failed",
+                    if matches!(
+                        final_status.state,
+                        seis_runtime::ProcessingJobState::Cancelled
+                    ) {
+                        log::Level::Warn
+                    } else {
+                        log::Level::Error
+                    },
+                    if matches!(
+                        final_status.state,
+                        seis_runtime::ProcessingJobState::Cancelled
+                    ) {
+                        "Subvolume processing job cancelled"
+                    } else {
+                        "Subvolume processing job failed"
                     },
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
@@ -2473,6 +2766,31 @@ fn export_diagnostics_bundle_command(
     })
 }
 
+#[tauri::command]
+fn emit_frontend_diagnostics_event_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    request: FrontendDiagnosticsEventRequest,
+) -> Result<(), String> {
+    let level = match request.level.trim().to_ascii_lowercase().as_str() {
+        "error" => log::Level::Error,
+        "warn" | "warning" => log::Level::Warn,
+        "debug" => log::Level::Debug,
+        _ => log::Level::Info,
+    };
+    let mut fields = request.fields.unwrap_or_default();
+    fields.insert("frontendStage".to_string(), json_value(request.stage));
+
+    diagnostics.emit_session_event(
+        &app,
+        "frontend_profile",
+        level,
+        request.message,
+        Some(fields),
+    );
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let session_basename = DiagnosticsState::session_basename();
@@ -2523,6 +2841,8 @@ pub fn run() {
             let diagnostics =
                 DiagnosticsState::initialize(app_paths.logs_dir(), session_basename.clone())?;
             let processing = ProcessingState::initialize(app_paths.pipeline_presets_dir())?;
+            fs::create_dir_all(app_paths.map_transform_cache_dir())
+                .map_err(|error| error.to_string())?;
             let processing_cache = ProcessingCacheState::initialize(
                 app_paths.processing_cache_dir(),
                 app_paths.processing_cache_volumes_dir(),
@@ -2531,6 +2851,7 @@ pub fn run() {
                 app_paths.processing_cache_index_path(),
                 app_paths.settings_path(),
             )?;
+            let preview_sessions = PreviewSessionState::default();
             let workspace = WorkspaceState::initialize(
                 app_paths.dataset_registry_path(),
                 app_paths.workspace_session_path(),
@@ -2551,6 +2872,7 @@ pub fn run() {
             app.manage(diagnostics);
             app.manage(processing);
             app.manage(processing_cache);
+            app.manage(preview_sessions);
             app.manage(workspace);
             Ok(())
         })
@@ -2562,10 +2884,12 @@ pub fn run() {
             load_section_command,
             load_gather_command,
             preview_processing_command,
+            preview_subvolume_processing_command,
             preview_gather_processing_command,
             amplitude_spectrum_command,
             velocity_scan_command,
             run_processing_command,
+            run_subvolume_processing_command,
             run_gather_processing_command,
             get_processing_job_command,
             cancel_processing_job_command,
@@ -2577,13 +2901,17 @@ pub fn run() {
             remove_dataset_entry_command,
             set_active_dataset_entry_command,
             save_workspace_session_command,
+            set_dataset_native_coordinate_reference_command,
+            resolve_survey_map_command,
             default_import_store_path_command,
             default_import_prestack_store_path_command,
             default_processing_store_path_command,
+            default_subvolume_processing_store_path_command,
             default_gather_processing_store_path_command,
             get_diagnostics_status_command,
             set_diagnostics_verbosity_command,
-            export_diagnostics_bundle_command
+            export_diagnostics_bundle_command,
+            emit_frontend_diagnostics_event_command
         ]);
 
     #[cfg(debug_assertions)]

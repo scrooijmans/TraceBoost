@@ -26,11 +26,6 @@
           : "Open a runtime store to preview processing on the current section."}
       </p>
     </div>
-
-    <div class="shortcut-card">
-      <span>Shortcuts</span>
-      <p><code>/</code> search operators, <code>Ctrl/Cmd+K</code> focus search, focused lists support <code>Ctrl/Cmd+C</code>/<code>Ctrl/Cmd+V</code>, <code>a/n/g/h/l/i/b/v</code> direct add, <code>F9</code> checkpoint, <code>s</code> spectrum, <code>p</code> preview, <code>r</code> run</p>
-    </div>
   </div>
 
   <div class="workspace-grid">
@@ -82,7 +77,9 @@
 
       <div class="detail-grid">
         <PipelineSequenceList
-          pipeline={processingModel.pipeline}
+          operations={processingModel.workspaceOperations}
+          traceLocalOperationCount={processingModel.pipeline.operations.length}
+          hasSubvolumeCrop={processingModel.hasSubvolumeCrop}
           selectedIndex={processingModel.selectedStepIndex}
           checkpointAfterOperationIndexes={processingModel.checkpointAfterOperationIndexes}
           checkpointWarning={processingModel.checkpointWarning}
@@ -99,6 +96,7 @@
           activeJob={processingModel.activeJob}
           processingError={processingModel.error}
           primaryVolumeLabel={processingModel.activePrimaryVolumeLabel}
+          sourceSubvolumeBounds={processingModel.sourceSubvolumeBounds}
           secondaryVolumeOptions={processingModel.volumeArithmeticSecondaryOptions}
           onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
           onSetAgcWindow={processingModel.setSelectedAgcWindow}
@@ -108,6 +106,9 @@
           onSetBandpassCorner={processingModel.setSelectedBandpassCorner}
           onSetVolumeArithmeticOperator={processingModel.setSelectedVolumeArithmeticOperator}
           onSetVolumeArithmeticSecondaryStorePath={processingModel.setSelectedVolumeArithmeticSecondaryStorePath}
+          onSetSubvolumeCropBound={processingModel.setSelectedSubvolumeCropBound}
+          canMoveUp={processingModel.canMoveSelectedUp}
+          canMoveDown={processingModel.canMoveSelectedDown}
           onMoveUp={processingModel.moveSelectedUp}
           onMoveDown={processingModel.moveSelectedDown}
           onRemove={processingModel.removeSelected}
@@ -171,33 +172,6 @@
     color: #777;
   }
 
-  .shortcut-card {
-    flex-shrink: 0;
-    min-width: 220px;
-    border: 1px solid #2a2a2a;
-    background: #1e1e1e;
-    padding: 7px 10px;
-  }
-
-  .shortcut-card span {
-    display: block;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #555;
-    margin-bottom: 3px;
-  }
-
-  .shortcut-card p {
-    margin: 0;
-    font-size: 11px;
-    color: #888;
-  }
-
-  code {
-    font-family: "Cascadia Mono", "Consolas", monospace;
-  }
-
   .workspace-grid {
     min-height: 0;
     display: grid;
@@ -223,11 +197,6 @@
   @media (max-width: 1100px) {
     .workspace-header {
       flex-direction: column;
-    }
-
-    .shortcut-card {
-      min-width: 0;
-      width: 100%;
     }
 
     .workspace-grid {

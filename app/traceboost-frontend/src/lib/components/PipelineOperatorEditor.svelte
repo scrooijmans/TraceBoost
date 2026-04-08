@@ -4,16 +4,19 @@
   import type {
     ProcessingJobArtifact,
     ProcessingJobStatus,
-    TraceLocalProcessingOperation as ProcessingOperation
+    SubvolumeCropOperation
   } from "@traceboost/seis-contracts";
   import {
     isAgcRms,
     isAmplitudeScalar,
     isBandpassFilter,
+    isCropSubvolume,
     isHighpassFilter,
     isLowpassFilter,
     isPhaseRotation,
-    isVolumeArithmetic
+    isVolumeArithmetic,
+    type SourceSubvolumeBounds,
+    type WorkspaceOperation
   } from "../processing-model.svelte";
 
   let {
@@ -21,6 +24,7 @@
     activeJob,
     processingError,
     primaryVolumeLabel,
+    sourceSubvolumeBounds,
     secondaryVolumeOptions,
     onSetAmplitudeScalarFactor,
     onSetAgcWindow = () => {},
@@ -30,16 +34,20 @@
     onSetBandpassCorner = () => {},
     onSetVolumeArithmeticOperator = () => {},
     onSetVolumeArithmeticSecondaryStorePath = () => {},
+    onSetSubvolumeCropBound = () => {},
+    canMoveUp = true,
+    canMoveDown = true,
     onMoveUp,
     onMoveDown,
     onRemove,
     onCancelJob,
     onOpenArtifact
   }: {
-    selectedOperation: ProcessingOperation | null;
+    selectedOperation: WorkspaceOperation | null;
     activeJob: ProcessingJobStatus | null;
     processingError: string | null;
     primaryVolumeLabel: string;
+    sourceSubvolumeBounds: SourceSubvolumeBounds | null;
     secondaryVolumeOptions: { storePath: string; label: string }[];
     onSetAmplitudeScalarFactor: (value: number) => void;
     onSetAgcWindow?: (value: number) => void;
@@ -49,6 +57,12 @@
     onSetBandpassCorner?: (corner: "f1_hz" | "f2_hz" | "f3_hz" | "f4_hz", value: number) => void;
     onSetVolumeArithmeticOperator?: (value: "add" | "subtract" | "multiply" | "divide") => void;
     onSetVolumeArithmeticSecondaryStorePath?: (value: string) => void;
+    onSetSubvolumeCropBound?: (
+      bound: keyof SubvolumeCropOperation,
+      value: number
+    ) => void;
+    canMoveUp?: boolean;
+    canMoveDown?: boolean;
     onMoveUp: () => void;
     onMoveDown: () => void;
     onRemove: () => void;
@@ -70,12 +84,82 @@
   {#if selectedOperation}
     <div class="selected-card">
       <div class="selected-actions">
-        <button class="chip" onclick={onMoveUp}>Move Up</button>
-        <button class="chip" onclick={onMoveDown}>Move Down</button>
+        <button class="chip" onclick={onMoveUp} disabled={!canMoveUp}>Move Up</button>
+        <button class="chip" onclick={onMoveDown} disabled={!canMoveDown}>Move Down</button>
         <button class="chip danger" onclick={onRemove}>Delete Step</button>
       </div>
 
-      {#if isAmplitudeScalar(selectedOperation)}
+      {#if isCropSubvolume(selectedOperation)}
+        <div class="field-grid">
+          <label class="field">
+            <span>Inline Min</span>
+            <input
+              type="number"
+              value={selectedOperation.crop_subvolume.inline_min}
+              oninput={(event) =>
+                onSetSubvolumeCropBound("inline_min", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>Inline Max</span>
+            <input
+              type="number"
+              value={selectedOperation.crop_subvolume.inline_max}
+              oninput={(event) =>
+                onSetSubvolumeCropBound("inline_max", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>Xline Min</span>
+            <input
+              type="number"
+              value={selectedOperation.crop_subvolume.xline_min}
+              oninput={(event) =>
+                onSetSubvolumeCropBound("xline_min", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>Xline Max</span>
+            <input
+              type="number"
+              value={selectedOperation.crop_subvolume.xline_max}
+              oninput={(event) =>
+                onSetSubvolumeCropBound("xline_max", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>Z Min</span>
+            <input
+              type="number"
+              value={selectedOperation.crop_subvolume.z_min_ms}
+              oninput={(event) =>
+                onSetSubvolumeCropBound("z_min_ms", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <label class="field">
+            <span>Z Max</span>
+            <input
+              type="number"
+              value={selectedOperation.crop_subvolume.z_max_ms}
+              oninput={(event) =>
+                onSetSubvolumeCropBound("z_max_ms", Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+        </div>
+        <div class="info-block">
+          <strong>Crop Subvolume</strong>
+          {#if sourceSubvolumeBounds}
+            <p>
+              Source bounds: IL {sourceSubvolumeBounds.inlineMin}-{sourceSubvolumeBounds.inlineMax},
+              XL {sourceSubvolumeBounds.xlineMin}-{sourceSubvolumeBounds.xlineMax},
+              Z {sourceSubvolumeBounds.zMinMs}-{sourceSubvolumeBounds.zMaxMs}
+              {sourceSubvolumeBounds.zUnits ?? "ms"}.
+            </p>
+          {/if}
+          <p>Crop can be placed anywhere in the workspace, but execution is normalized so it still runs last.</p>
+          <p>Bounds must stay within the source volume and define a strict subset on at least one axis.</p>
+        </div>
+      {:else if isAmplitudeScalar(selectedOperation)}
         <label class="field">
           <span>Amplitude Scalar Factor</span>
           <input
