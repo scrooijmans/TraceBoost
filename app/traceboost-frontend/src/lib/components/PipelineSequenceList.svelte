@@ -237,6 +237,7 @@
         {@const canToggleCheckpoint = index < pipeline.operations.length - 1}
         <div
           class="sequence-row-shell"
+          role="presentation"
           onmouseenter={() => {
             hoveredStepIndex = index;
           }}
@@ -566,7 +567,8 @@
   }
 
   .sequence-row-shell:hover .step-remove,
-  .sequence-row-shell:focus-within .step-remove {
+  .sequence-row:focus-visible ~ .step-remove,
+  .step-remove:focus-visible {
     opacity: 1;
     pointer-events: auto;
   }

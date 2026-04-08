@@ -196,7 +196,8 @@
   }
 
   .pipeline-row-shell:hover .pipeline-remove,
-  .pipeline-row-shell:focus-within .pipeline-remove {
+  .pipeline-row:focus-visible + .pipeline-remove,
+  .pipeline-remove:focus-visible {
     opacity: 1;
     pointer-events: auto;
   }
