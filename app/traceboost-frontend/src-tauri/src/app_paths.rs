@@ -10,8 +10,14 @@ pub struct AppPaths {
     imported_gathers_dir: PathBuf,
     derived_volumes_dir: PathBuf,
     derived_gathers_dir: PathBuf,
+    processing_cache_dir: PathBuf,
+    processing_cache_volumes_dir: PathBuf,
+    processing_cache_gathers_dir: PathBuf,
+    processing_cache_tmp_dir: PathBuf,
+    processing_cache_index_path: PathBuf,
     dataset_registry_path: PathBuf,
     workspace_session_path: PathBuf,
+    settings_path: PathBuf,
 }
 
 impl AppPaths {
@@ -29,8 +35,14 @@ impl AppPaths {
         let imported_gathers_dir = app_data_dir.join("gathers");
         let derived_volumes_dir = app_data_dir.join("derived-volumes");
         let derived_gathers_dir = app_data_dir.join("derived-gathers");
+        let processing_cache_dir = app_data_dir.join("processing-cache");
+        let processing_cache_volumes_dir = processing_cache_dir.join("volumes");
+        let processing_cache_gathers_dir = processing_cache_dir.join("gathers");
+        let processing_cache_tmp_dir = processing_cache_dir.join("tmp");
+        let processing_cache_index_path = processing_cache_dir.join("index.sqlite");
         let dataset_registry_path = app_data_dir.join("workspace").join("dataset-registry.json");
         let workspace_session_path = app_data_dir.join("workspace").join("session.json");
+        let settings_path = app_data_dir.join("settings.json");
         Ok(Self {
             logs_dir,
             pipeline_presets_dir,
@@ -38,8 +50,14 @@ impl AppPaths {
             imported_gathers_dir,
             derived_volumes_dir,
             derived_gathers_dir,
+            processing_cache_dir,
+            processing_cache_volumes_dir,
+            processing_cache_gathers_dir,
+            processing_cache_tmp_dir,
+            processing_cache_index_path,
             dataset_registry_path,
             workspace_session_path,
+            settings_path,
         })
     }
 
@@ -67,11 +85,35 @@ impl AppPaths {
         &self.derived_gathers_dir
     }
 
+    pub fn processing_cache_dir(&self) -> &Path {
+        &self.processing_cache_dir
+    }
+
+    pub fn processing_cache_volumes_dir(&self) -> &Path {
+        &self.processing_cache_volumes_dir
+    }
+
+    pub fn processing_cache_gathers_dir(&self) -> &Path {
+        &self.processing_cache_gathers_dir
+    }
+
+    pub fn processing_cache_tmp_dir(&self) -> &Path {
+        &self.processing_cache_tmp_dir
+    }
+
+    pub fn processing_cache_index_path(&self) -> &Path {
+        &self.processing_cache_index_path
+    }
+
     pub fn dataset_registry_path(&self) -> &Path {
         &self.dataset_registry_path
     }
 
     pub fn workspace_session_path(&self) -> &Path {
         &self.workspace_session_path
+    }
+
+    pub fn settings_path(&self) -> &Path {
+        &self.settings_path
     }
 }

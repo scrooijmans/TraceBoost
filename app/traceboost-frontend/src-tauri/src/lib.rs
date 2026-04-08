@@ -1,7 +1,11 @@
 mod app_paths;
 mod diagnostics;
 mod processing;
+mod processing_cache;
 mod workspace;
+
+#[cfg(test)]
+mod processing_cache_bench;
 
 use seis_contracts_interop::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
@@ -13,15 +17,15 @@ use seis_contracts_interop::{
     OpenDatasetResponse, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
     PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
     RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunTraceLocalProcessingRequest,
-    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SurveyPreflightRequest, SurveyPreflightResponse,
-    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, VelocityScanRequest,
-    VelocityScanResponse,
+    RunGatherProcessingResponse, RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse,
+    SavePipelinePresetRequest, SavePipelinePresetResponse, SaveWorkspaceSessionRequest,
+    SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
+    SurveyPreflightRequest, SurveyPreflightResponse, UpsertDatasetEntryRequest,
+    UpsertDatasetEntryResponse, VelocityScanRequest, VelocityScanResponse,
 };
 use seis_runtime::{
-    MaterializeOptions, SectionAxis, SectionView,
+    MaterializeOptions, ProcessingJobArtifact, ProcessingJobArtifactKind, ProcessingPipelineSpec,
+    SectionAxis, SectionView, TbvolManifest, TraceLocalProcessingPipeline,
     materialize_gather_processing_store_with_progress, materialize_processing_volume_with_progress,
     open_store,
 };
@@ -43,10 +47,14 @@ use traceboost_app::{
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
 use crate::processing::{JobRecord, ProcessingState};
+use crate::processing_cache::{ProcessingCachePolicy, ProcessingCacheState};
 use crate::workspace::WorkspaceState;
 
 const FILE_OPEN_VOLUME_MENU_ID: &str = "file.open_volume";
 const FILE_OPEN_VOLUME_MENU_EVENT: &str = "menu:file-open-volume";
+const TRACE_LOCAL_CACHE_FAMILY: &str = "trace_local";
+const TBVOL_STORE_FORMAT_VERSION: &str = "tbvol-v1";
+const PROCESSING_CACHE_RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn sanitized_stem(value: &str, fallback: &str) -> String {
     let sanitized: String = value
@@ -120,6 +128,20 @@ fn pipeline_output_slug(pipeline: &seis_runtime::TraceLocalProcessingPipeline) -
                 format_factor(*f3_hz),
                 format_factor(*f4_hz)
             ),
+            seis_runtime::ProcessingOperation::VolumeArithmetic {
+                operator,
+                secondary_store_path,
+            } => format!(
+                "volume-{}-{}",
+                volume_arithmetic_operator_slug(*operator),
+                sanitized_stem(
+                    Path::new(secondary_store_path)
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("volume"),
+                    "volume",
+                )
+            ),
         };
         parts.push(part);
     }
@@ -179,6 +201,17 @@ fn gather_pipeline_output_slug(pipeline: &seis_runtime::GatherProcessingPipeline
         "gather-pipeline".to_string()
     } else {
         sanitized_stem(&parts.join("-"), "gather-pipeline")
+    }
+}
+
+fn volume_arithmetic_operator_slug(
+    operator: seis_runtime::TraceLocalVolumeArithmeticOperator,
+) -> &'static str {
+    match operator {
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Add => "add",
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Subtract => "subtract",
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Multiply => "multiply",
+        seis_runtime::TraceLocalVolumeArithmeticOperator::Divide => "divide",
     }
 }
 
@@ -273,6 +306,491 @@ fn default_gather_processing_store_path(
     )
 }
 
+#[derive(Debug, Clone)]
+struct TraceLocalProcessingStage {
+    segment_pipeline: TraceLocalProcessingPipeline,
+    lineage_pipeline: TraceLocalProcessingPipeline,
+    stage_label: String,
+    artifact: ProcessingJobArtifact,
+    visibility: TraceLocalStageVisibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceLocalStageVisibility {
+    VisibleArtifact,
+    HiddenPrefix,
+}
+
+fn processing_operation_display_label(operation: &seis_runtime::ProcessingOperation) -> String {
+    match operation {
+        seis_runtime::ProcessingOperation::AmplitudeScalar { factor } => {
+            format!("amplitude scalar ({factor})")
+        }
+        seis_runtime::ProcessingOperation::TraceRmsNormalize => "trace RMS normalize".to_string(),
+        seis_runtime::ProcessingOperation::AgcRms { window_ms } => {
+            format!("RMS AGC ({window_ms} ms)")
+        }
+        seis_runtime::ProcessingOperation::PhaseRotation { angle_degrees } => {
+            format!("phase rotation ({angle_degrees} deg)")
+        }
+        seis_runtime::ProcessingOperation::LowpassFilter { f3_hz, f4_hz, .. } => {
+            format!("lowpass ({f3_hz}/{f4_hz} Hz)")
+        }
+        seis_runtime::ProcessingOperation::HighpassFilter { f1_hz, f2_hz, .. } => {
+            format!("highpass ({f1_hz}/{f2_hz} Hz)")
+        }
+        seis_runtime::ProcessingOperation::BandpassFilter {
+            f1_hz,
+            f2_hz,
+            f3_hz,
+            f4_hz,
+            ..
+        } => {
+            format!("bandpass ({f1_hz}/{f2_hz}/{f3_hz}/{f4_hz} Hz)")
+        }
+        seis_runtime::ProcessingOperation::VolumeArithmetic {
+            operator,
+            secondary_store_path,
+        } => format!(
+            "{} volume ({})",
+            volume_arithmetic_operator_slug(*operator),
+            display_store_stem(secondary_store_path)
+        ),
+    }
+}
+
+fn display_store_stem(store_path: &str) -> String {
+    Path::new(store_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("volume")
+        .to_string()
+}
+
+fn clone_pipeline_with_operations(
+    pipeline: &TraceLocalProcessingPipeline,
+    operations: Vec<seis_runtime::ProcessingOperation>,
+) -> TraceLocalProcessingPipeline {
+    TraceLocalProcessingPipeline {
+        schema_version: pipeline.schema_version,
+        revision: pipeline.revision,
+        preset_id: pipeline.preset_id.clone(),
+        name: pipeline.name.clone(),
+        description: pipeline.description.clone(),
+        operations,
+    }
+}
+
+fn pipeline_prefix(
+    pipeline: &TraceLocalProcessingPipeline,
+    end_operation_index: usize,
+) -> TraceLocalProcessingPipeline {
+    clone_pipeline_with_operations(
+        pipeline,
+        pipeline.operations[..=end_operation_index].to_vec(),
+    )
+}
+
+fn pipeline_segment(
+    pipeline: &TraceLocalProcessingPipeline,
+    start_operation_index: usize,
+    end_operation_index: usize,
+) -> TraceLocalProcessingPipeline {
+    clone_pipeline_with_operations(
+        pipeline,
+        pipeline.operations[start_operation_index..=end_operation_index].to_vec(),
+    )
+}
+
+fn resolve_trace_local_checkpoint_indexes(
+    pipeline: &TraceLocalProcessingPipeline,
+    checkpoints: &[seis_runtime::TraceLocalProcessingCheckpoint],
+) -> Result<Vec<usize>, String> {
+    if pipeline.operations.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let last_index = pipeline.operations.len() - 1;
+    let mut indexes = checkpoints
+        .iter()
+        .map(|checkpoint| checkpoint.after_operation_index)
+        .collect::<Vec<_>>();
+    indexes.sort_unstable();
+    indexes.dedup();
+
+    for index in &indexes {
+        if *index >= pipeline.operations.len() {
+            return Err(format!(
+                "Checkpoint after_operation_index {index} is out of range for a pipeline with {} operations.",
+                pipeline.operations.len()
+            ));
+        }
+        if *index == last_index {
+            return Err(
+                "Checkpoint markers cannot target the final operator because the final output is emitted automatically."
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(indexes)
+}
+
+fn checkpoint_output_store_path(
+    final_output_store_path: &str,
+    job_id: &str,
+    step_index: usize,
+    operation: &seis_runtime::ProcessingOperation,
+) -> String {
+    let output_path = Path::new(final_output_store_path);
+    let parent = output_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = output_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("processed");
+    let job_stem = sanitized_stem(job_id, "job");
+    let operation_stem = sanitized_stem(operation.operator_id(), "step");
+    parent
+        .join(format!(
+            "{stem}.{job_stem}.step-{:02}-{operation_stem}.tbvol",
+            step_index + 1
+        ))
+        .display()
+        .to_string()
+}
+
+fn build_trace_local_processing_stages_from(
+    request: &RunTraceLocalProcessingRequest,
+    final_output_store_path: &str,
+    job_id: &str,
+    start_operation_index: usize,
+) -> Result<Vec<TraceLocalProcessingStage>, String> {
+    let checkpoint_indexes =
+        resolve_trace_local_checkpoint_indexes(&request.pipeline, &request.checkpoints)?;
+    let mut stage_end_indexes = checkpoint_indexes;
+    let final_step_index = request.pipeline.operations.len().saturating_sub(1);
+    stage_end_indexes.push(final_step_index);
+    stage_end_indexes.retain(|index| *index >= start_operation_index);
+
+    let mut stages = Vec::with_capacity(stage_end_indexes.len());
+    let mut segment_start = start_operation_index;
+    for end_index in stage_end_indexes {
+        let operation = request
+            .pipeline
+            .operations
+            .get(end_index)
+            .ok_or_else(|| format!("Missing operation at stage end index {end_index}"))?;
+        let stage_label = format!(
+            "Step {}: {}",
+            end_index + 1,
+            processing_operation_display_label(operation)
+        );
+        let artifact = ProcessingJobArtifact {
+            kind: if end_index == final_step_index {
+                ProcessingJobArtifactKind::FinalOutput
+            } else {
+                ProcessingJobArtifactKind::Checkpoint
+            },
+            step_index: end_index,
+            label: stage_label.clone(),
+            store_path: if end_index == final_step_index {
+                final_output_store_path.to_string()
+            } else {
+                checkpoint_output_store_path(final_output_store_path, job_id, end_index, operation)
+            },
+        };
+        stages.push(TraceLocalProcessingStage {
+            segment_pipeline: pipeline_segment(&request.pipeline, segment_start, end_index),
+            lineage_pipeline: pipeline_prefix(&request.pipeline, end_index),
+            stage_label,
+            artifact,
+            visibility: TraceLocalStageVisibility::VisibleArtifact,
+        });
+        segment_start = end_index + 1;
+    }
+
+    Ok(stages)
+}
+
+#[derive(Debug, Clone)]
+struct ReusedTraceLocalCheckpoint {
+    after_operation_index: usize,
+    path: String,
+    artifact: ProcessingJobArtifact,
+}
+
+fn resolve_reused_trace_local_checkpoint(
+    processing_cache: &ProcessingCacheState,
+    request: &RunTraceLocalProcessingRequest,
+) -> Result<Option<ReusedTraceLocalCheckpoint>, String> {
+    if processing_cache.settings().policy == ProcessingCachePolicy::Off {
+        return Ok(None);
+    }
+
+    let checkpoint_indexes =
+        resolve_trace_local_checkpoint_indexes(&request.pipeline, &request.checkpoints)?;
+    if checkpoint_indexes.is_empty() {
+        return Ok(None);
+    }
+
+    let source_fingerprint = trace_local_source_fingerprint(&request.store_path)?;
+    for checkpoint_index in checkpoint_indexes.into_iter().rev() {
+        let lineage_pipeline = pipeline_prefix(&request.pipeline, checkpoint_index);
+        let prefix_hash = trace_local_pipeline_hash(&lineage_pipeline)?;
+        if let Some(hit) = processing_cache.lookup_prefix_artifact(
+            TRACE_LOCAL_CACHE_FAMILY,
+            &source_fingerprint,
+            &prefix_hash,
+            checkpoint_index + 1,
+        )? {
+            let operation = request
+                .pipeline
+                .operations
+                .get(checkpoint_index)
+                .ok_or_else(|| {
+                    format!("Missing operation at checkpoint index {checkpoint_index}")
+                })?;
+            let artifact = ProcessingJobArtifact {
+                kind: ProcessingJobArtifactKind::Checkpoint,
+                step_index: checkpoint_index,
+                label: format!(
+                    "Reused checkpoint after step {}: {}",
+                    checkpoint_index + 1,
+                    processing_operation_display_label(operation)
+                ),
+                store_path: hit.path.clone(),
+            };
+            return Ok(Some(ReusedTraceLocalCheckpoint {
+                after_operation_index: checkpoint_index,
+                path: hit.path,
+                artifact,
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+fn hidden_prefix_output_store_path(
+    processing_cache: &ProcessingCacheState,
+    source_fingerprint: &str,
+    prefix_hash: &str,
+    prefix_len: usize,
+) -> String {
+    processing_cache
+        .volumes_dir()
+        .join(format!(
+            "trace-local-{source_fingerprint}-prefix-{prefix_len:02}-{prefix_hash}.tbvol"
+        ))
+        .display()
+        .to_string()
+}
+
+fn maybe_add_hidden_trace_local_prefix_stage(
+    processing_cache: &ProcessingCacheState,
+    request: &RunTraceLocalProcessingRequest,
+    stages: &mut Vec<TraceLocalProcessingStage>,
+    start_operation_index: usize,
+    source_fingerprint: Option<&str>,
+) -> Result<(), String> {
+    if processing_cache.settings().policy == ProcessingCachePolicy::Off {
+        return Ok(());
+    }
+    if request.pipeline.operations.len() <= 1 {
+        return Ok(());
+    }
+    if !request.checkpoints.is_empty() {
+        return Ok(());
+    }
+    if stages.len() != 1 {
+        return Ok(());
+    }
+    let Some(source_fingerprint) = source_fingerprint else {
+        return Ok(());
+    };
+    let hidden_prefix_end_index = request.pipeline.operations.len() - 2;
+    if hidden_prefix_end_index < start_operation_index {
+        return Ok(());
+    }
+
+    let lineage_pipeline = pipeline_prefix(&request.pipeline, hidden_prefix_end_index);
+    let prefix_hash = trace_local_pipeline_hash(&lineage_pipeline)?;
+    if processing_cache
+        .lookup_prefix_artifact(
+            TRACE_LOCAL_CACHE_FAMILY,
+            source_fingerprint,
+            &prefix_hash,
+            hidden_prefix_end_index + 1,
+        )?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let operation = request
+        .pipeline
+        .operations
+        .get(hidden_prefix_end_index)
+        .ok_or_else(|| {
+            format!("Missing operation at hidden prefix index {hidden_prefix_end_index}")
+        })?;
+    let stage = TraceLocalProcessingStage {
+        segment_pipeline: pipeline_segment(
+            &request.pipeline,
+            start_operation_index,
+            hidden_prefix_end_index,
+        ),
+        lineage_pipeline,
+        stage_label: format!(
+            "Cached prefix after step {}: {}",
+            hidden_prefix_end_index + 1,
+            processing_operation_display_label(operation)
+        ),
+        artifact: ProcessingJobArtifact {
+            kind: ProcessingJobArtifactKind::Checkpoint,
+            step_index: hidden_prefix_end_index,
+            label: format!("Cached prefix after step {}", hidden_prefix_end_index + 1),
+            store_path: hidden_prefix_output_store_path(
+                processing_cache,
+                source_fingerprint,
+                &prefix_hash,
+                hidden_prefix_end_index + 1,
+            ),
+        },
+        visibility: TraceLocalStageVisibility::HiddenPrefix,
+    };
+
+    let final_stage = stages
+        .pop()
+        .ok_or_else(|| "Missing final processing stage.".to_string())?;
+    stages.push(stage);
+    stages.push(TraceLocalProcessingStage {
+        segment_pipeline: pipeline_segment(
+            &request.pipeline,
+            hidden_prefix_end_index + 1,
+            request.pipeline.operations.len() - 1,
+        ),
+        lineage_pipeline: final_stage.lineage_pipeline,
+        stage_label: final_stage.stage_label,
+        artifact: final_stage.artifact,
+        visibility: TraceLocalStageVisibility::VisibleArtifact,
+    });
+    Ok(())
+}
+
+fn rewrite_trace_local_processing_lineage(
+    store_path: &str,
+    pipeline: &TraceLocalProcessingPipeline,
+) -> Result<(), String> {
+    let manifest_path = Path::new(store_path).join("manifest.json");
+    let mut manifest: TbvolManifest =
+        serde_json::from_slice(&fs::read(&manifest_path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let lineage = manifest
+        .volume
+        .processing_lineage
+        .as_mut()
+        .ok_or_else(|| format!("Derived store is missing processing lineage: {store_path}"))?;
+    lineage.pipeline = ProcessingPipelineSpec::TraceLocal {
+        pipeline: pipeline.clone(),
+    };
+    fs::write(
+        manifest_path,
+        serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn normalized_path_key(path: &str) -> String {
+    path.trim().replace('/', "\\").to_ascii_lowercase()
+}
+
+#[derive(serde::Serialize)]
+struct TraceLocalPipelineCacheIdentity<'a> {
+    schema_version: u32,
+    revision: u32,
+    operations: &'a [seis_runtime::ProcessingOperation],
+}
+
+fn trace_local_source_fingerprint(store_path: &str) -> Result<String, String> {
+    let manifest_path = Path::new(store_path).join("manifest.json");
+    let manifest = fs::read(&manifest_path).map_err(|error| {
+        format!(
+            "Failed to read store manifest for cache fingerprint ({}): {error}",
+            manifest_path.display()
+        )
+    })?;
+    Ok(ProcessingCacheState::fingerprint_bytes(&manifest))
+}
+
+fn trace_local_pipeline_hash(pipeline: &TraceLocalProcessingPipeline) -> Result<String, String> {
+    ProcessingCacheState::fingerprint_json(&TraceLocalPipelineCacheIdentity {
+        schema_version: pipeline.schema_version,
+        revision: pipeline.revision,
+        operations: &pipeline.operations,
+    })
+}
+
+fn register_processing_store_artifact(
+    app: &AppHandle,
+    input_store_path: &str,
+    artifact: &ProcessingJobArtifact,
+) -> Result<(), String> {
+    let workspace = match app.try_state::<WorkspaceState>() {
+        Some(state) => state,
+        None => return Ok(()),
+    };
+    let source_state = workspace.load_state()?;
+    let source_key = normalized_path_key(input_store_path);
+    let source_entry = source_state.entries.iter().find(|entry| {
+        entry
+            .imported_store_path
+            .as_deref()
+            .map(normalized_path_key)
+            .as_deref()
+            == Some(source_key.as_str())
+            || entry
+                .preferred_store_path
+                .as_deref()
+                .map(normalized_path_key)
+                .as_deref()
+                == Some(source_key.as_str())
+            || entry
+                .last_dataset
+                .as_ref()
+                .map(|dataset| normalized_path_key(&dataset.store_path))
+                .as_deref()
+                == Some(source_key.as_str())
+    });
+    let source_label = source_entry
+        .map(|entry| entry.display_name.clone())
+        .unwrap_or_else(|| display_store_stem(input_store_path));
+    let dataset = open_dataset_summary(OpenDatasetRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: artifact.store_path.clone(),
+    })
+    .map_err(|error| error.to_string())?
+    .dataset;
+
+    workspace.upsert_entry(UpsertDatasetEntryRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        entry_id: None,
+        display_name: Some(format!("{source_label} · {}", artifact.label)),
+        source_path: None,
+        preferred_store_path: Some(dataset.store_path.clone()),
+        imported_store_path: Some(dataset.store_path.clone()),
+        dataset: Some(dataset),
+        session_pipelines: source_entry.map(|entry| entry.session_pipelines.clone()),
+        active_session_pipeline_id: source_entry
+            .and_then(|entry| entry.active_session_pipeline_id.clone()),
+        make_active: false,
+    })?;
+
+    Ok(())
+}
+
 fn import_store_path_for_input(
     dir: &Path,
     input_path: &str,
@@ -297,13 +815,13 @@ fn import_store_path_for_input(
     input_path.to_ascii_lowercase().hash(&mut hasher);
     let fingerprint = hasher.finish();
     let store_name = format!("{sanitized_stem}-{fingerprint:016x}.{extension}");
-    Ok(dir
-        .join(store_name)
-        .display()
-        .to_string())
+    Ok(dir.join(store_name).display().to_string())
 }
 
-fn import_volume_store_path_for_input(app_paths: &AppPaths, input_path: &str) -> Result<String, String> {
+fn import_volume_store_path_for_input(
+    app_paths: &AppPaths,
+    input_path: &str,
+) -> Result<String, String> {
     import_store_path_for_input(app_paths.imported_volumes_dir(), input_path, "tbvol")
 }
 
@@ -540,7 +1058,10 @@ fn import_prestack_offset_dataset_command(
             ("inputPath", json_value(&request.input_path)),
             ("outputStorePath", json_value(&request.output_store_path)),
             ("overwriteExisting", json_value(request.overwrite_existing)),
-            ("thirdAxisField", json_value(format!("{:?}", request.third_axis_field).to_ascii_lowercase())),
+            (
+                "thirdAxisField",
+                json_value(format!("{:?}", request.third_axis_field).to_ascii_lowercase()),
+            ),
             ("stage", json_value("validate_input")),
         ])),
     );
@@ -571,7 +1092,10 @@ fn import_prestack_offset_dataset_command(
                 Some(build_fields([
                     ("storePath", json_value(&response.dataset.store_path)),
                     ("datasetId", json_value(&response.dataset.descriptor.id.0)),
-                    ("datasetLabel", json_value(&response.dataset.descriptor.label)),
+                    (
+                        "datasetLabel",
+                        json_value(&response.dataset.descriptor.label),
+                    ),
                     ("shape", json_value(response.dataset.descriptor.shape)),
                 ])),
             );
@@ -829,7 +1353,10 @@ fn preview_gather_processing_command(
         Some(build_fields([
             ("storePath", json_value(&request.store_path)),
             ("datasetId", json_value(&request.gather.dataset_id.0)),
-            ("operatorCount", json_value(request.pipeline.operations.len())),
+            (
+                "operatorCount",
+                json_value(request.pipeline.operations.len()),
+            ),
             (
                 "traceLocalOperatorCount",
                 json_value(
@@ -951,8 +1478,14 @@ fn velocity_scan_command(
                 &operation,
                 "Velocity scan ready",
                 Some(build_fields([
-                    ("velocityBins", json_value(response.panel.velocities_m_per_s.len())),
-                    ("sampleCount", json_value(response.panel.sample_axis_ms.len())),
+                    (
+                        "velocityBins",
+                        json_value(response.panel.velocities_m_per_s.len()),
+                    ),
+                    (
+                        "sampleCount",
+                        json_value(response.panel.sample_axis_ms.len()),
+                    ),
                     (
                         "autopickCount",
                         json_value(
@@ -985,8 +1518,54 @@ fn run_processing_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
     processing: State<ProcessingState>,
+    processing_cache: State<ProcessingCacheState>,
     request: RunTraceLocalProcessingRequest,
 ) -> Result<RunTraceLocalProcessingResponse, String> {
+    let pipeline_spec = seis_runtime::ProcessingPipelineSpec::TraceLocal {
+        pipeline: request.pipeline.clone(),
+    };
+    let allow_exact_reuse = processing_cache.settings().policy != ProcessingCachePolicy::Off
+        && request.output_store_path.is_none()
+        && request.checkpoints.is_empty();
+
+    if allow_exact_reuse {
+        let source_fingerprint = trace_local_source_fingerprint(&request.store_path)?;
+        let full_pipeline_hash = trace_local_pipeline_hash(&request.pipeline)?;
+        if let Some(hit) = processing_cache.lookup_exact_visible_output(
+            TRACE_LOCAL_CACHE_FAMILY,
+            &source_fingerprint,
+            &full_pipeline_hash,
+        )? {
+            let final_artifact = ProcessingJobArtifact {
+                kind: ProcessingJobArtifactKind::FinalOutput,
+                step_index: request.pipeline.operations.len().saturating_sub(1),
+                label: "Exact output reuse".to_string(),
+                store_path: hit.path.clone(),
+            };
+            let reused = processing.enqueue_completed_job(
+                request.store_path.clone(),
+                hit.path.clone(),
+                pipeline_spec.clone(),
+                vec![final_artifact],
+            );
+            diagnostics.emit_session_event(
+                &app,
+                "processing_job_reused",
+                log::Level::Info,
+                "Processing job reused an existing derived output",
+                Some(build_fields([
+                    ("jobId", json_value(&reused.job_id)),
+                    ("storePath", json_value(&request.store_path)),
+                    ("outputStorePath", json_value(&hit.path)),
+                ])),
+            );
+            return Ok(RunTraceLocalProcessingResponse {
+                schema_version: IPC_SCHEMA_VERSION,
+                job: reused,
+            });
+        }
+    }
+
     let app_paths = AppPaths::resolve(&app)?;
     let output_store_path =
         request
@@ -1000,9 +1579,7 @@ fn run_processing_command(
     let queued = processing.enqueue_job(
         request.store_path.clone(),
         Some(output_store_path.clone()),
-        seis_runtime::ProcessingPipelineSpec::TraceLocal {
-            pipeline: request.pipeline.clone(),
-        },
+        pipeline_spec,
     );
     let job_id = queued.job_id.clone();
     let record = processing.job_record(&job_id)?;
@@ -1074,7 +1651,10 @@ fn run_gather_processing_command(
             ("jobId", json_value(&job_id)),
             ("storePath", json_value(&request.store_path)),
             ("outputStorePath", json_value(&output_store_path)),
-            ("operatorCount", json_value(request.pipeline.operations.len())),
+            (
+                "operatorCount",
+                json_value(request.pipeline.operations.len()),
+            ),
         ])),
     );
 
@@ -1217,11 +1797,118 @@ fn run_processing_job(
             return;
         }
     };
-    let _ = record.mark_running();
     let output_store_path = request.output_store_path.clone().unwrap_or_else(|| {
         default_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
             .unwrap_or_else(|_| "derived-output.tbvol".to_string())
     });
+    let job_id = record.snapshot().job_id;
+    let reused_checkpoint = match app.try_state::<ProcessingCacheState>() {
+        Some(processing_cache) => {
+            match resolve_reused_trace_local_checkpoint(&processing_cache, &request) {
+                Ok(value) => value,
+                Err(error) => {
+                    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                        diagnostics.emit_session_event(
+                            app,
+                            "processing_checkpoint_reuse_failed",
+                            log::Level::Warn,
+                            "Checkpoint reuse lookup failed; processing will continue from source",
+                            Some(build_fields([
+                                ("jobId", json_value(&job_id)),
+                                ("error", json_value(error)),
+                            ])),
+                        );
+                    }
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    let source_fingerprint = match app.try_state::<ProcessingCacheState>() {
+        Some(processing_cache)
+            if processing_cache.settings().policy != ProcessingCachePolicy::Off =>
+        {
+            match trace_local_source_fingerprint(&request.store_path) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                        diagnostics.emit_session_event(
+                            app,
+                            "processing_cache_fingerprint_failed",
+                            log::Level::Warn,
+                            "Processing cache fingerprinting failed; processing will continue without prefix registration",
+                            Some(build_fields([
+                                ("jobId", json_value(&job_id)),
+                                ("error", json_value(error)),
+                            ])),
+                        );
+                    }
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let mut stages = match build_trace_local_processing_stages_from(
+        &request,
+        &output_store_path,
+        &job_id,
+        reused_checkpoint
+            .as_ref()
+            .map(|checkpoint| checkpoint.after_operation_index + 1)
+            .unwrap_or(0),
+    ) {
+        Ok(stages) => stages,
+        Err(error) => {
+            let final_status = record.mark_failed(error);
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "processing_job_failed",
+                    log::Level::Error,
+                    "Processing job failed",
+                    Some(build_fields([
+                        ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "error",
+                            json_value(final_status.error_message.clone().unwrap_or_default()),
+                        ),
+                    ])),
+                );
+            }
+            return;
+        }
+    };
+    if let (Some(processing_cache), Some(source_fingerprint)) = (
+        app.try_state::<ProcessingCacheState>(),
+        source_fingerprint.as_deref(),
+    ) {
+        if let Err(error) = maybe_add_hidden_trace_local_prefix_stage(
+            &processing_cache,
+            &request,
+            &mut stages,
+            reused_checkpoint
+                .as_ref()
+                .map(|checkpoint| checkpoint.after_operation_index + 1)
+                .unwrap_or(0),
+            Some(source_fingerprint),
+        ) {
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "processing_hidden_prefix_plan_failed",
+                    log::Level::Warn,
+                    "Hidden prefix planning failed; processing will continue without an automatic cached prefix",
+                    Some(build_fields([
+                        ("jobId", json_value(&job_id)),
+                        ("error", json_value(error)),
+                    ])),
+                );
+            }
+        }
+    }
+    let _ = record.mark_running(stages.first().map(|stage| stage.stage_label.clone()));
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
         &output_store_path,
@@ -1245,24 +1932,279 @@ fn run_processing_job(
         }
         return;
     }
-    let result = materialize_processing_volume_with_progress(
-        &request.store_path,
-        &output_store_path,
-        &request.pipeline,
-        MaterializeOptions::default(),
-        |completed, total| {
-            if record.cancel_requested() {
-                return Err(seis_runtime::SeisRefineError::Message(
-                    "processing cancelled".to_string(),
-                ));
+    if let Some(reused_checkpoint) = reused_checkpoint.as_ref() {
+        let _ = record.push_artifact(reused_checkpoint.artifact.clone());
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "processing_job_checkpoint_reused",
+                log::Level::Info,
+                "Processing job reused a cached checkpoint",
+                Some(build_fields([
+                    ("jobId", json_value(&job_id)),
+                    ("storePath", json_value(&reused_checkpoint.path)),
+                    (
+                        "afterOperationIndex",
+                        json_value(reused_checkpoint.after_operation_index),
+                    ),
+                ])),
+            );
+        }
+    }
+    let mut current_input_store_path = reused_checkpoint
+        .as_ref()
+        .map(|checkpoint| checkpoint.path.clone())
+        .unwrap_or_else(|| request.store_path.clone());
+    let result = stages.iter().try_for_each(|stage| {
+        if record.cancel_requested() {
+            return Err(seis_runtime::SeisRefineError::Message(
+                "processing cancelled".to_string(),
+            ));
+        }
+        if !matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
+            prepare_processing_output_store(
+                &current_input_store_path,
+                &stage.artifact.store_path,
+                matches!(stage.visibility, TraceLocalStageVisibility::HiddenPrefix),
+            )
+            .map_err(seis_runtime::SeisRefineError::Message)?;
+        }
+        materialize_processing_volume_with_progress(
+            &current_input_store_path,
+            &stage.artifact.store_path,
+            &stage.segment_pipeline,
+            MaterializeOptions::default(),
+            |completed, total| {
+                if record.cancel_requested() {
+                    return Err(seis_runtime::SeisRefineError::Message(
+                        "processing cancelled".to_string(),
+                    ));
+                }
+                let _ = record.mark_progress(completed, total, Some(&stage.stage_label));
+                Ok(())
+            },
+        )?;
+        rewrite_trace_local_processing_lineage(&stage.artifact.store_path, &stage.lineage_pipeline)
+            .map_err(seis_runtime::SeisRefineError::Message)?;
+        if matches!(stage.visibility, TraceLocalStageVisibility::VisibleArtifact) {
+            let _ = record.push_artifact(stage.artifact.clone());
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    if matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
+                        "processing_job_output_emitted"
+                    } else {
+                        "processing_job_checkpoint_emitted"
+                    },
+                    log::Level::Info,
+                    if matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
+                        "Processing output emitted"
+                    } else {
+                        "Processing checkpoint emitted"
+                    },
+                    Some(build_fields([
+                        ("jobId", json_value(&job_id)),
+                        ("storePath", json_value(&stage.artifact.store_path)),
+                        ("label", json_value(&stage.artifact.label)),
+                        (
+                            "artifactKind",
+                            json_value(match stage.artifact.kind {
+                                ProcessingJobArtifactKind::Checkpoint => "checkpoint",
+                                ProcessingJobArtifactKind::FinalOutput => "final_output",
+                            }),
+                        ),
+                    ])),
+                );
             }
-            let _ = record.mark_progress(completed, total);
-            Ok(())
-        },
-    );
+            if let Err(error) =
+                register_processing_store_artifact(app, &request.store_path, &stage.artifact)
+            {
+                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                    diagnostics.emit_session_event(
+                        app,
+                        "processing_job_artifact_register_failed",
+                        log::Level::Warn,
+                        "Processing output emitted but workspace registration failed",
+                        Some(build_fields([
+                            ("jobId", json_value(&job_id)),
+                            ("storePath", json_value(&stage.artifact.store_path)),
+                            ("error", json_value(error)),
+                        ])),
+                    );
+                }
+            }
+        } else if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "processing_hidden_prefix_emitted",
+                log::Level::Info,
+                "Processing hidden prefix emitted",
+                Some(build_fields([
+                    ("jobId", json_value(&job_id)),
+                    ("storePath", json_value(&stage.artifact.store_path)),
+                    ("label", json_value(&stage.stage_label)),
+                ])),
+            );
+        }
+        if matches!(stage.visibility, TraceLocalStageVisibility::VisibleArtifact)
+            && matches!(stage.artifact.kind, ProcessingJobArtifactKind::Checkpoint)
+        {
+            if let (Some(processing_cache), Some(source_fingerprint)) =
+                (app.try_state::<ProcessingCacheState>(), source_fingerprint.as_ref())
+            {
+                if processing_cache.settings().policy != ProcessingCachePolicy::Off {
+                    match trace_local_pipeline_hash(&stage.lineage_pipeline) {
+                        Ok(prefix_hash) => {
+                            if let Err(error) = processing_cache.register_visible_checkpoint(
+                                TRACE_LOCAL_CACHE_FAMILY,
+                                &stage.artifact.store_path,
+                                source_fingerprint,
+                                &prefix_hash,
+                                stage.artifact.step_index + 1,
+                                PROCESSING_CACHE_RUNTIME_VERSION,
+                                TBVOL_STORE_FORMAT_VERSION,
+                            ) {
+                                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                    diagnostics.emit_session_event(
+                                        app,
+                                        "processing_cache_checkpoint_register_failed",
+                                        log::Level::Warn,
+                                        "Processing checkpoint emitted but cache registration failed",
+                                        Some(build_fields([
+                                            ("jobId", json_value(&job_id)),
+                                            ("storePath", json_value(&stage.artifact.store_path)),
+                                            ("error", json_value(error)),
+                                        ])),
+                                    );
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                diagnostics.emit_session_event(
+                                    app,
+                                    "processing_cache_checkpoint_hash_failed",
+                                    log::Level::Warn,
+                                    "Processing checkpoint emitted but cache hashing failed",
+                                    Some(build_fields([
+                                        ("jobId", json_value(&job_id)),
+                                        ("storePath", json_value(&stage.artifact.store_path)),
+                                        ("error", json_value(error)),
+                                    ])),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if matches!(stage.visibility, TraceLocalStageVisibility::HiddenPrefix) {
+            if let (Some(processing_cache), Some(source_fingerprint)) =
+                (app.try_state::<ProcessingCacheState>(), source_fingerprint.as_ref())
+            {
+                if processing_cache.settings().policy != ProcessingCachePolicy::Off {
+                    match trace_local_pipeline_hash(&stage.lineage_pipeline) {
+                        Ok(prefix_hash) => {
+                            if let Err(error) = processing_cache.register_hidden_prefix(
+                                TRACE_LOCAL_CACHE_FAMILY,
+                                &stage.artifact.store_path,
+                                source_fingerprint,
+                                &prefix_hash,
+                                stage.artifact.step_index + 1,
+                                PROCESSING_CACHE_RUNTIME_VERSION,
+                                TBVOL_STORE_FORMAT_VERSION,
+                            ) {
+                                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                    diagnostics.emit_session_event(
+                                        app,
+                                        "processing_cache_hidden_prefix_register_failed",
+                                        log::Level::Warn,
+                                        "Hidden prefix emitted but cache registration failed",
+                                        Some(build_fields([
+                                            ("jobId", json_value(&job_id)),
+                                            ("storePath", json_value(&stage.artifact.store_path)),
+                                            ("error", json_value(error)),
+                                        ])),
+                                    );
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                diagnostics.emit_session_event(
+                                    app,
+                                    "processing_cache_hidden_prefix_hash_failed",
+                                    log::Level::Warn,
+                                    "Hidden prefix emitted but cache hashing failed",
+                                    Some(build_fields([
+                                        ("jobId", json_value(&job_id)),
+                                        ("storePath", json_value(&stage.artifact.store_path)),
+                                        ("error", json_value(error)),
+                                    ])),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        current_input_store_path = stage.artifact.store_path.clone();
+        Ok(())
+    });
 
     match result {
         Ok(_) => {
+            if let Some(processing_cache) = app.try_state::<ProcessingCacheState>() {
+                if processing_cache.settings().policy != ProcessingCachePolicy::Off {
+                    match (
+                        source_fingerprint.as_ref(),
+                        trace_local_pipeline_hash(&request.pipeline),
+                    ) {
+                        (Some(source_fingerprint), Ok(full_pipeline_hash)) => {
+                            if let Err(error) = processing_cache.register_visible_output(
+                                TRACE_LOCAL_CACHE_FAMILY,
+                                &output_store_path,
+                                source_fingerprint,
+                                &full_pipeline_hash,
+                                &full_pipeline_hash,
+                                request.pipeline.operations.len(),
+                                PROCESSING_CACHE_RUNTIME_VERSION,
+                                TBVOL_STORE_FORMAT_VERSION,
+                            ) {
+                                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                    diagnostics.emit_session_event(
+                                        app,
+                                        "processing_cache_register_failed",
+                                        log::Level::Warn,
+                                        "Processing output completed but cache registration failed",
+                                        Some(build_fields([
+                                            ("jobId", json_value(&job_id)),
+                                            ("outputStorePath", json_value(&output_store_path)),
+                                            ("error", json_value(error)),
+                                        ])),
+                                    );
+                                }
+                            }
+                        }
+                        (_, Err(error)) => {
+                            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                diagnostics.emit_session_event(
+                                    app,
+                                    "processing_cache_fingerprint_failed",
+                                    log::Level::Warn,
+                                    "Processing output completed but cache fingerprinting failed",
+                                    Some(build_fields([
+                                        ("jobId", json_value(&job_id)),
+                                        ("outputStorePath", json_value(&output_store_path)),
+                                        ("error", json_value(error)),
+                                    ])),
+                                );
+                            }
+                        }
+                        (None, _) => {}
+                    }
+                }
+            }
             let final_status = record.mark_completed(output_store_path.clone());
             if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
                 diagnostics.emit_session_event(
@@ -1341,7 +2283,7 @@ fn run_gather_processing_job(
             return;
         }
     };
-    let _ = record.mark_running();
+    let _ = record.mark_running(None);
     let output_store_path = request.output_store_path.clone().unwrap_or_else(|| {
         default_gather_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
             .unwrap_or_else(|_| "derived-output.tbgath".to_string())
@@ -1380,7 +2322,7 @@ fn run_gather_processing_job(
                     "processing cancelled".to_string(),
                 ));
             }
-            let _ = record.mark_progress(completed, total);
+            let _ = record.mark_progress(completed, total, None);
             Ok(())
         },
     );
@@ -1581,6 +2523,14 @@ pub fn run() {
             let diagnostics =
                 DiagnosticsState::initialize(app_paths.logs_dir(), session_basename.clone())?;
             let processing = ProcessingState::initialize(app_paths.pipeline_presets_dir())?;
+            let processing_cache = ProcessingCacheState::initialize(
+                app_paths.processing_cache_dir(),
+                app_paths.processing_cache_volumes_dir(),
+                app_paths.processing_cache_gathers_dir(),
+                app_paths.processing_cache_tmp_dir(),
+                app_paths.processing_cache_index_path(),
+                app_paths.settings_path(),
+            )?;
             let workspace = WorkspaceState::initialize(
                 app_paths.dataset_registry_path(),
                 app_paths.workspace_session_path(),
@@ -1600,6 +2550,7 @@ pub fn run() {
             );
             app.manage(diagnostics);
             app.manage(processing);
+            app.manage(processing_cache);
             app.manage(workspace);
             Ok(())
         })

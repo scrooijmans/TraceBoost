@@ -1659,19 +1659,25 @@ export class ProcessingModel {
           break;
         case "completed":
           this.runBusy = false;
-          if (response.job.output_store_path) {
-            await this.viewerModel.openDerivedDatasetAt(
-              response.job.output_store_path,
-              this.viewerModel.axis,
-              this.viewerModel.index
+          {
+            const finalOutputStorePath =
+              response.job.output_store_path ??
+              response.job.artifacts.find((artifact) => artifact.kind === "final_output")?.store_path ??
+              null;
+            if (finalOutputStorePath) {
+              await this.viewerModel.openDerivedDatasetAt(
+                finalOutputStorePath,
+                this.viewerModel.axis,
+                this.viewerModel.index
+              );
+            }
+            this.viewerModel.note(
+              "Processing job completed.",
+              "backend",
+              "info",
+              finalOutputStorePath ?? response.job.job_id
             );
           }
-          this.viewerModel.note(
-            "Processing job completed.",
-            "backend",
-            "info",
-            response.job.output_store_path ?? response.job.job_id
-          );
           break;
         case "cancelled":
           this.runBusy = false;

@@ -1,18 +1,18 @@
 pub use ophiolite_seismic::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DatasetSummary, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
-    GatherProcessingPipeline, GatherRequest, GatherView, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse,
-    PrestackThirdAxisField, PreviewCommand, PreviewGatherProcessingRequest,
-    PreviewGatherProcessingResponse, PreviewResponse, PreviewTraceLocalProcessingRequest,
-    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunTraceLocalProcessingRequest,
-    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SectionAxis, SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
-    VelocityAutopickParameters, VelocityFunctionEstimate, VelocityFunctionSource, VelocityPickStrategy,
-    VelocityScanRequest, VelocityScanResponse,
+    DeletePipelinePresetResponse, GatherProcessingPipeline, GatherRequest, GatherView,
+    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
+    ImportDatasetResponse, ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
+    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PrestackThirdAxisField,
+    PreviewCommand, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
+    PreviewResponse, PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
+    ProcessingJobArtifact, ProcessingJobArtifactKind, RunGatherProcessingRequest,
+    RunGatherProcessingResponse, RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse,
+    SavePipelinePresetRequest, SavePipelinePresetResponse, SectionAxis, SuggestedImportAction,
+    SurveyPreflightRequest, SurveyPreflightResponse, TraceLocalProcessingCheckpoint,
+    VelocityAutopickParameters, VelocityFunctionEstimate, VelocityFunctionSource,
+    VelocityPickStrategy, VelocityScanRequest, VelocityScanResponse,
 };
 
 use schemars::JsonSchema;
@@ -35,6 +35,8 @@ pub enum DatasetRegistryStatus {
 pub struct WorkspacePipelineEntry {
     pub pipeline_id: String,
     pub pipeline: TraceLocalProcessingPipeline,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checkpoint_after_operation_indexes: Vec<usize>,
     #[ts(type = "number")]
     pub updated_at_unix_s: u64,
 }

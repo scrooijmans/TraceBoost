@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use seis_runtime::{
-    ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingPipelineSpec,
-    TraceLocalProcessingPreset,
+    ProcessingJobArtifact, ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus,
+    ProcessingPipelineSpec, TraceLocalProcessingPreset,
 };
 
 pub(crate) struct ProcessingJobRecord {
@@ -30,16 +30,30 @@ impl ProcessingJobRecord {
             .clone()
     }
 
-    pub(crate) fn mark_running(&self) -> ProcessingJobStatus {
+    pub(crate) fn mark_running(&self, current_stage_label: Option<String>) -> ProcessingJobStatus {
         self.update(|status| {
             status.state = ProcessingJobState::Running;
+            status.current_stage_label = current_stage_label.clone();
             status.updated_at_unix_s = unix_timestamp_s();
         })
     }
 
-    pub(crate) fn mark_progress(&self, completed: usize, total: usize) -> ProcessingJobStatus {
+    pub(crate) fn mark_progress(
+        &self,
+        completed: usize,
+        total: usize,
+        current_stage_label: Option<&str>,
+    ) -> ProcessingJobStatus {
         self.update(|status| {
             status.progress = ProcessingJobProgress { completed, total };
+            status.current_stage_label = current_stage_label.map(str::to_string);
+            status.updated_at_unix_s = unix_timestamp_s();
+        })
+    }
+
+    pub(crate) fn push_artifact(&self, artifact: ProcessingJobArtifact) -> ProcessingJobStatus {
+        self.update(|status| {
+            status.artifacts.push(artifact.clone());
             status.updated_at_unix_s = unix_timestamp_s();
         })
     }
@@ -48,6 +62,7 @@ impl ProcessingJobRecord {
         self.update(|status| {
             status.state = ProcessingJobState::Completed;
             status.output_store_path = Some(output_store_path.clone());
+            status.current_stage_label = None;
             status.updated_at_unix_s = unix_timestamp_s();
             status.error_message = None;
         })
@@ -56,6 +71,7 @@ impl ProcessingJobRecord {
     pub(crate) fn mark_failed(&self, message: String) -> ProcessingJobStatus {
         self.update(|status| {
             status.state = ProcessingJobState::Failed;
+            status.current_stage_label = None;
             status.updated_at_unix_s = unix_timestamp_s();
             status.error_message = Some(message.clone());
         })
@@ -64,6 +80,7 @@ impl ProcessingJobRecord {
     pub(crate) fn mark_cancelled(&self) -> ProcessingJobStatus {
         self.update(|status| {
             status.state = ProcessingJobState::Cancelled;
+            status.current_stage_label = None;
             status.updated_at_unix_s = unix_timestamp_s();
             status.error_message = None;
         })
@@ -125,6 +142,42 @@ impl ProcessingState {
             input_store_path,
             output_store_path,
             pipeline,
+            current_stage_label: None,
+            artifacts: Vec::new(),
+            created_at_unix_s,
+            updated_at_unix_s: created_at_unix_s,
+            error_message: None,
+        };
+        let record = Arc::new(ProcessingJobRecord::new(status.clone()));
+        self.jobs
+            .lock()
+            .expect("processing jobs mutex poisoned")
+            .insert(job_id, record);
+        status
+    }
+
+    pub fn enqueue_completed_job(
+        &self,
+        input_store_path: String,
+        output_store_path: String,
+        pipeline: ProcessingPipelineSpec,
+        artifacts: Vec<ProcessingJobArtifact>,
+    ) -> ProcessingJobStatus {
+        let created_at_unix_s = unix_timestamp_s();
+        let job_number = self.job_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let job_id = format!("processing-{created_at_unix_s}-{job_number:04}");
+        let status = ProcessingJobStatus {
+            job_id: job_id.clone(),
+            state: ProcessingJobState::Completed,
+            progress: ProcessingJobProgress {
+                completed: 1,
+                total: 1,
+            },
+            input_store_path,
+            output_store_path: Some(output_store_path),
+            pipeline,
+            current_stage_label: None,
+            artifacts,
             created_at_unix_s,
             updated_at_unix_s: created_at_unix_s,
             error_message: None,

@@ -349,6 +349,9 @@
     padding: 10px;
     border-bottom: 1px solid #242424;
     background: #191919;
+    position: relative;
+    overflow: visible;
+    z-index: 2;
   }
 
   .search-label {
@@ -397,10 +400,16 @@
   }
 
   .catalog-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 10px;
+    right: 10px;
     border: 1px solid #2a2a2a;
     background: #171717;
     max-height: 180px;
     overflow: auto;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
+    z-index: 4;
   }
 
   .catalog-row {

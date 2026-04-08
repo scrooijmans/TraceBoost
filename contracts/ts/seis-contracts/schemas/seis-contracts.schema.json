@@ -873,6 +873,38 @@
           ],
           "type": "object"
         },
+        "ProcessingJobArtifact": {
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ProcessingJobArtifactKind"
+            },
+            "label": {
+              "type": "string"
+            },
+            "step_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "step_index",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingJobArtifactKind": {
+          "enum": [
+            "checkpoint",
+            "final_output"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -904,10 +936,22 @@
         },
         "ProcessingJobStatus": {
           "properties": {
+            "artifacts": {
+              "items": {
+                "$ref": "#/definitions/ProcessingJobArtifact"
+              },
+              "type": "array"
+            },
             "created_at_unix_s": {
               "format": "uint64",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "current_stage_label": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "error_message": {
               "type": [
@@ -1894,6 +1938,14 @@
         },
         "WorkspacePipelineEntry": {
           "properties": {
+            "checkpoint_after_operation_indexes": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -4354,6 +4406,38 @@
           ],
           "type": "object"
         },
+        "ProcessingJobArtifact": {
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ProcessingJobArtifactKind"
+            },
+            "label": {
+              "type": "string"
+            },
+            "step_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "step_index",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingJobArtifactKind": {
+          "enum": [
+            "checkpoint",
+            "final_output"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -4385,10 +4469,22 @@
         },
         "ProcessingJobStatus": {
           "properties": {
+            "artifacts": {
+              "items": {
+                "$ref": "#/definitions/ProcessingJobArtifact"
+              },
+              "type": "array"
+            },
             "created_at_unix_s": {
               "format": "uint64",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "current_stage_label": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "error_message": {
               "type": [
@@ -6101,6 +6197,14 @@
         },
         "WorkspacePipelineEntry": {
           "properties": {
+            "checkpoint_after_operation_indexes": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -9343,6 +9447,51 @@
       "title": "PreviewView",
       "type": "object"
     },
+    "ProcessingJobArtifact": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ProcessingJobArtifactKind": {
+          "enum": [
+            "checkpoint",
+            "final_output"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/ProcessingJobArtifactKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "step_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "store_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "step_index",
+        "store_path"
+      ],
+      "title": "ProcessingJobArtifact",
+      "type": "object"
+    },
+    "ProcessingJobArtifactKind": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "enum": [
+        "checkpoint",
+        "final_output"
+      ],
+      "title": "ProcessingJobArtifactKind",
+      "type": "string"
+    },
     "ProcessingJobProgress": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -9531,6 +9680,38 @@
             "operations"
           ],
           "type": "object"
+        },
+        "ProcessingJobArtifact": {
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ProcessingJobArtifactKind"
+            },
+            "label": {
+              "type": "string"
+            },
+            "step_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "step_index",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingJobArtifactKind": {
+          "enum": [
+            "checkpoint",
+            "final_output"
+          ],
+          "type": "string"
         },
         "ProcessingJobProgress": {
           "properties": {
@@ -9946,10 +10127,22 @@
         }
       },
       "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/definitions/ProcessingJobArtifact"
+          },
+          "type": "array"
+        },
         "created_at_unix_s": {
           "format": "uint64",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "current_stage_label": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "error_message": {
           "type": [
@@ -11314,6 +11507,38 @@
           ],
           "type": "object"
         },
+        "ProcessingJobArtifact": {
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ProcessingJobArtifactKind"
+            },
+            "label": {
+              "type": "string"
+            },
+            "step_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "step_index",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingJobArtifactKind": {
+          "enum": [
+            "checkpoint",
+            "final_output"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -11345,10 +11570,22 @@
         },
         "ProcessingJobStatus": {
           "properties": {
+            "artifacts": {
+              "items": {
+                "$ref": "#/definitions/ProcessingJobArtifact"
+              },
+              "type": "array"
+            },
             "created_at_unix_s": {
               "format": "uint64",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "current_stage_label": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "error_message": {
               "type": [
@@ -11810,6 +12047,19 @@
           ],
           "type": "string"
         },
+        "TraceLocalProcessingCheckpoint": {
+          "properties": {
+            "after_operation_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "after_operation_index"
+          ],
+          "type": "object"
+        },
         "TraceLocalProcessingOperation": {
           "oneOf": [
             {
@@ -12074,6 +12324,12 @@
         }
       },
       "properties": {
+        "checkpoints": {
+          "items": {
+            "$ref": "#/definitions/TraceLocalProcessingCheckpoint"
+          },
+          "type": "array"
+        },
         "output_store_path": {
           "type": [
             "string",
@@ -12260,6 +12516,38 @@
           ],
           "type": "object"
         },
+        "ProcessingJobArtifact": {
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ProcessingJobArtifactKind"
+            },
+            "label": {
+              "type": "string"
+            },
+            "step_index": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "store_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "step_index",
+            "store_path"
+          ],
+          "type": "object"
+        },
+        "ProcessingJobArtifactKind": {
+          "enum": [
+            "checkpoint",
+            "final_output"
+          ],
+          "type": "string"
+        },
         "ProcessingJobProgress": {
           "properties": {
             "completed": {
@@ -12291,10 +12579,22 @@
         },
         "ProcessingJobStatus": {
           "properties": {
+            "artifacts": {
+              "items": {
+                "$ref": "#/definitions/ProcessingJobArtifact"
+              },
+              "type": "array"
+            },
             "created_at_unix_s": {
               "format": "uint64",
               "minimum": 0.0,
               "type": "integer"
+            },
+            "current_stage_label": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "error_message": {
               "type": [
@@ -15046,6 +15346,14 @@
         },
         "WorkspacePipelineEntry": {
           "properties": {
+            "checkpoint_after_operation_indexes": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -15242,6 +15550,21 @@
         "trace_count"
       ],
       "title": "SurveyPreflightResponse",
+      "type": "object"
+    },
+    "TraceLocalProcessingCheckpoint": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "after_operation_index": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "after_operation_index"
+      ],
+      "title": "TraceLocalProcessingCheckpoint",
       "type": "object"
     },
     "TraceLocalProcessingOperation": {
@@ -16598,6 +16921,14 @@
         },
         "WorkspacePipelineEntry": {
           "properties": {
+            "checkpoint_after_operation_indexes": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -17317,6 +17648,14 @@
         },
         "WorkspacePipelineEntry": {
           "properties": {
+            "checkpoint_after_operation_indexes": {
+              "items": {
+                "format": "uint",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -18655,6 +18994,14 @@
         }
       },
       "properties": {
+        "checkpoint_after_operation_indexes": {
+          "items": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "pipeline": {
           "$ref": "#/definitions/TraceLocalProcessingPipeline"
         },
