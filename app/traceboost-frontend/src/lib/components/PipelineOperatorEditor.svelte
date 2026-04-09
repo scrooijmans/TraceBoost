@@ -156,7 +156,8 @@
               {sourceSubvolumeBounds.zUnits ?? "ms"}.
             </p>
           {/if}
-          <p>Crop can be placed anywhere in the workspace, but execution is normalized so it still runs last.</p>
+          <p>Crop Subvolume is a run-volume tail step. Preview shows only the processing steps above it.</p>
+          <p>It is always appended to the end of the pipeline and only one crop can be active at a time.</p>
           <p>Bounds must stay within the source volume and define a strict subset on at least one axis.</p>
         </div>
       {:else if isAmplitudeScalar(selectedOperation)}

@@ -3,7 +3,6 @@ import type {
   AmplitudeSpectrumRequest,
   AmplitudeSpectrumResponse,
   PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
-  PreviewSubvolumeProcessingRequest,
   ProcessingJobStatus,
   SubvolumeCropOperation,
   SubvolumeProcessingPipeline,
@@ -25,10 +24,10 @@ import {
   getProcessingJob,
   listPipelinePresets,
   previewProcessing,
-  previewSubvolumeProcessing,
   runProcessing,
   runSubvolumeProcessing,
-  savePipelinePreset
+  savePipelinePreset,
+  type TransportSectionView
 } from "./bridge";
 import { confirmOverwriteStore, pickOutputStorePath } from "./file-dialog";
 import type { ViewerModel } from "./viewer-model.svelte";
@@ -36,6 +35,7 @@ import type { ViewerModel } from "./viewer-model.svelte";
 type PreviewState = "raw" | "preview" | "stale";
 type SpectrumAmplitudeScale = "db" | "linear";
 type VolumeArithmeticOperator = "add" | "subtract" | "multiply" | "divide";
+type DisplaySectionView = SectionView | TransportSectionView;
 export interface SourceSubvolumeBounds {
   inlineMin: number;
   inlineMax: number;
@@ -78,7 +78,6 @@ interface OperatorCatalogDefinition {
 interface CopiedSessionPipeline {
   pipeline: ProcessingPipeline;
   subvolumeCrop: SubvolumeCropOperation | null;
-  subvolumeCropDisplayIndex: number | null;
   checkpointAfterOperationIndexes: number[];
 }
 
@@ -228,7 +227,7 @@ function nextAnimationFrame(): Promise<void> {
   });
 }
 
-function estimateSectionPayloadBytes(section: SectionView): number {
+function estimateSectionPayloadBytes(section: DisplaySectionView): number {
   return (
     section.horizontal_axis_f64le.length +
     (section.inline_axis_f64le?.length ?? 0) +
@@ -321,20 +320,6 @@ function cloneOperation(operation: ProcessingOperation): ProcessingOperation {
 
 function cloneSubvolumeCrop(crop: SubvolumeCropOperation | null | undefined): SubvolumeCropOperation | null {
   return crop ? { ...crop } : null;
-}
-
-function normalizeSubvolumeCropDisplayIndex(
-  cropDisplayIndex: number | null | undefined,
-  operationCount: number,
-  hasSubvolumeCrop: boolean
-): number | null {
-  if (!hasSubvolumeCrop) {
-    return null;
-  }
-  if (cropDisplayIndex === null || cropDisplayIndex === undefined || !Number.isInteger(cropDisplayIndex)) {
-    return operationCount;
-  }
-  return Math.max(0, Math.min(cropDisplayIndex, operationCount));
 }
 
 function cloneWorkspaceOperation(operation: WorkspaceOperation): WorkspaceOperation {
@@ -491,7 +476,7 @@ function defaultPhaseRotation(): ProcessingOperation {
   };
 }
 
-function sectionNyquistHz(section: SectionView | null): number {
+function sectionNyquistHz(section: DisplaySectionView | null): number {
   const sampleAxis = section?.sample_axis_f32le ?? [];
   const sampleIntervalMs =
     sampleAxis.length >= 2 ? Math.abs((sampleAxis[1] ?? 0) - (sampleAxis[0] ?? 0)) : 2;
@@ -508,7 +493,7 @@ function defaultAgcRms(): ProcessingOperation {
   };
 }
 
-function defaultLowpassFilter(section: SectionView | null): ProcessingOperation {
+function defaultLowpassFilter(section: DisplaySectionView | null): ProcessingOperation {
   const nyquistHz = sectionNyquistHz(section);
   const f3_hz = Math.max(20, nyquistHz * 0.12);
   const f4_hz = Math.min(nyquistHz, Math.max(f3_hz + 8, nyquistHz * 0.18));
@@ -523,7 +508,7 @@ function defaultLowpassFilter(section: SectionView | null): ProcessingOperation 
   };
 }
 
-function defaultHighpassFilter(section: SectionView | null): ProcessingOperation {
+function defaultHighpassFilter(section: DisplaySectionView | null): ProcessingOperation {
   const nyquistHz = sectionNyquistHz(section);
   const f1_hz = Math.max(2, nyquistHz * 0.015);
   const f2_hz = Math.min(nyquistHz, Math.max(f1_hz + 2, nyquistHz * 0.04));
@@ -538,7 +523,7 @@ function defaultHighpassFilter(section: SectionView | null): ProcessingOperation
   };
 }
 
-function defaultBandpassFilter(section: SectionView | null): ProcessingOperation {
+function defaultBandpassFilter(section: DisplaySectionView | null): ProcessingOperation {
   const nyquistHz = sectionNyquistHz(section);
   const f1_hz = Math.max(4, nyquistHz * 0.06);
   const f2_hz = Math.max(f1_hz + 1, nyquistHz * 0.1);
@@ -626,17 +611,11 @@ function buildSubvolumeProcessingPipeline(
 
 function workspaceOperations(
   pipeline: ProcessingPipeline,
-  subvolumeCrop: SubvolumeCropOperation | null,
-  subvolumeCropDisplayIndex: number | null
+  subvolumeCrop: SubvolumeCropOperation | null
 ): WorkspaceOperation[] {
   const operations: WorkspaceOperation[] = pipeline.operations.map((operation) => cloneOperation(operation));
   if (subvolumeCrop) {
-    const displayIndex = normalizeSubvolumeCropDisplayIndex(
-      subvolumeCropDisplayIndex,
-      pipeline.operations.length,
-      true
-    )!;
-    operations.splice(displayIndex, 0, { crop_subvolume: { ...subvolumeCrop } });
+    operations.push({ crop_subvolume: { ...subvolumeCrop } });
   }
   return operations;
 }
@@ -644,23 +623,13 @@ function workspaceOperations(
 function workspaceOperationAt(
   pipeline: ProcessingPipeline,
   subvolumeCrop: SubvolumeCropOperation | null,
-  subvolumeCropDisplayIndex: number | null,
   index: number
 ): WorkspaceOperation | null {
-  if (subvolumeCrop) {
-    const displayIndex = normalizeSubvolumeCropDisplayIndex(
-      subvolumeCropDisplayIndex,
-      pipeline.operations.length,
-      true
-    )!;
-    if (index === displayIndex) {
-      return { crop_subvolume: { ...subvolumeCrop } };
-    }
-    const traceOperationIndex = index > displayIndex ? index - 1 : index;
-    return pipeline.operations[traceOperationIndex] ?? null;
-  }
   if (index < pipeline.operations.length) {
     return pipeline.operations[index] ?? null;
+  }
+  if (subvolumeCrop && index === pipeline.operations.length) {
+    return { crop_subvolume: { ...subvolumeCrop } };
   }
   return null;
 }
@@ -674,13 +643,12 @@ export class ProcessingModel {
 
   pipeline = $state<ProcessingPipeline>(createEmptyPipeline());
   subvolumeCrop = $state<SubvolumeCropOperation | null>(null);
-  subvolumeCropDisplayIndex = $state<number | null>(null);
   sessionPipelines = $state.raw<WorkspacePipelineEntry[]>([]);
   activeSessionPipelineId = $state<string | null>(null);
   selectedStepIndex = $state(0);
   editingParams = $state(false);
   previewState = $state<PreviewState>("raw");
-  previewSection = $state<SectionView | null>(null);
+  previewSection = $state.raw<DisplaySectionView | null>(null);
   previewLabel = $state<string | null>(null);
   previewedSectionKey = $state<string | null>(null);
   previewBusy = $state(false);
@@ -750,11 +718,6 @@ export class ProcessingModel {
           this.activeSessionPipelineId = fallback.pipeline_id;
           this.pipeline = clonePipeline(fallback.pipeline);
           this.subvolumeCrop = cloneSubvolumeCrop(fallback.subvolume_crop);
-          this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-            fallback.subvolume_crop_display_index,
-            fallback.pipeline.operations.length,
-            fallback.subvolume_crop !== null
-          );
         }
         return;
       }
@@ -770,13 +733,8 @@ export class ProcessingModel {
               pipeline_id: entry.pipeline_id,
               pipeline: clonePipeline(entry.pipeline),
               subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop),
-              subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
-                entry.subvolume_crop_display_index,
-                entry.pipeline.operations.length,
-                entry.subvolume_crop !== null
-              ),
               checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-                entry.subvolume_crop ? [] : entry.checkpoint_after_operation_indexes ?? [],
+                entry.checkpoint_after_operation_indexes ?? [],
                 entry.pipeline.operations.length
               ),
               updated_at_unix_s: entry.updated_at_unix_s
@@ -794,11 +752,6 @@ export class ProcessingModel {
       this.activeSessionPipelineId = activePipeline?.pipeline_id ?? null;
       this.pipeline = clonePipeline(activePipeline?.pipeline ?? createEmptyPipeline());
       this.subvolumeCrop = cloneSubvolumeCrop(activePipeline?.subvolume_crop);
-      this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-        activePipeline?.subvolume_crop_display_index,
-        activePipeline?.pipeline.operations.length ?? 0,
-        activePipeline?.subvolume_crop !== null
-      );
       this.selectedStepIndex = 0;
       this.editingParams = false;
       this.clearPreviewState();
@@ -853,43 +806,26 @@ export class ProcessingModel {
   };
 
   get selectedOperation(): WorkspaceOperation | null {
-    return workspaceOperationAt(
-      this.pipeline,
-      this.subvolumeCrop,
-      this.subvolumeCropDisplayIndex,
-      this.selectedStepIndex
-    );
+    return workspaceOperationAt(this.pipeline, this.subvolumeCrop, this.selectedStepIndex);
   }
 
   get activeSessionPipeline(): WorkspacePipelineEntry | null {
     return this.sessionPipelines.find((entry) => entry.pipeline_id === this.activeSessionPipelineId) ?? null;
   }
 
-  get normalizedSubvolumeCropDisplayIndex(): number | null {
-    return normalizeSubvolumeCropDisplayIndex(
-      this.subvolumeCropDisplayIndex,
-      this.pipeline.operations.length,
-      this.subvolumeCrop !== null
-    );
-  }
-
   private traceOperationIndexForDisplayIndex(displayIndex: number): number | null {
-    if (displayIndex < 0) {
+    if (displayIndex < 0 || displayIndex >= this.pipeline.operations.length) {
       return null;
     }
-    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
-    if (cropDisplayIndex !== null && displayIndex === cropDisplayIndex) {
-      return null;
-    }
-    return cropDisplayIndex !== null && displayIndex > cropDisplayIndex ? displayIndex - 1 : displayIndex;
+    return displayIndex;
   }
 
-  private traceInsertIndexForDisplayIndex(displayIndex: number): number {
-    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
-    const clampedDisplayIndex = Math.max(0, Math.min(displayIndex, this.workspaceOperations.length));
-    return cropDisplayIndex !== null && clampedDisplayIndex > cropDisplayIndex
-      ? clampedDisplayIndex - 1
-      : clampedDisplayIndex;
+  private nextTraceInsertIndexAfterSelection(): number {
+    const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
+    if (selectedTraceOperationIndex === null) {
+      return this.pipeline.operations.length;
+    }
+    return selectedTraceOperationIndex + 1;
   }
 
   private selectedTraceOperationIndex(): number | null {
@@ -921,7 +857,7 @@ export class ProcessingModel {
     return this.selectedOperation ? describeOperation(this.selectedOperation) : null;
   }
 
-  get displaySection(): SectionView | null {
+  get displaySection(): DisplaySectionView | null {
     if (this.previewState === "preview" && this.previewSection) {
       return this.previewSection;
     }
@@ -937,7 +873,7 @@ export class ProcessingModel {
   }
 
   get canPreview(): boolean {
-    return this.hasOperations && Boolean(this.viewerModel.section && this.viewerModel.activeStorePath);
+    return this.pipeline.operations.length > 0 && Boolean(this.viewerModel.section && this.viewerModel.activeStorePath);
   }
 
   get canRun(): boolean {
@@ -990,7 +926,7 @@ export class ProcessingModel {
   }
 
   get workspaceOperations(): WorkspaceOperation[] {
-    return workspaceOperations(this.pipeline, this.subvolumeCrop, this.subvolumeCropDisplayIndex);
+    return workspaceOperations(this.pipeline, this.subvolumeCrop);
   }
 
   get hasSubvolumeCrop(): boolean {
@@ -998,11 +934,13 @@ export class ProcessingModel {
   }
 
   get canMoveSelectedUp(): boolean {
-    return this.selectedStepIndex > 0;
+    const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
+    return selectedTraceOperationIndex !== null && selectedTraceOperationIndex > 0;
   }
 
   get canMoveSelectedDown(): boolean {
-    return this.selectedStepIndex < this.workspaceOperations.length - 1;
+    const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
+    return selectedTraceOperationIndex !== null && selectedTraceOperationIndex < this.pipeline.operations.length - 1;
   }
 
   get canRemoveSessionPipeline(): boolean {
@@ -1010,7 +948,7 @@ export class ProcessingModel {
   }
 
   get canToggleSelectedCheckpoint(): boolean {
-    return !this.subvolumeCrop && this.pipeline.operations.length > 1 && this.selectedStepIndex < this.pipeline.operations.length - 1;
+    return this.pipeline.operations.length > 1 && this.selectedStepIndex < this.pipeline.operations.length - 1;
   }
 
   get resolvedRunOutputPath(): string | null {
@@ -1082,11 +1020,6 @@ export class ProcessingModel {
     this.activeSessionPipelineId = nextEntry.pipeline_id;
     this.pipeline = clonePipeline(nextEntry.pipeline);
     this.subvolumeCrop = cloneSubvolumeCrop(nextEntry.subvolume_crop);
-    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-      nextEntry.subvolume_crop_display_index,
-      nextEntry.pipeline.operations.length,
-      nextEntry.subvolume_crop !== null
-    );
     this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
@@ -1102,18 +1035,12 @@ export class ProcessingModel {
     const duplicate = this.createCopiedSessionPipelineEntry(
       source.pipeline,
       source.subvolume_crop ?? null,
-      source.subvolume_crop_display_index ?? null,
       source.checkpoint_after_operation_indexes ?? []
     );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
     this.subvolumeCrop = cloneSubvolumeCrop(duplicate.subvolume_crop);
-    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-      duplicate.subvolume_crop_display_index,
-      duplicate.pipeline.operations.length,
-      duplicate.subvolume_crop !== null
-    );
     this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
@@ -1130,11 +1057,6 @@ export class ProcessingModel {
     this.activeSessionPipelineId = pipelineId;
     this.pipeline = clonePipeline(entry.pipeline);
     this.subvolumeCrop = cloneSubvolumeCrop(entry.subvolume_crop);
-    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-      entry.subvolume_crop_display_index,
-      entry.pipeline.operations.length,
-      entry.subvolume_crop !== null
-    );
     this.viewerModel.setSelectedPresetId(entry.pipeline.preset_id ?? null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
@@ -1170,11 +1092,6 @@ export class ProcessingModel {
       this.activeSessionPipelineId = fallbackEntry?.pipeline_id ?? null;
       this.pipeline = clonePipeline(fallbackEntry?.pipeline ?? createEmptyPipeline());
       this.subvolumeCrop = cloneSubvolumeCrop(fallbackEntry?.subvolume_crop);
-      this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-        fallbackEntry?.subvolume_crop_display_index,
-        fallbackEntry?.pipeline.operations.length ?? 0,
-        fallbackEntry?.subvolume_crop !== null
-      );
       this.viewerModel.setSelectedPresetId(fallbackEntry?.pipeline.preset_id ?? null);
       this.selectedStepIndex = 0;
       this.editingParams = false;
@@ -1188,7 +1105,6 @@ export class ProcessingModel {
     suggestedName: string,
     template: ProcessingPipeline = createEmptyPipeline(),
     subvolumeCrop: SubvolumeCropOperation | null = null,
-    subvolumeCropDisplayIndex: number | null = null,
     checkpointAfterOperationIndexes: number[] = []
   ): WorkspacePipelineEntry {
     this.#sessionPipelineCounter += 1;
@@ -1198,13 +1114,8 @@ export class ProcessingModel {
       pipeline_id: `session-pipeline-${Date.now()}-${this.#sessionPipelineCounter}`,
       pipeline,
       subvolume_crop: cloneSubvolumeCrop(subvolumeCrop),
-      subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
-        subvolumeCropDisplayIndex,
-        pipeline.operations.length,
-        subvolumeCrop !== null
-      ),
       checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-        subvolumeCrop ? [] : checkpointAfterOperationIndexes,
+        checkpointAfterOperationIndexes,
         pipeline.operations.length
       ),
       updated_at_unix_s: pipelineTimestamp()
@@ -1227,7 +1138,6 @@ export class ProcessingModel {
   private createCopiedSessionPipelineEntry(
     source: ProcessingPipeline,
     subvolumeCrop: SubvolumeCropOperation | null,
-    subvolumeCropDisplayIndex: number | null,
     checkpointAfterOperationIndexes: number[]
   ): WorkspacePipelineEntry {
     const pipeline = clonePipeline(source);
@@ -1240,7 +1150,6 @@ export class ProcessingModel {
       pipeline.name,
       pipeline,
       subvolumeCrop,
-      subvolumeCropDisplayIndex,
       checkpointAfterOperationIndexes
     );
   }
@@ -1253,11 +1162,6 @@ export class ProcessingModel {
     this.#copiedSessionPipeline = {
       pipeline: clonePipeline(activePipeline.pipeline),
       subvolumeCrop: cloneSubvolumeCrop(activePipeline.subvolume_crop),
-      subvolumeCropDisplayIndex: normalizeSubvolumeCropDisplayIndex(
-        activePipeline.subvolume_crop_display_index,
-        activePipeline.pipeline.operations.length,
-        activePipeline.subvolume_crop !== null
-      ),
       checkpointAfterOperationIndexes: cloneCheckpointAfterOperationIndexes(
         activePipeline.checkpoint_after_operation_indexes ?? []
       )
@@ -1273,18 +1177,12 @@ export class ProcessingModel {
     const duplicate = this.createCopiedSessionPipelineEntry(
       this.#copiedSessionPipeline.pipeline,
       this.#copiedSessionPipeline.subvolumeCrop,
-      this.#copiedSessionPipeline.subvolumeCropDisplayIndex,
       this.#copiedSessionPipeline.checkpointAfterOperationIndexes
     );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
     this.pipeline = clonePipeline(duplicate.pipeline);
     this.subvolumeCrop = cloneSubvolumeCrop(duplicate.subvolume_crop);
-    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-      duplicate.subvolume_crop_display_index,
-      duplicate.pipeline.operations.length,
-      duplicate.subvolume_crop !== null
-    );
     this.viewerModel.setSelectedPresetId(null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
@@ -1311,9 +1209,6 @@ export class ProcessingModel {
   };
 
   toggleCheckpointAfterOperation = (index: number): void => {
-    if (this.subvolumeCrop) {
-      return;
-    }
     if (index < 0 || index >= this.pipeline.operations.length - 1) {
       return;
     }
@@ -1324,7 +1219,6 @@ export class ProcessingModel {
     this.updateActiveSessionPipeline(
       this.pipeline,
       this.subvolumeCrop,
-      this.subvolumeCropDisplayIndex,
       nextCheckpointIndexes
     );
   };
@@ -1343,11 +1237,6 @@ export class ProcessingModel {
         updated_at_unix_s: entry.updated_at_unix_s,
         pipeline: clonePipeline(entry.pipeline),
         subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop),
-        subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
-          entry.subvolume_crop_display_index,
-          entry.pipeline.operations.length,
-          entry.subvolume_crop !== null
-        ),
         checkpoint_after_operation_indexes: cloneCheckpointAfterOperationIndexes(
           entry.checkpoint_after_operation_indexes ?? []
         )
@@ -1375,18 +1264,12 @@ export class ProcessingModel {
   private updateActiveSessionPipeline(
     nextPipeline: ProcessingPipeline,
     nextSubvolumeCrop: SubvolumeCropOperation | null = this.subvolumeCrop,
-    nextSubvolumeCropDisplayIndex: number | null = this.subvolumeCropDisplayIndex,
     checkpointAfterOperationIndexes: number[] | null = null
   ): void {
     const activePipelineId = this.activeSessionPipelineId;
     const snapshot = clonePipeline(nextPipeline);
     this.pipeline = snapshot;
     this.subvolumeCrop = cloneSubvolumeCrop(nextSubvolumeCrop);
-    this.subvolumeCropDisplayIndex = normalizeSubvolumeCropDisplayIndex(
-      nextSubvolumeCropDisplayIndex,
-      snapshot.operations.length,
-      nextSubvolumeCrop !== null
-    );
 
     if (!activePipelineId) {
       return;
@@ -1398,13 +1281,8 @@ export class ProcessingModel {
             pipeline_id: entry.pipeline_id,
             pipeline: clonePipeline(snapshot),
             subvolume_crop: cloneSubvolumeCrop(nextSubvolumeCrop),
-            subvolume_crop_display_index: normalizeSubvolumeCropDisplayIndex(
-              nextSubvolumeCropDisplayIndex,
-              snapshot.operations.length,
-              nextSubvolumeCrop !== null
-            ),
             checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-              nextSubvolumeCrop ? [] : checkpointAfterOperationIndexes ?? entry.checkpoint_after_operation_indexes ?? [],
+              checkpointAfterOperationIndexes ?? entry.checkpoint_after_operation_indexes ?? [],
               snapshot.operations.length
             ),
             updated_at_unix_s: pipelineTimestamp()
@@ -1512,14 +1390,13 @@ export class ProcessingModel {
       return;
     }
     const next = clonePipeline(this.pipeline);
-    const insertDisplayIndex = this.workspaceOperations.length === 0 ? 0 : this.selectedStepIndex + 1;
-    const insertIndex = this.traceInsertIndexForDisplayIndex(insertDisplayIndex);
+    const insertIndex = this.nextTraceInsertIndexAfterSelection();
+    const insertDisplayIndex = insertIndex;
     next.operations.splice(insertIndex, 0, cloneOperation(operation));
     next.revision += 1;
     this.updateActiveSessionPipeline(
       next,
       this.subvolumeCrop,
-      this.normalizedSubvolumeCropDisplayIndex,
       remapCheckpointIndexesForInsert(this.checkpointAfterOperationIndexes, insertIndex, next.operations.length)
     );
     this.selectedStepIndex = insertDisplayIndex;
@@ -1529,18 +1406,16 @@ export class ProcessingModel {
 
   insertCropSubvolume = (crop: SubvolumeCropOperation = defaultSubvolumeCrop(this.viewerModel)): void => {
     if (this.subvolumeCrop) {
-      this.selectedStepIndex = this.normalizedSubvolumeCropDisplayIndex ?? this.pipeline.operations.length;
+      this.selectedStepIndex = this.pipeline.operations.length;
       this.editingParams = true;
       return;
     }
-    const insertDisplayIndex = this.workspaceOperations.length === 0 ? 0 : this.selectedStepIndex + 1;
     this.updateActiveSessionPipeline(
       clonePipeline(this.pipeline),
       crop,
-      insertDisplayIndex,
       []
     );
-    this.selectedStepIndex = insertDisplayIndex;
+    this.selectedStepIndex = this.pipeline.operations.length;
     this.editingParams = true;
     this.invalidatePreview();
   };
@@ -1550,11 +1425,9 @@ export class ProcessingModel {
   };
 
   removeOperationAt = (index: number): void => {
-    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
-    if (cropDisplayIndex !== null && index === cropDisplayIndex) {
+    if (this.subvolumeCrop && index === this.pipeline.operations.length) {
       this.updateActiveSessionPipeline(
         clonePipeline(this.pipeline),
-        null,
         null,
         this.checkpointAfterOperationIndexes
       );
@@ -1576,7 +1449,6 @@ export class ProcessingModel {
     this.updateActiveSessionPipeline(
       next,
       this.subvolumeCrop,
-      this.normalizedSubvolumeCropDisplayIndex,
       remapCheckpointIndexesForRemove(
         this.checkpointAfterOperationIndexes,
         traceOperationIndex,
@@ -1601,45 +1473,25 @@ export class ProcessingModel {
     if (!this.canMoveSelectedUp || !this.selectedOperation) {
       return;
     }
-    const currentIndex = this.selectedStepIndex;
-    const targetIndex = currentIndex - 1;
-    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
-    if (cropDisplayIndex !== null && currentIndex === cropDisplayIndex) {
-      this.updateActiveSessionPipeline(
-        clonePipeline(this.pipeline),
-        this.subvolumeCrop,
-        targetIndex,
-        this.checkpointAfterOperationIndexes
-      );
-    } else if (cropDisplayIndex !== null && targetIndex === cropDisplayIndex) {
-      this.updateActiveSessionPipeline(
-        clonePipeline(this.pipeline),
-        this.subvolumeCrop,
-        currentIndex,
-        this.checkpointAfterOperationIndexes
-      );
-    } else {
-      const fromIndex = this.traceOperationIndexForDisplayIndex(currentIndex);
-      const toIndex = this.traceOperationIndexForDisplayIndex(targetIndex);
-      if (fromIndex === null || toIndex === null) {
-        return;
-      }
-      const next = clonePipeline(this.pipeline);
-      const [operation] = next.operations.splice(fromIndex, 1);
-      next.operations.splice(toIndex, 0, operation);
-      next.revision += 1;
-      this.updateActiveSessionPipeline(
-        next,
-        this.subvolumeCrop,
-        cropDisplayIndex,
-        remapCheckpointIndexesForMove(
-          this.checkpointAfterOperationIndexes,
-          fromIndex,
-          toIndex,
-          next.operations.length
-        )
-      );
+    const fromIndex = this.selectedTraceOperationIndex();
+    if (fromIndex === null) {
+      return;
     }
+    const toIndex = fromIndex - 1;
+    const next = clonePipeline(this.pipeline);
+    const [operation] = next.operations.splice(fromIndex, 1);
+    next.operations.splice(toIndex, 0, operation);
+    next.revision += 1;
+    this.updateActiveSessionPipeline(
+      next,
+      this.subvolumeCrop,
+      remapCheckpointIndexesForMove(
+        this.checkpointAfterOperationIndexes,
+        fromIndex,
+        toIndex,
+        next.operations.length
+      )
+    );
     this.selectedStepIndex -= 1;
     this.invalidatePreview();
   };
@@ -1648,45 +1500,25 @@ export class ProcessingModel {
     if (!this.canMoveSelectedDown || !this.selectedOperation) {
       return;
     }
-    const currentIndex = this.selectedStepIndex;
-    const targetIndex = currentIndex + 1;
-    const cropDisplayIndex = this.normalizedSubvolumeCropDisplayIndex;
-    if (cropDisplayIndex !== null && currentIndex === cropDisplayIndex) {
-      this.updateActiveSessionPipeline(
-        clonePipeline(this.pipeline),
-        this.subvolumeCrop,
-        targetIndex,
-        this.checkpointAfterOperationIndexes
-      );
-    } else if (cropDisplayIndex !== null && targetIndex === cropDisplayIndex) {
-      this.updateActiveSessionPipeline(
-        clonePipeline(this.pipeline),
-        this.subvolumeCrop,
-        currentIndex,
-        this.checkpointAfterOperationIndexes
-      );
-    } else {
-      const fromIndex = this.traceOperationIndexForDisplayIndex(currentIndex);
-      const toIndex = this.traceOperationIndexForDisplayIndex(targetIndex);
-      if (fromIndex === null || toIndex === null) {
-        return;
-      }
-      const next = clonePipeline(this.pipeline);
-      const [operation] = next.operations.splice(fromIndex, 1);
-      next.operations.splice(toIndex, 0, operation);
-      next.revision += 1;
-      this.updateActiveSessionPipeline(
-        next,
-        this.subvolumeCrop,
-        cropDisplayIndex,
-        remapCheckpointIndexesForMove(
-          this.checkpointAfterOperationIndexes,
-          fromIndex,
-          toIndex,
-          next.operations.length
-        )
-      );
+    const fromIndex = this.selectedTraceOperationIndex();
+    if (fromIndex === null) {
+      return;
     }
+    const toIndex = fromIndex + 1;
+    const next = clonePipeline(this.pipeline);
+    const [operation] = next.operations.splice(fromIndex, 1);
+    next.operations.splice(toIndex, 0, operation);
+    next.revision += 1;
+    this.updateActiveSessionPipeline(
+      next,
+      this.subvolumeCrop,
+      remapCheckpointIndexesForMove(
+        this.checkpointAfterOperationIndexes,
+        fromIndex,
+        toIndex,
+        next.operations.length
+      )
+    );
     this.selectedStepIndex += 1;
     this.invalidatePreview();
   };
@@ -1905,14 +1737,13 @@ export class ProcessingModel {
     this.updateActiveSessionPipeline(
       clonePipeline(this.pipeline),
       nextCrop,
-      this.normalizedSubvolumeCropDisplayIndex,
       []
     );
     this.invalidatePreview();
   };
 
   replacePipeline = (pipeline: ProcessingPipeline): void => {
-    this.updateActiveSessionPipeline(clonePipeline(pipeline), null, null, []);
+    this.updateActiveSessionPipeline(clonePipeline(pipeline), null, []);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.invalidatePreview();
@@ -1972,7 +1803,10 @@ export class ProcessingModel {
 
   previewCurrentSection = async (): Promise<void> => {
     if (!this.canPreview || !this.viewerModel.dataset || !this.viewerModel.activeStorePath) {
-      this.error = "Open a dataset and load a section before previewing.";
+      this.error =
+        this.pipeline.operations.length === 0 && this.subvolumeCrop
+          ? "Crop Subvolume runs only on full-volume execution. Add a processing step to preview."
+          : "Open a dataset and load a section before previewing.";
       return;
     }
 
@@ -1986,21 +1820,14 @@ export class ProcessingModel {
     };
     const storePath = this.viewerModel.activeStorePath;
     const operatorIds = previewOperationIds(this.pipeline);
-    const previewMode = this.subvolumeCrop ? "subvolume" : "trace_local";
+    const previewMode = "trace_local";
     try {
-      const response = this.subvolumeCrop
-        ? await previewSubvolumeProcessing({
-            schema_version: 1,
-            store_path: storePath,
-            section,
-            pipeline: buildSubvolumeProcessingPipeline(this.pipeline, this.subvolumeCrop)
-          } satisfies PreviewSubvolumeProcessingRequest)
-        : await previewProcessing({
-            schema_version: 1,
-            store_path: storePath,
-            section,
-            pipeline: clonePipeline(this.pipeline)
-          } satisfies PreviewProcessingRequest);
+      const response = await previewProcessing({
+        schema_version: 1,
+        store_path: storePath,
+        section,
+        pipeline: clonePipeline(this.pipeline)
+      } satisfies PreviewProcessingRequest);
       const previewResolvedMs = nowMs();
       this.previewSection = response.preview.section;
       const stateAssignedMs = nowMs();
@@ -2028,6 +1855,7 @@ export class ProcessingModel {
           pipelineName: pipelineName(this.pipeline),
           operatorCount: operatorIds.length,
           operatorIds,
+          hasRunOnlySubvolumeCrop: this.subvolumeCrop !== null,
           previewReady: response.preview.preview_ready,
           processingLabel: response.preview.processing_label,
           traces: previewSection.traces,
@@ -2083,9 +1911,7 @@ export class ProcessingModel {
       const rawResponse = await fetchAmplitudeSpectrum(baseRequest);
       this.rawSpectrum = rawResponse;
 
-      if (this.subvolumeCrop) {
-        this.processedSpectrum = null;
-      } else if (this.hasOperations) {
+      if (this.pipeline.operations.length > 0) {
         this.processedSpectrum = await fetchAmplitudeSpectrum({
           ...baseRequest,
           pipeline: clonePipeline(this.pipeline)
@@ -2320,13 +2146,7 @@ export class ProcessingModel {
               response.job.output_store_path ??
               response.job.artifacts.find((artifact) => artifact.kind === "final_output")?.store_path ??
               null;
-            if (finalOutputStorePath) {
-              await this.viewerModel.openDerivedDatasetAt(
-                finalOutputStorePath,
-                this.viewerModel.axis,
-                this.viewerModel.index
-              );
-            }
+            await this.viewerModel.refreshWorkspaceState();
             this.viewerModel.note(
               "Processing job completed.",
               "backend",

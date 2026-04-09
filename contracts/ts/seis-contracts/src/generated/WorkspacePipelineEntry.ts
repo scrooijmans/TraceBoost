@@ -2,4 +2,4 @@
 import type { SubvolumeCropOperation } from "./SubvolumeCropOperation";
 import type { TraceLocalProcessingPipeline } from "./TraceLocalProcessingPipeline";
 
-export type WorkspacePipelineEntry = { pipeline_id: string, pipeline: TraceLocalProcessingPipeline, subvolume_crop: SubvolumeCropOperation | null, subvolume_crop_display_index: number | null, checkpoint_after_operation_indexes: Array<number>, updated_at_unix_s: number, };
+export type WorkspacePipelineEntry = { pipeline_id: string, pipeline: TraceLocalProcessingPipeline, subvolume_crop: SubvolumeCropOperation | null, checkpoint_after_operation_indexes: Array<number>, updated_at_unix_s: number, };

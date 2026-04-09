@@ -48,8 +48,6 @@ pub struct WorkspacePipelineEntry {
     pub pipeline: TraceLocalProcessingPipeline,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subvolume_crop: Option<SubvolumeCropOperation>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subvolume_crop_display_index: Option<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checkpoint_after_operation_indexes: Vec<usize>,
     #[ts(type = "number")]

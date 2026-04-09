@@ -19876,14 +19876,6 @@
             }
           ]
         },
-        "subvolume_crop_display_index": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
-        },
         "updated_at_unix_s": {
           "type": "integer",
           "format": "uint64",
@@ -21106,14 +21098,6 @@
                 }
               ]
             },
-            "subvolume_crop_display_index": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
-            },
             "updated_at_unix_s": {
               "type": "integer",
               "format": "uint64",
@@ -22108,14 +22092,6 @@
                 }
               ]
             },
-            "subvolume_crop_display_index": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
-            },
             "updated_at_unix_s": {
               "type": "integer",
               "format": "uint64",
@@ -23049,14 +23025,6 @@
                   "type": "null"
                 }
               ]
-            },
-            "subvolume_crop_display_index": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
             },
             "updated_at_unix_s": {
               "type": "integer",
@@ -23996,14 +23964,6 @@
                   "type": "null"
                 }
               ]
-            },
-            "subvolume_crop_display_index": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
             },
             "updated_at_unix_s": {
               "type": "integer",
@@ -25095,14 +25055,6 @@
                   "type": "null"
                 }
               ]
-            },
-            "subvolume_crop_display_index": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint",
-              "minimum": 0.0
             },
             "updated_at_unix_s": {
               "type": "integer",

@@ -2,7 +2,7 @@
 
 <script lang="ts">
   import type { OperatorCatalogId, WorkspaceOperation } from "../processing-model.svelte";
-  import { describeOperation, isCropSubvolume, operatorCatalogItems } from "../processing-model.svelte";
+  import { describeOperation, operatorCatalogItems } from "../processing-model.svelte";
 
   let {
     operations,
@@ -50,6 +50,10 @@
   );
   const showCatalog = $derived(searchFocused || normalizedQuery.length > 0);
   const checkpointIndexSet = $derived(new Set(checkpointAfterOperationIndexes));
+  const traceLocalOperations = $derived(operations.slice(0, traceLocalOperationCount));
+  const runOnlyOperation = $derived(
+    hasSubvolumeCrop ? operations[traceLocalOperationCount] ?? null : null
+  );
 
   function summary(operation: WorkspaceOperation): string {
     return describeOperation(operation);
@@ -226,7 +230,7 @@
   {/if}
 
   {#if hasSubvolumeCrop}
-    <div class="checkpoint-warning">Crop Subvolume can be placed anywhere visually, but it always executes last.</div>
+    <div class="tail-warning">Preview shows only the processing steps. Crop Subvolume applies only on Run Volume.</div>
   {/if}
 
   {#if operations.length}
@@ -237,10 +241,14 @@
       onkeydown={handleSequenceKeydown}
       aria-label="Pipeline steps"
     >
-      {#each operations as operation, index (`${index}:${summary(operation)}`)}
+      {#if traceLocalOperations.length}
+        <div class="sequence-phase-label">Preview + Run</div>
+      {/if}
+
+      {#each traceLocalOperations as operation, index (`trace:${index}:${summary(operation)}`)}
         {@const label = summary(operation)}
         {@const checkpointArmed = checkpointIndexSet.has(index)}
-        {@const canToggleCheckpoint = !hasSubvolumeCrop && index < traceLocalOperationCount - 1}
+        {@const canToggleCheckpoint = index < traceLocalOperationCount - 1}
         <div
           class="sequence-row-shell"
           role="presentation"
@@ -285,9 +293,6 @@
             <span class="step-index">{index + 1}</span>
             <span class="step-copy">
               <strong>{label}</strong>
-              {#if isCropSubvolume(operation)}
-                <span class="step-note">Executes Last</span>
-              {/if}
             </span>
           </button>
           <button
@@ -303,11 +308,46 @@
           </button>
         </div>
       {/each}
+
+      {#if runOnlyOperation}
+        <div class="tail-divider" role="presentation">
+          <span>Run Volume Only</span>
+          <small>Not shown in preview</small>
+        </div>
+
+        {@const label = summary(runOnlyOperation)}
+        {@const cropIndex = traceLocalOperationCount}
+        <div class="sequence-row-shell tail-shell" role="presentation">
+          <span class="tail-spacer" aria-hidden="true"></span>
+          <button
+            class:selected={cropIndex === selectedIndex}
+            class="sequence-row tail-row"
+            onclick={() => onSelect(cropIndex)}
+          >
+            <span class="step-index">{cropIndex + 1}</span>
+            <span class="step-copy">
+              <strong>{label}</strong>
+              <span class="step-note">Run Only</span>
+            </span>
+          </button>
+          <button
+            class="step-remove"
+            onclick={(event) => {
+              event.stopPropagation();
+              onRemove(cropIndex);
+            }}
+            aria-label={`Remove ${label}`}
+            title={`Remove ${label}`}
+          >
+            X
+          </button>
+        </div>
+      {/if}
     </div>
   {:else}
     <div class="empty-state">
       <p>No operators in the pipeline.</p>
-      <p class="hint">Use the search above to add scalar, normalize, AGC, phase rotation, frequency filters, volume arithmetic, or a terminal subvolume crop.</p>
+      <p class="hint">Use the search above to add processing steps. Crop Subvolume appears as a run-only tail step.</p>
     </div>
   {/if}
 </section>
@@ -485,6 +525,14 @@
     font-size: 11px;
   }
 
+  .tail-warning {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(36, 88, 120, 0.3);
+    background: rgba(16, 44, 62, 0.32);
+    color: #8ebfd9;
+    font-size: 11px;
+  }
+
   .sequence-list {
     margin: 0;
     padding: 6px;
@@ -496,12 +544,43 @@
     outline: none;
   }
 
+  .sequence-phase-label {
+    padding: 6px 2px 4px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6f6f6f;
+  }
+
+  .tail-divider {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+    padding: 10px 2px 4px;
+    border-top: 1px solid rgba(78, 104, 121, 0.26);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7ea0b4;
+  }
+
+  .tail-divider small {
+    font: inherit;
+    color: #5f7f92;
+  }
+
   .sequence-row-shell {
     margin: 0;
     display: grid;
     grid-template-columns: 16px minmax(0, 1fr) auto;
     gap: 6px;
     align-items: stretch;
+  }
+
+  .tail-shell {
+    margin-top: 2px;
   }
 
   .checkpoint-gutter {
@@ -548,6 +627,10 @@
     cursor: default;
   }
 
+  .tail-spacer {
+    width: 16px;
+  }
+
   .sequence-row {
     width: 100%;
     display: grid;
@@ -569,6 +652,15 @@
   .sequence-row.selected {
     border-color: rgba(74, 222, 128, 0.4);
     background: rgba(74, 222, 128, 0.06);
+  }
+
+  .tail-row {
+    border-color: rgba(64, 101, 122, 0.5);
+    background: rgba(21, 35, 44, 0.78);
+  }
+
+  .tail-row:hover {
+    background: rgba(28, 46, 57, 0.9);
   }
 
   .step-remove {
