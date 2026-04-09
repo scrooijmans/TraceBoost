@@ -9,6 +9,17 @@ function normalizeDialogPath(result: string | null): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function normalizeDialogPaths(result: string[] | string | null): string[] {
+  if (Array.isArray(result)) {
+    return result
+      .map((value) => normalizeDialogPath(value))
+      .filter((value): value is string => value !== null);
+  }
+
+  const single = normalizeDialogPath(result);
+  return single ? [single] : [];
+}
+
 /**
  * Opens a native file picker for TraceBoost-supported seismic volumes.
  * Returns the selected file path, or null if cancelled.
@@ -36,6 +47,31 @@ export async function pickVolumeFile(): Promise<string | null> {
 
 export const pickSegyFile = pickVolumeFile;
 
+export async function pickHorizonFiles(): Promise<string[]> {
+  if (!isTauriEnvironment()) {
+    const result = prompt("Enter horizon xyz paths separated by commas:");
+    return normalizeDialogPaths(
+      result
+        ?.split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0) ?? null
+    );
+  }
+
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({
+    title: "Import Horizons",
+    filters: [
+      { name: "Horizon XYZ", extensions: ["xyz"] },
+      { name: "All Files", extensions: ["*"] }
+    ],
+    multiple: true,
+    directory: false
+  });
+
+  return normalizeDialogPaths(result);
+}
+
 /**
  * Opens a native folder/save picker for the runtime store output.
  * Returns the selected path, or null if cancelled.
@@ -60,6 +96,24 @@ export async function pickOutputStorePath(defaultPath = "survey.tbvol"): Promise
 
 export const pickOutputFolder = pickOutputStorePath;
 
+export async function pickSegyExportPath(defaultPath = "survey.export.sgy"): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return normalizeDialogPath(prompt("Enter SEG-Y export path:"));
+  }
+
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const result = await save({
+    title: "Export SEG-Y",
+    defaultPath,
+    filters: [
+      { name: "SEG-Y", extensions: ["sgy", "segy"] },
+      { name: "All Files", extensions: ["*"] }
+    ]
+  });
+
+  return normalizeDialogPath(result);
+}
+
 export async function confirmOverwriteStore(outputStorePath: string): Promise<boolean> {
   const message = [
     "A runtime store already exists at this location.",
@@ -76,6 +130,28 @@ export async function confirmOverwriteStore(outputStorePath: string): Promise<bo
   const { confirm } = await import("@tauri-apps/plugin-dialog");
   return confirm(message, {
     title: "Overwrite Existing Runtime Store?",
+    kind: "warning",
+    okLabel: "Overwrite",
+    cancelLabel: "Cancel"
+  });
+}
+
+export async function confirmOverwriteSegy(outputPath: string): Promise<boolean> {
+  const message = [
+    "A SEG-Y file already exists at this location.",
+    "",
+    outputPath,
+    "",
+    "Overwrite it and replace the existing SEG-Y export?"
+  ].join("\n");
+
+  if (!isTauriEnvironment()) {
+    return window.confirm(message);
+  }
+
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  return confirm(message, {
+    title: "Overwrite Existing SEG-Y File?",
     kind: "warning",
     okLabel: "Overwrite",
     cancelLabel: "Cancel"

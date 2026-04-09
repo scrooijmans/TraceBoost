@@ -6,9 +6,11 @@ use std::{
 };
 
 use seis_contracts_interop::{
-    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, DatasetSummary, GatherProcessingPipeline,
-    GatherRequest, GatherView, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse, OpenDatasetRequest,
+    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, DatasetSummary, ExportSegyRequest,
+    ExportSegyResponse, GatherProcessingPipeline, GatherRequest, GatherView, IPC_SCHEMA_VERSION,
+    ImportDatasetRequest, ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
+    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
+    LoadSectionHorizonsRequest, LoadSectionHorizonsResponse, OpenDatasetRequest,
     OpenDatasetResponse, PrestackThirdAxisField, PreviewGatherProcessingRequest,
     PreviewGatherProcessingResponse, PreviewSubvolumeProcessingRequest,
     PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
@@ -22,11 +24,12 @@ use seis_io::HeaderField;
 use seis_runtime::{
     GatherInterpolationMode, IngestOptions, MaterializeOptions, PreviewView, SeisGeometryOptions,
     SparseSurveyPolicy, TraceLocalProcessingPipeline, amplitude_spectrum_from_store,
-    describe_prestack_store, describe_store, ingest_prestack_offset_segy, ingest_segy,
-    materialize_gather_processing_store, materialize_processing_volume,
-    materialize_subvolume_processing_volume, open_prestack_store, open_store, preflight_segy,
-    prestack_gather_view, preview_gather_processing_view, preview_processing_section_view,
-    preview_subvolume_processing_section_view, velocity_scan,
+    describe_prestack_store, describe_store, export_store_to_segy, import_horizon_xyzs,
+    ingest_prestack_offset_segy, ingest_segy, materialize_gather_processing_store,
+    materialize_processing_volume, materialize_subvolume_processing_volume, open_prestack_store,
+    open_store, preflight_segy, prestack_gather_view, preview_gather_processing_view,
+    preview_processing_section_view, preview_subvolume_processing_section_view,
+    section_horizon_overlays, velocity_scan,
 };
 
 const DEFAULT_SPARSE_FILL_VALUE: f32 = 0.0;
@@ -199,6 +202,47 @@ pub fn open_dataset_summary(
     })
 }
 
+pub fn export_dataset_segy(
+    request: ExportSegyRequest,
+) -> Result<ExportSegyResponse, Box<dyn std::error::Error>> {
+    let store_path = PathBuf::from(&request.store_path);
+    let output_path = PathBuf::from(&request.output_path);
+    prepare_export_output_path(&store_path, &output_path, request.overwrite_existing)?;
+    export_store_to_segy(&store_path, &output_path, request.overwrite_existing)?;
+    Ok(ExportSegyResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: request.store_path,
+        output_path: request.output_path,
+    })
+}
+
+pub fn import_horizon_xyz(
+    request: ImportHorizonXyzRequest,
+) -> Result<ImportHorizonXyzResponse, Box<dyn std::error::Error>> {
+    let imported = import_horizon_xyzs(
+        &request.store_path,
+        &request
+            .input_paths
+            .iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>(),
+    )?;
+    Ok(ImportHorizonXyzResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        imported,
+    })
+}
+
+pub fn load_section_horizons(
+    request: LoadSectionHorizonsRequest,
+) -> Result<LoadSectionHorizonsResponse, Box<dyn std::error::Error>> {
+    let overlays = section_horizon_overlays(&request.store_path, request.axis, request.index)?;
+    Ok(LoadSectionHorizonsResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        overlays,
+    })
+}
+
 pub fn load_gather(
     store_path: String,
     request: GatherRequest,
@@ -336,7 +380,8 @@ pub fn amplitude_spectrum(
         request
             .pipeline
             .as_ref()
-            .map(|pipeline| pipeline.operations.as_slice()),
+            .map(|pipeline| pipeline.operations().cloned().collect::<Vec<_>>())
+            .as_deref(),
         &request.selection,
     )?;
 
@@ -371,6 +416,17 @@ pub fn default_output_store_path(
         .unwrap_or("dataset");
     let suffix = pipeline_slug(pipeline);
     parent.join(format!("{stem}.{suffix}.tbvol"))
+}
+
+pub fn default_export_segy_path(input_store_path: impl AsRef<Path>) -> PathBuf {
+    let input_store_path = input_store_path.as_ref();
+    let parent = input_store_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = input_store_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("dataset");
+    parent.join(format!("{stem}.export.sgy"))
 }
 
 pub fn default_subvolume_output_store_path(
@@ -423,6 +479,35 @@ fn dataset_summary_for_path(
         store_path: store_path.to_string_lossy().into_owned(),
         descriptor,
     })
+}
+
+fn prepare_export_output_path(
+    input_store_path: &Path,
+    output_path: &Path,
+    overwrite_existing: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let input_store_path = input_store_path
+        .canonicalize()
+        .unwrap_or_else(|_| input_store_path.to_path_buf());
+    let output_path = output_path
+        .canonicalize()
+        .unwrap_or_else(|_| output_path.to_path_buf());
+
+    if input_store_path == output_path {
+        return Err("Output SEG-Y path cannot overwrite the input tbvol store.".into());
+    }
+
+    if !overwrite_existing || !output_path.exists() {
+        return Ok(());
+    }
+
+    let metadata = fs::symlink_metadata(&output_path)?;
+    if metadata.file_type().is_dir() {
+        return Err("Output SEG-Y path points to a directory.".into());
+    }
+
+    fs::remove_file(&output_path)?;
+    Ok(())
 }
 
 fn suggested_action(action: seis_runtime::PreflightAction) -> SuggestedImportAction {
@@ -735,8 +820,8 @@ pub fn preview_subvolume_processing_label(pipeline: &SubvolumeProcessingPipeline
 }
 
 fn pipeline_slug(pipeline: &TraceLocalProcessingPipeline) -> String {
-    let mut parts = Vec::with_capacity(pipeline.operations.len());
-    for operation in &pipeline.operations {
+    let mut parts = Vec::with_capacity(pipeline.operation_count());
+    for operation in pipeline.operations() {
         let label = match operation {
             seis_runtime::ProcessingOperation::AmplitudeScalar { factor } => {
                 format!("amplitude-scalar-{}", format_factor(*factor))

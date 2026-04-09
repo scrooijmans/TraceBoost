@@ -14,54 +14,56 @@ use ophiolite::resolve_dataset_summary_survey_map_source;
 use seis_contracts_interop::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DeletePipelinePresetRequest, DeletePipelinePresetResponse,
-    GatherProcessingPipeline, GatherRequest, GatherView, GetProcessingJobRequest,
-    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ExportSegyRequest, ExportSegyResponse, GatherProcessingPipeline, GatherRequest, GatherView,
+    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
+    ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
     ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    ListPipelinePresetsResponse, LoadWorkspaceStateResponse, OpenDatasetRequest,
-    OpenDatasetResponse, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
-    PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
-    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, ResolveSurveyMapRequest,
-    ResolveSurveyMapResponse, RunGatherProcessingRequest, RunGatherProcessingResponse,
-    RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
-    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SetDatasetNativeCoordinateReferenceRequest,
-    SetDatasetNativeCoordinateReferenceResponse, SurveyPreflightRequest, SurveyPreflightResponse,
-    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, VelocityScanRequest,
-    VelocityScanResponse,
+    ListPipelinePresetsResponse, LoadSectionHorizonsResponse, LoadWorkspaceStateResponse,
+    OpenDatasetRequest, OpenDatasetResponse, PreviewGatherProcessingRequest,
+    PreviewGatherProcessingResponse, PreviewSubvolumeProcessingRequest,
+    PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
+    ResolveSurveyMapRequest, ResolveSurveyMapResponse, RunGatherProcessingRequest,
+    RunGatherProcessingResponse, RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse,
+    RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse, SavePipelinePresetRequest,
+    SavePipelinePresetResponse, SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
+    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
+    SetDatasetNativeCoordinateReferenceRequest, SetDatasetNativeCoordinateReferenceResponse,
+    SurveyPreflightRequest, SurveyPreflightResponse, UpsertDatasetEntryRequest,
+    UpsertDatasetEntryResponse, VelocityScanRequest, VelocityScanResponse,
 };
 use seis_runtime::{
-    MaterializeOptions, ProcessingJobArtifact, ProcessingJobArtifactKind, ProcessingPipelineSpec,
-    SectionAxis, SectionView, SubvolumeProcessingPipeline, TbvolManifest,
+    MaterializeOptions, ProcessingArtifactRole, ProcessingJobArtifact, ProcessingJobArtifactKind,
+    ProcessingPipelineSpec, SectionAxis, SectionView, SubvolumeProcessingPipeline, TbvolManifest,
     TraceLocalProcessingPipeline, materialize_gather_processing_store_with_progress,
     materialize_processing_volume_with_progress,
     materialize_subvolume_processing_volume_with_progress, open_store,
     set_any_store_native_coordinate_reference,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     time::Instant,
 };
-use serde::Deserialize;
-use serde_json::{Map, Value};
 use tauri::{
     AppHandle, Emitter, Manager, State,
+    ipc::Response,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
 use traceboost_app::{
-    amplitude_spectrum, import_dataset, import_prestack_offset_dataset, load_gather,
-    open_dataset_summary, preflight_dataset, preview_gather_processing,
-    preview_subvolume_processing, run_velocity_scan,
+    amplitude_spectrum, export_dataset_segy, import_dataset, import_horizon_xyz,
+    import_prestack_offset_dataset, load_gather, load_section_horizons, open_dataset_summary,
+    preflight_dataset, preview_gather_processing, preview_subvolume_processing, run_velocity_scan,
 };
 
 use crate::app_paths::AppPaths;
 use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
 use crate::preview_session::PreviewSessionState;
 use crate::processing::{JobRecord, ProcessingState};
-use crate::processing_cache::{ProcessingCachePolicy, ProcessingCacheState};
+use crate::processing_cache::ProcessingCacheState;
 use crate::workspace::WorkspaceState;
 
 const FILE_OPEN_VOLUME_MENU_ID: &str = "file.open_volume";
@@ -69,6 +71,8 @@ const FILE_OPEN_VOLUME_MENU_EVENT: &str = "menu:file-open-volume";
 const TRACE_LOCAL_CACHE_FAMILY: &str = "trace_local";
 const TBVOL_STORE_FORMAT_VERSION: &str = "tbvol-v1";
 const PROCESSING_CACHE_RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");
+const PACKED_PREVIEW_MAGIC: &[u8; 8] = b"TBPRV001";
+const PACKED_SECTION_MAGIC: &[u8; 8] = b"TBSEC001";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +81,166 @@ struct FrontendDiagnosticsEventRequest {
     level: String,
     message: String,
     fields: Option<Map<String, Value>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackedPreviewResponseHeader {
+    preview_ready: bool,
+    processing_label: String,
+    section: PackedSectionHeader,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackedSectionResponseHeader {
+    section: PackedSectionHeader,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackedSectionHeader {
+    dataset_id: String,
+    axis: SectionAxis,
+    coordinate: ophiolite::SectionCoordinate,
+    traces: usize,
+    samples: usize,
+    horizontal_axis_bytes: usize,
+    inline_axis_bytes: Option<usize>,
+    xline_axis_bytes: Option<usize>,
+    sample_axis_bytes: usize,
+    amplitudes_bytes: usize,
+    units: Option<ophiolite::SectionUnits>,
+    metadata: Option<ophiolite::SectionMetadata>,
+    display_defaults: Option<ophiolite::SectionDisplayDefaults>,
+}
+
+fn align_up(value: usize, alignment: usize) -> usize {
+    if alignment == 0 {
+        return value;
+    }
+    let remainder = value % alignment;
+    if remainder == 0 {
+        value
+    } else {
+        value + (alignment - remainder)
+    }
+}
+
+fn pack_preview_section_response(
+    preview_ready: bool,
+    processing_label: String,
+    section: SectionView,
+) -> Result<Response, String> {
+    let header = PackedPreviewResponseHeader {
+        preview_ready,
+        processing_label,
+        section: PackedSectionHeader {
+            dataset_id: section.dataset_id.0.clone(),
+            axis: section.axis,
+            coordinate: section.coordinate.clone(),
+            traces: section.traces,
+            samples: section.samples,
+            horizontal_axis_bytes: section.horizontal_axis_f64le.len(),
+            inline_axis_bytes: section.inline_axis_f64le.as_ref().map(Vec::len),
+            xline_axis_bytes: section.xline_axis_f64le.as_ref().map(Vec::len),
+            sample_axis_bytes: section.sample_axis_f32le.len(),
+            amplitudes_bytes: section.amplitudes_f32le.len(),
+            units: section.units.clone(),
+            metadata: section.metadata.clone(),
+            display_defaults: section.display_defaults.clone(),
+        },
+    };
+
+    let header_bytes = serde_json::to_vec(&header).map_err(|error| error.to_string())?;
+    let header_end = 16 + header_bytes.len();
+    let data_offset = align_up(header_end, 8);
+    let total_len = data_offset
+        + section.horizontal_axis_f64le.len()
+        + section
+            .inline_axis_f64le
+            .as_ref()
+            .map(Vec::len)
+            .unwrap_or_default()
+        + section
+            .xline_axis_f64le
+            .as_ref()
+            .map(Vec::len)
+            .unwrap_or_default()
+        + section.sample_axis_f32le.len()
+        + section.amplitudes_f32le.len();
+
+    let mut bytes = Vec::with_capacity(total_len);
+    bytes.extend_from_slice(PACKED_PREVIEW_MAGIC);
+    bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&(data_offset as u32).to_le_bytes());
+    bytes.extend_from_slice(&header_bytes);
+    bytes.resize(data_offset, 0);
+    bytes.extend_from_slice(&section.horizontal_axis_f64le);
+    if let Some(inline_axis) = section.inline_axis_f64le.as_ref() {
+        bytes.extend_from_slice(inline_axis);
+    }
+    if let Some(xline_axis) = section.xline_axis_f64le.as_ref() {
+        bytes.extend_from_slice(xline_axis);
+    }
+    bytes.extend_from_slice(&section.sample_axis_f32le);
+    bytes.extend_from_slice(&section.amplitudes_f32le);
+    Ok(Response::new(bytes))
+}
+
+fn pack_section_response(section: SectionView) -> Result<Response, String> {
+    let header = PackedSectionResponseHeader {
+        section: PackedSectionHeader {
+            dataset_id: section.dataset_id.0.clone(),
+            axis: section.axis,
+            coordinate: section.coordinate.clone(),
+            traces: section.traces,
+            samples: section.samples,
+            horizontal_axis_bytes: section.horizontal_axis_f64le.len(),
+            inline_axis_bytes: section.inline_axis_f64le.as_ref().map(Vec::len),
+            xline_axis_bytes: section.xline_axis_f64le.as_ref().map(Vec::len),
+            sample_axis_bytes: section.sample_axis_f32le.len(),
+            amplitudes_bytes: section.amplitudes_f32le.len(),
+            units: section.units.clone(),
+            metadata: section.metadata.clone(),
+            display_defaults: section.display_defaults.clone(),
+        },
+    };
+
+    let header_bytes = serde_json::to_vec(&header).map_err(|error| error.to_string())?;
+    let header_end = 16 + header_bytes.len();
+    let data_offset = align_up(header_end, 8);
+    let total_len = data_offset
+        + section.horizontal_axis_f64le.len()
+        + section
+            .inline_axis_f64le
+            .as_ref()
+            .map(Vec::len)
+            .unwrap_or_default()
+        + section
+            .xline_axis_f64le
+            .as_ref()
+            .map(Vec::len)
+            .unwrap_or_default()
+        + section.sample_axis_f32le.len()
+        + section.amplitudes_f32le.len();
+
+    let mut bytes = Vec::with_capacity(total_len);
+    bytes.extend_from_slice(PACKED_SECTION_MAGIC);
+    bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&(data_offset as u32).to_le_bytes());
+    bytes.extend_from_slice(&header_bytes);
+    bytes.resize(data_offset, 0);
+    bytes.extend_from_slice(&section.horizontal_axis_f64le);
+    if let Some(inline_axis) = section.inline_axis_f64le.as_ref() {
+        bytes.extend_from_slice(inline_axis);
+    }
+    if let Some(xline_axis) = section.xline_axis_f64le.as_ref() {
+        bytes.extend_from_slice(xline_axis);
+    }
+    bytes.extend_from_slice(&section.sample_axis_f32le);
+    bytes.extend_from_slice(&section.amplitudes_f32le);
+    Ok(Response::new(bytes))
 }
 
 fn sanitized_stem(value: &str, fallback: &str) -> String {
@@ -103,6 +267,112 @@ fn sanitized_stem(value: &str, fallback: &str) -> String {
     }
 }
 
+fn section_axis_values(handle: &seis_runtime::StoreHandle, axis: SectionAxis) -> &[f64] {
+    match axis {
+        SectionAxis::Inline => &handle.manifest.volume.axes.ilines,
+        SectionAxis::Xline => &handle.manifest.volume.axes.xlines,
+    }
+}
+
+fn section_axis_length(handle: &seis_runtime::StoreHandle, axis: SectionAxis) -> usize {
+    section_axis_values(handle, axis).len()
+}
+
+fn section_axis_range(handle: &seis_runtime::StoreHandle, axis: SectionAxis) -> Option<(f64, f64)> {
+    let values = section_axis_values(handle, axis);
+    Some((*values.first()?, *values.last()?))
+}
+
+fn sample_axis_range_ms(handle: &seis_runtime::StoreHandle) -> Option<(f32, f32)> {
+    let values = &handle.manifest.volume.axes.sample_axis_ms;
+    Some((*values.first()?, *values.last()?))
+}
+
+fn section_coordinate_value(
+    handle: &seis_runtime::StoreHandle,
+    axis: SectionAxis,
+    index: usize,
+) -> Option<f64> {
+    section_axis_values(handle, axis).get(index).copied()
+}
+
+fn section_coordinate_within_crop(
+    pipeline: &SubvolumeProcessingPipeline,
+    axis: SectionAxis,
+    coordinate_value: f64,
+) -> bool {
+    match axis {
+        SectionAxis::Inline => {
+            coordinate_value >= f64::from(pipeline.crop.inline_min)
+                && coordinate_value <= f64::from(pipeline.crop.inline_max)
+        }
+        SectionAxis::Xline => {
+            coordinate_value >= f64::from(pipeline.crop.xline_min)
+                && coordinate_value <= f64::from(pipeline.crop.xline_max)
+        }
+    }
+}
+
+fn append_section_debug_fields(
+    fields: &mut Vec<(&'static str, Value)>,
+    handle: &seis_runtime::StoreHandle,
+    axis: SectionAxis,
+    index: usize,
+    axis_length_key: &'static str,
+    axis_range_key: &'static str,
+    coordinate_key: &'static str,
+) {
+    fields.push((
+        axis_length_key,
+        json_value(section_axis_length(handle, axis)),
+    ));
+    if let Some((axis_min, axis_max)) = section_axis_range(handle, axis) {
+        fields.push((axis_range_key, json_value([axis_min, axis_max])));
+    }
+    if let Some(coordinate_value) = section_coordinate_value(handle, axis, index) {
+        fields.push((coordinate_key, json_value(coordinate_value)));
+    }
+}
+
+fn append_subvolume_preview_debug_fields(
+    fields: &mut Vec<(&'static str, Value)>,
+    handle: &seis_runtime::StoreHandle,
+    request: &PreviewSubvolumeProcessingRequest,
+) {
+    fields.push(("executionOrder", json_value("trace_local_then_crop")));
+    fields.push(("sourceShape", json_value(handle.manifest.volume.shape)));
+    if let Some((inline_min, inline_max)) = section_axis_range(handle, SectionAxis::Inline) {
+        fields.push(("sourceInlineRange", json_value([inline_min, inline_max])));
+    }
+    if let Some((xline_min, xline_max)) = section_axis_range(handle, SectionAxis::Xline) {
+        fields.push(("sourceXlineRange", json_value([xline_min, xline_max])));
+    }
+    if let Some((z_min, z_max)) = sample_axis_range_ms(handle) {
+        fields.push(("sourceZRangeMs", json_value([z_min, z_max])));
+    }
+    append_section_debug_fields(
+        fields,
+        handle,
+        request.section.axis,
+        request.section.index,
+        "sourceSectionAxisLength",
+        "sourceSectionAxisRange",
+        "requestedSectionCoordinateValue",
+    );
+    if let Some(coordinate_value) =
+        section_coordinate_value(handle, request.section.axis, request.section.index)
+    {
+        fields.push((
+            "sectionInsideCropWindow",
+            json_value(section_coordinate_within_crop(
+                &request.pipeline,
+                request.section.axis,
+                coordinate_value,
+            )),
+        ));
+    }
+}
+
 fn pipeline_output_slug(pipeline: &seis_runtime::TraceLocalProcessingPipeline) -> String {
     if let Some(name) = pipeline
         .name
@@ -113,8 +383,8 @@ fn pipeline_output_slug(pipeline: &seis_runtime::TraceLocalProcessingPipeline) -
         return sanitized_stem(name, "pipeline");
     }
 
-    let mut parts = Vec::with_capacity(pipeline.operations.len());
-    for operation in &pipeline.operations {
+    let mut parts = Vec::with_capacity(pipeline.operation_count());
+    for operation in pipeline.operations() {
         let part = match operation {
             seis_runtime::ProcessingOperation::AmplitudeScalar { factor } => {
                 format!("amplitude-scalar-{}", format_factor(*factor))
@@ -420,16 +690,14 @@ fn processing_operation_display_label(operation: &seis_runtime::ProcessingOperat
 
 fn preview_processing_operation_ids(pipeline: &TraceLocalProcessingPipeline) -> Vec<&'static str> {
     pipeline
-        .operations
-        .iter()
+        .operations()
         .map(seis_runtime::ProcessingOperation::operator_id)
         .collect()
 }
 
 fn preview_processing_operation_labels(pipeline: &TraceLocalProcessingPipeline) -> Vec<String> {
     pipeline
-        .operations
-        .iter()
+        .operations()
         .map(processing_operation_display_label)
         .collect()
 }
@@ -443,9 +711,15 @@ fn display_store_stem(store_path: &str) -> String {
         .to_string()
 }
 
-fn clone_pipeline_with_operations(
+fn trace_local_operations(
     pipeline: &TraceLocalProcessingPipeline,
-    operations: Vec<seis_runtime::ProcessingOperation>,
+) -> Vec<seis_runtime::ProcessingOperation> {
+    pipeline.operations().cloned().collect()
+}
+
+fn clone_pipeline_with_steps(
+    pipeline: &TraceLocalProcessingPipeline,
+    steps: Vec<seis_runtime::TraceLocalProcessingStep>,
 ) -> TraceLocalProcessingPipeline {
     TraceLocalProcessingPipeline {
         schema_version: pipeline.schema_version,
@@ -453,7 +727,7 @@ fn clone_pipeline_with_operations(
         preset_id: pipeline.preset_id.clone(),
         name: pipeline.name.clone(),
         description: pipeline.description.clone(),
-        operations,
+        steps,
     }
 }
 
@@ -461,10 +735,7 @@ fn pipeline_prefix(
     pipeline: &TraceLocalProcessingPipeline,
     end_operation_index: usize,
 ) -> TraceLocalProcessingPipeline {
-    clone_pipeline_with_operations(
-        pipeline,
-        pipeline.operations[..=end_operation_index].to_vec(),
-    )
+    clone_pipeline_with_steps(pipeline, pipeline.steps[..=end_operation_index].to_vec())
 }
 
 fn pipeline_segment(
@@ -472,38 +743,33 @@ fn pipeline_segment(
     start_operation_index: usize,
     end_operation_index: usize,
 ) -> TraceLocalProcessingPipeline {
-    clone_pipeline_with_operations(
+    clone_pipeline_with_steps(
         pipeline,
-        pipeline.operations[start_operation_index..=end_operation_index].to_vec(),
+        pipeline.steps[start_operation_index..=end_operation_index].to_vec(),
     )
 }
 
 fn resolve_trace_local_checkpoint_indexes(
     pipeline: &TraceLocalProcessingPipeline,
-    checkpoints: &[seis_runtime::TraceLocalProcessingCheckpoint],
+    allow_final_checkpoint: bool,
 ) -> Result<Vec<usize>, String> {
-    if pipeline.operations.is_empty() {
+    if pipeline.steps.is_empty() {
         return Ok(Vec::new());
     }
 
-    let last_index = pipeline.operations.len() - 1;
-    let mut indexes = checkpoints
-        .iter()
-        .map(|checkpoint| checkpoint.after_operation_index)
-        .collect::<Vec<_>>();
-    indexes.sort_unstable();
-    indexes.dedup();
+    let last_index = pipeline.steps.len() - 1;
+    let indexes = pipeline.checkpoint_indexes();
 
     for index in &indexes {
-        if *index >= pipeline.operations.len() {
+        if *index >= pipeline.steps.len() {
             return Err(format!(
-                "Checkpoint after_operation_index {index} is out of range for a pipeline with {} operations.",
-                pipeline.operations.len()
+                "Checkpoint index {index} is out of range for a pipeline with {} steps.",
+                pipeline.steps.len()
             ));
         }
-        if *index == last_index {
+        if *index == last_index && !allow_final_checkpoint {
             return Err(
-                "Checkpoint markers cannot target the final operator because the final output is emitted automatically."
+                "Checkpoint markers cannot target the final step because the final output is emitted automatically."
                     .to_string(),
             );
         }
@@ -542,10 +808,9 @@ fn build_trace_local_processing_stages_from(
     job_id: &str,
     start_operation_index: usize,
 ) -> Result<Vec<TraceLocalProcessingStage>, String> {
-    let checkpoint_indexes =
-        resolve_trace_local_checkpoint_indexes(&request.pipeline, &request.checkpoints)?;
+    let checkpoint_indexes = resolve_trace_local_checkpoint_indexes(&request.pipeline, false)?;
     let mut stage_end_indexes = checkpoint_indexes;
-    let final_step_index = request.pipeline.operations.len().saturating_sub(1);
+    let final_step_index = request.pipeline.operation_count().saturating_sub(1);
     stage_end_indexes.push(final_step_index);
     stage_end_indexes.retain(|index| *index >= start_operation_index);
 
@@ -554,8 +819,9 @@ fn build_trace_local_processing_stages_from(
     for end_index in stage_end_indexes {
         let operation = request
             .pipeline
-            .operations
+            .steps
             .get(end_index)
+            .map(|step| &step.operation)
             .ok_or_else(|| format!("Missing operation at stage end index {end_index}"))?;
         let stage_label = format!(
             "Step {}: {}",
@@ -588,6 +854,55 @@ fn build_trace_local_processing_stages_from(
     Ok(stages)
 }
 
+fn build_trace_local_checkpoint_stages_from_pipeline(
+    pipeline: &TraceLocalProcessingPipeline,
+    final_output_store_path: &str,
+    job_id: &str,
+    start_operation_index: usize,
+    allow_final_checkpoint: bool,
+) -> Result<Vec<TraceLocalProcessingStage>, String> {
+    let stage_end_indexes =
+        resolve_trace_local_checkpoint_indexes(pipeline, allow_final_checkpoint)?
+            .into_iter()
+            .filter(|index| *index >= start_operation_index)
+            .collect::<Vec<_>>();
+
+    let mut stages = Vec::with_capacity(stage_end_indexes.len());
+    let mut segment_start = start_operation_index;
+    for end_index in stage_end_indexes {
+        let operation = pipeline
+            .steps
+            .get(end_index)
+            .map(|step| &step.operation)
+            .ok_or_else(|| format!("Missing operation at checkpoint index {end_index}"))?;
+        let stage_label = format!(
+            "Step {}: {}",
+            end_index + 1,
+            processing_operation_display_label(operation)
+        );
+        let artifact = ProcessingJobArtifact {
+            kind: ProcessingJobArtifactKind::Checkpoint,
+            step_index: end_index,
+            label: stage_label.clone(),
+            store_path: checkpoint_output_store_path(
+                final_output_store_path,
+                job_id,
+                end_index,
+                operation,
+            ),
+        };
+        stages.push(TraceLocalProcessingStage {
+            segment_pipeline: pipeline_segment(pipeline, segment_start, end_index),
+            lineage_pipeline: pipeline_prefix(pipeline, end_index),
+            stage_label,
+            artifact,
+        });
+        segment_start = end_index + 1;
+    }
+
+    Ok(stages)
+}
+
 #[derive(Debug, Clone)]
 struct ReusedTraceLocalCheckpoint {
     after_operation_index: usize,
@@ -598,13 +913,14 @@ struct ReusedTraceLocalCheckpoint {
 fn resolve_reused_trace_local_checkpoint(
     processing_cache: &ProcessingCacheState,
     request: &RunTraceLocalProcessingRequest,
+    allow_final_checkpoint: bool,
 ) -> Result<Option<ReusedTraceLocalCheckpoint>, String> {
-    if processing_cache.settings().policy == ProcessingCachePolicy::Off {
+    if !processing_cache.enabled() {
         return Ok(None);
     }
 
     let checkpoint_indexes =
-        resolve_trace_local_checkpoint_indexes(&request.pipeline, &request.checkpoints)?;
+        resolve_trace_local_checkpoint_indexes(&request.pipeline, allow_final_checkpoint)?;
     if checkpoint_indexes.is_empty() {
         return Ok(None);
     }
@@ -621,8 +937,9 @@ fn resolve_reused_trace_local_checkpoint(
         )? {
             let operation = request
                 .pipeline
-                .operations
+                .steps
                 .get(checkpoint_index)
+                .map(|step| &step.operation)
                 .ok_or_else(|| {
                     format!("Missing operation at checkpoint index {checkpoint_index}")
                 })?;
@@ -650,6 +967,7 @@ fn resolve_reused_trace_local_checkpoint(
 fn rewrite_trace_local_processing_lineage(
     store_path: &str,
     pipeline: &TraceLocalProcessingPipeline,
+    artifact_kind: ProcessingJobArtifactKind,
 ) -> Result<(), String> {
     let manifest_path = Path::new(store_path).join("manifest.json");
     let mut manifest: TbvolManifest =
@@ -662,6 +980,38 @@ fn rewrite_trace_local_processing_lineage(
         .ok_or_else(|| format!("Derived store is missing processing lineage: {store_path}"))?;
     lineage.pipeline = ProcessingPipelineSpec::TraceLocal {
         pipeline: pipeline.clone(),
+    };
+    lineage.artifact_role = match artifact_kind {
+        ProcessingJobArtifactKind::Checkpoint => ProcessingArtifactRole::Checkpoint,
+        ProcessingJobArtifactKind::FinalOutput => ProcessingArtifactRole::FinalOutput,
+    };
+    fs::write(
+        manifest_path,
+        serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn rewrite_subvolume_processing_lineage(
+    store_path: &str,
+    pipeline: &SubvolumeProcessingPipeline,
+    artifact_kind: ProcessingJobArtifactKind,
+) -> Result<(), String> {
+    let manifest_path = Path::new(store_path).join("manifest.json");
+    let mut manifest: TbvolManifest =
+        serde_json::from_slice(&fs::read(&manifest_path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let lineage = manifest
+        .volume
+        .processing_lineage
+        .as_mut()
+        .ok_or_else(|| format!("Derived store is missing processing lineage: {store_path}"))?;
+    lineage.pipeline = ProcessingPipelineSpec::Subvolume {
+        pipeline: pipeline.clone(),
+    };
+    lineage.artifact_role = match artifact_kind {
+        ProcessingJobArtifactKind::Checkpoint => ProcessingArtifactRole::Checkpoint,
+        ProcessingJobArtifactKind::FinalOutput => ProcessingArtifactRole::FinalOutput,
     };
     fs::write(
         manifest_path,
@@ -693,10 +1043,11 @@ fn trace_local_source_fingerprint(store_path: &str) -> Result<String, String> {
 }
 
 fn trace_local_pipeline_hash(pipeline: &TraceLocalProcessingPipeline) -> Result<String, String> {
+    let operations = trace_local_operations(pipeline);
     ProcessingCacheState::fingerprint_json(&TraceLocalPipelineCacheIdentity {
         schema_version: pipeline.schema_version,
         revision: pipeline.revision,
-        operations: &pipeline.operations,
+        operations: &operations,
     })
 }
 
@@ -1172,6 +1523,183 @@ fn open_dataset_command(
 }
 
 #[tauri::command]
+fn export_dataset_segy_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+    output_path: String,
+    overwrite_existing: bool,
+) -> Result<ExportSegyResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "export_dataset_segy",
+        "Starting SEG-Y export",
+        Some(build_fields([
+            ("storePath", json_value(&store_path)),
+            ("outputPath", json_value(&output_path)),
+            ("overwriteExisting", json_value(overwrite_existing)),
+            ("stage", json_value("validate_input")),
+        ])),
+    );
+    diagnostics.progress(
+        &app,
+        &operation,
+        "Reading tbvol export metadata and writing SEG-Y",
+        Some(build_fields([("stage", json_value("write_segy"))])),
+    );
+
+    let result = export_dataset_segy(ExportSegyRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path,
+        output_path,
+        overwrite_existing,
+    });
+
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "SEG-Y export completed",
+                Some(build_fields([
+                    ("stage", json_value("complete")),
+                    ("storePath", json_value(&response.store_path)),
+                    ("outputPath", json_value(&response.output_path)),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "SEG-Y export failed",
+                Some(build_fields([
+                    ("stage", json_value("write_segy")),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn import_horizon_xyz_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+    input_paths: Vec<String>,
+) -> Result<ImportHorizonXyzResponse, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "import_horizon_xyz",
+        "Importing horizon xyz files",
+        Some(build_fields([
+            ("storePath", json_value(&store_path)),
+            ("inputPathCount", json_value(input_paths.len())),
+            ("stage", json_value("validate_input")),
+        ])),
+    );
+
+    let result = import_horizon_xyz(ImportHorizonXyzRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path,
+        input_paths,
+    });
+
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Horizon xyz files imported",
+                Some(build_fields([
+                    ("stage", json_value("import_horizons")),
+                    ("horizonCount", json_value(response.imported.len())),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Horizon xyz import failed",
+                Some(build_fields([
+                    ("stage", json_value("import_horizons")),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn load_section_horizons_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+    axis: SectionAxis,
+    index: usize,
+) -> Result<LoadSectionHorizonsResponse, String> {
+    let axis_name = format!("{axis:?}").to_ascii_lowercase();
+    let operation = diagnostics.start_operation(
+        &app,
+        "load_section_horizons",
+        "Loading section horizon overlays",
+        Some(build_fields([
+            ("storePath", json_value(&store_path)),
+            ("axis", json_value(&axis_name)),
+            ("index", json_value(index)),
+            ("stage", json_value("validate_input")),
+        ])),
+    );
+
+    let result = load_section_horizons(seis_contracts_interop::LoadSectionHorizonsRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path,
+        axis,
+        index,
+    });
+
+    match result {
+        Ok(response) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Section horizon overlays loaded",
+                Some(build_fields([
+                    ("stage", json_value("load_section_horizons")),
+                    ("axis", json_value(&axis_name)),
+                    ("index", json_value(index)),
+                    ("horizonCount", json_value(response.overlays.len())),
+                ])),
+            );
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Loading section horizon overlays failed",
+                Some(build_fields([
+                    ("stage", json_value("load_section_horizons")),
+                    ("axis", json_value(&axis_name)),
+                    ("index", json_value(index)),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn load_section_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
@@ -1180,16 +1708,31 @@ fn load_section_command(
     index: usize,
 ) -> Result<SectionView, String> {
     let axis_name = format!("{axis:?}").to_ascii_lowercase();
+    let handle = open_store(&store_path).ok();
+    let mut start_fields = vec![
+        ("storePath", json_value(&store_path)),
+        ("axis", json_value(&axis_name)),
+        ("index", json_value(index)),
+        ("stage", json_value("validate_input")),
+    ];
+    if let Some(handle) = handle.as_ref() {
+        start_fields.push(("datasetId", json_value(&handle.dataset_id().0)));
+        start_fields.push(("shape", json_value(handle.manifest.volume.shape)));
+        append_section_debug_fields(
+            &mut start_fields,
+            handle,
+            axis,
+            index,
+            "axisLength",
+            "axisRange",
+            "requestedCoordinateValue",
+        );
+    }
     let operation = diagnostics.start_operation(
         &app,
         "load_section",
         "Loading section view",
-        Some(build_fields([
-            ("storePath", json_value(&store_path)),
-            ("axis", json_value(&axis_name)),
-            ("index", json_value(index)),
-            ("stage", json_value("validate_input")),
-        ])),
+        Some(build_fields(start_fields)),
     );
     diagnostics.progress(
         &app,
@@ -1198,7 +1741,10 @@ fn load_section_command(
         Some(build_fields([("stage", json_value("open_store"))])),
     );
 
-    let result = open_store(store_path).and_then(|handle| handle.section_view(axis, index));
+    let result = match handle {
+        Some(handle) => handle.section_view(axis, index),
+        None => open_store(store_path.clone()).and_then(|handle| handle.section_view(axis, index)),
+    };
     match result {
         Ok(section) => {
             diagnostics.complete(
@@ -1217,16 +1763,138 @@ fn load_section_command(
         }
         Err(error) => {
             let message = error.to_string();
+            let mut failure_fields = vec![
+                ("stage", json_value("load_section")),
+                ("axis", json_value(&axis_name)),
+                ("index", json_value(index)),
+                ("error", json_value(&message)),
+            ];
+            if let Some(handle) = open_store(&store_path).ok() {
+                failure_fields.push(("datasetId", json_value(&handle.dataset_id().0)));
+                failure_fields.push(("shape", json_value(handle.manifest.volume.shape)));
+                append_section_debug_fields(
+                    &mut failure_fields,
+                    &handle,
+                    axis,
+                    index,
+                    "axisLength",
+                    "axisRange",
+                    "requestedCoordinateValue",
+                );
+            }
             diagnostics.fail(
                 &app,
                 &operation,
                 "Section load failed",
+                Some(build_fields(failure_fields)),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn load_section_binary_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+    axis: SectionAxis,
+    index: usize,
+) -> Result<Response, String> {
+    let axis_name = format!("{axis:?}").to_ascii_lowercase();
+    let handle = open_store(&store_path).ok();
+    let mut start_fields = vec![
+        ("storePath", json_value(&store_path)),
+        ("axis", json_value(&axis_name)),
+        ("index", json_value(index)),
+        ("stage", json_value("validate_input")),
+    ];
+    if let Some(handle) = handle.as_ref() {
+        start_fields.push(("datasetId", json_value(&handle.dataset_id().0)));
+        start_fields.push(("shape", json_value(handle.manifest.volume.shape)));
+        append_section_debug_fields(
+            &mut start_fields,
+            handle,
+            axis,
+            index,
+            "axisLength",
+            "axisRange",
+            "requestedCoordinateValue",
+        );
+    }
+    let operation = diagnostics.start_operation(
+        &app,
+        "load_section_binary",
+        "Loading section view (binary)",
+        Some(build_fields(start_fields)),
+    );
+    diagnostics.progress(
+        &app,
+        &operation,
+        "Opening runtime store for binary section load",
+        Some(build_fields([("stage", json_value("open_store"))])),
+    );
+
+    let result = match handle {
+        Some(handle) => handle.section_view(axis, index),
+        None => open_store(store_path.clone()).and_then(|handle| handle.section_view(axis, index)),
+    };
+    match result {
+        Ok(section) => {
+            let payload_bytes = section.horizontal_axis_f64le.len()
+                + section
+                    .inline_axis_f64le
+                    .as_ref()
+                    .map(Vec::len)
+                    .unwrap_or_default()
+                + section
+                    .xline_axis_f64le
+                    .as_ref()
+                    .map(Vec::len)
+                    .unwrap_or_default()
+                + section.sample_axis_f32le.len()
+                + section.amplitudes_f32le.len();
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Section view loaded (binary)",
                 Some(build_fields([
-                    ("stage", json_value("load_section")),
+                    ("stage", json_value("load_section_binary")),
                     ("axis", json_value(&axis_name)),
                     ("index", json_value(index)),
-                    ("error", json_value(&message)),
+                    ("traces", json_value(section.traces)),
+                    ("samples", json_value(section.samples)),
+                    ("payloadBytes", json_value(payload_bytes)),
                 ])),
+            );
+            pack_section_response(section)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let mut failure_fields = vec![
+                ("stage", json_value("load_section_binary")),
+                ("axis", json_value(&axis_name)),
+                ("index", json_value(index)),
+                ("error", json_value(&message)),
+            ];
+            if let Some(handle) = open_store(&store_path).ok() {
+                failure_fields.push(("datasetId", json_value(&handle.dataset_id().0)));
+                failure_fields.push(("shape", json_value(handle.manifest.volume.shape)));
+                append_section_debug_fields(
+                    &mut failure_fields,
+                    &handle,
+                    axis,
+                    index,
+                    "axisLength",
+                    "axisRange",
+                    "requestedCoordinateValue",
+                );
+            }
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Loading section view (binary) failed",
+                Some(build_fields(failure_fields)),
             );
             Err(message)
         }
@@ -1303,7 +1971,7 @@ async fn preview_processing_command(
             ("index", json_value(request.section.index)),
             (
                 "operatorCount",
-                json_value(request.pipeline.operations.len()),
+                json_value(request.pipeline.operation_count()),
             ),
             ("pipelineRevision", json_value(pipeline_revision)),
             ("pipelineName", json_value(&pipeline_name)),
@@ -1381,6 +2049,100 @@ async fn preview_processing_command(
 }
 
 #[tauri::command]
+async fn preview_processing_binary_command(
+    app: AppHandle,
+    diagnostics: State<'_, DiagnosticsState>,
+    preview_sessions: State<'_, PreviewSessionState>,
+    request: PreviewTraceLocalProcessingRequest,
+) -> Result<Response, String> {
+    let axis_name = format!("{:?}", request.section.axis).to_ascii_lowercase();
+    let operator_ids = preview_processing_operation_ids(&request.pipeline);
+    let operator_labels = preview_processing_operation_labels(&request.pipeline);
+    let pipeline_name = request.pipeline.name.clone();
+    let pipeline_revision = request.pipeline.revision;
+    let dataset_id = request.section.dataset_id.0.clone();
+    let operation = diagnostics.start_operation(
+        &app,
+        "preview_processing_binary",
+        "Generating processing preview (binary)",
+        Some(build_fields([
+            ("storePath", json_value(&request.store_path)),
+            ("datasetId", json_value(&dataset_id)),
+            ("axis", json_value(&axis_name)),
+            ("index", json_value(request.section.index)),
+            (
+                "operatorCount",
+                json_value(request.pipeline.operation_count()),
+            ),
+            ("pipelineRevision", json_value(pipeline_revision)),
+            ("pipelineName", json_value(&pipeline_name)),
+            ("operatorIds", json_value(&operator_ids)),
+            ("operatorLabels", json_value(&operator_labels)),
+            ("stage", json_value("preview_section_binary")),
+        ])),
+    );
+
+    let preview_sessions = preview_sessions.inner().clone();
+    let request_for_compute = request;
+    let compute_started = Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        preview_sessions.preview_processing(request_for_compute)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let compute_duration_ms = compute_started.elapsed().as_millis();
+
+    match result {
+        Ok((response, reuse)) => {
+            let traces = response.preview.section.traces;
+            let samples = response.preview.section.samples;
+            let packed = pack_preview_section_response(
+                response.preview.preview_ready,
+                response.preview.processing_label.clone(),
+                response.preview.section,
+            )?;
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Processing preview ready (binary)",
+                Some(build_fields([
+                    ("pipelineRevision", json_value(pipeline_revision)),
+                    ("pipelineName", json_value(&pipeline_name)),
+                    ("operatorIds", json_value(&operator_ids)),
+                    ("operatorLabels", json_value(&operator_labels)),
+                    ("previewReady", json_value(true)),
+                    ("traces", json_value(traces)),
+                    ("samples", json_value(samples)),
+                    ("computeDurationMs", json_value(compute_duration_ms)),
+                    ("cacheHit", json_value(reuse.cache_hit)),
+                    (
+                        "reusedPrefixOperations",
+                        json_value(reuse.reused_prefix_operations),
+                    ),
+                ])),
+            );
+            Ok(packed)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Processing preview failed (binary)",
+                Some(build_fields([
+                    ("pipelineRevision", json_value(pipeline_revision)),
+                    ("pipelineName", json_value(&pipeline_name)),
+                    ("operatorIds", json_value(&operator_ids)),
+                    ("computeDurationMs", json_value(compute_duration_ms)),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn preview_subvolume_processing_command(
     app: AppHandle,
     diagnostics: State<'_, DiagnosticsState>,
@@ -1391,26 +2153,32 @@ fn preview_subvolume_processing_command(
         .pipeline
         .trace_local_pipeline
         .as_ref()
-        .map(|pipeline| pipeline.operations.len())
+        .map(|pipeline| pipeline.operation_count())
         .unwrap_or(0);
+    let source_handle = open_store(&request.store_path).ok();
+    let mut start_fields = vec![
+        ("storePath", json_value(&request.store_path)),
+        ("datasetId", json_value(&request.section.dataset_id.0)),
+        ("axis", json_value(&axis_name)),
+        ("index", json_value(request.section.index)),
+        ("traceLocalOperatorCount", json_value(trace_local_count)),
+        ("inlineMin", json_value(request.pipeline.crop.inline_min)),
+        ("inlineMax", json_value(request.pipeline.crop.inline_max)),
+        ("xlineMin", json_value(request.pipeline.crop.xline_min)),
+        ("xlineMax", json_value(request.pipeline.crop.xline_max)),
+        ("zMinMs", json_value(request.pipeline.crop.z_min_ms)),
+        ("zMaxMs", json_value(request.pipeline.crop.z_max_ms)),
+        ("stage", json_value("preview_subvolume")),
+    ];
+    if let Some(handle) = source_handle.as_ref() {
+        append_subvolume_preview_debug_fields(&mut start_fields, handle, &request);
+    }
+    let preview_debug_fields = start_fields.clone();
     let operation = diagnostics.start_operation(
         &app,
         "preview_subvolume_processing",
         "Generating cropped processing preview",
-        Some(build_fields([
-            ("storePath", json_value(&request.store_path)),
-            ("datasetId", json_value(&request.section.dataset_id.0)),
-            ("axis", json_value(&axis_name)),
-            ("index", json_value(request.section.index)),
-            ("traceLocalOperatorCount", json_value(trace_local_count)),
-            ("inlineMin", json_value(request.pipeline.crop.inline_min)),
-            ("inlineMax", json_value(request.pipeline.crop.inline_max)),
-            ("xlineMin", json_value(request.pipeline.crop.xline_min)),
-            ("xlineMax", json_value(request.pipeline.crop.xline_max)),
-            ("zMinMs", json_value(request.pipeline.crop.z_min_ms)),
-            ("zMaxMs", json_value(request.pipeline.crop.z_max_ms)),
-            ("stage", json_value("preview_subvolume")),
-        ])),
+        Some(build_fields(start_fields)),
     );
 
     let result = preview_subvolume_processing(request);
@@ -1430,11 +2198,89 @@ fn preview_subvolume_processing_command(
         }
         Err(error) => {
             let message = error.to_string();
+            let mut failure_fields = preview_debug_fields;
+            failure_fields.push(("error", json_value(&message)));
             diagnostics.fail(
                 &app,
                 &operation,
                 "Subvolume processing preview failed",
-                Some(build_fields([("error", json_value(&message))])),
+                Some(build_fields(failure_fields)),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
+fn preview_subvolume_processing_binary_command(
+    app: AppHandle,
+    diagnostics: State<'_, DiagnosticsState>,
+    request: PreviewSubvolumeProcessingRequest,
+) -> Result<Response, String> {
+    let axis_name = format!("{:?}", request.section.axis).to_ascii_lowercase();
+    let trace_local_count = request
+        .pipeline
+        .trace_local_pipeline
+        .as_ref()
+        .map(|pipeline| pipeline.operation_count())
+        .unwrap_or(0);
+    let source_handle = open_store(&request.store_path).ok();
+    let mut start_fields = vec![
+        ("storePath", json_value(&request.store_path)),
+        ("datasetId", json_value(&request.section.dataset_id.0)),
+        ("axis", json_value(&axis_name)),
+        ("index", json_value(request.section.index)),
+        ("traceLocalOperatorCount", json_value(trace_local_count)),
+        ("inlineMin", json_value(request.pipeline.crop.inline_min)),
+        ("inlineMax", json_value(request.pipeline.crop.inline_max)),
+        ("xlineMin", json_value(request.pipeline.crop.xline_min)),
+        ("xlineMax", json_value(request.pipeline.crop.xline_max)),
+        ("zMinMs", json_value(request.pipeline.crop.z_min_ms)),
+        ("zMaxMs", json_value(request.pipeline.crop.z_max_ms)),
+        ("stage", json_value("preview_subvolume_binary")),
+    ];
+    if let Some(handle) = source_handle.as_ref() {
+        append_subvolume_preview_debug_fields(&mut start_fields, handle, &request);
+    }
+    let preview_debug_fields = start_fields.clone();
+    let operation = diagnostics.start_operation(
+        &app,
+        "preview_subvolume_processing_binary",
+        "Generating cropped processing preview (binary)",
+        Some(build_fields(start_fields)),
+    );
+
+    let result = preview_subvolume_processing(request);
+    match result {
+        Ok(response) => {
+            let traces = response.preview.section.traces;
+            let samples = response.preview.section.samples;
+            let packed = pack_preview_section_response(
+                response.preview.preview_ready,
+                response.preview.processing_label.clone(),
+                response.preview.section,
+            )?;
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Subvolume processing preview ready (binary)",
+                Some(build_fields([
+                    ("previewReady", json_value(true)),
+                    ("traces", json_value(traces)),
+                    ("samples", json_value(samples)),
+                ])),
+            );
+            Ok(packed)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let mut failure_fields = preview_debug_fields;
+            failure_fields.push(("error", json_value(&message)));
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Subvolume processing preview failed (binary)",
+                Some(build_fields(failure_fields)),
             );
             Err(message)
         }
@@ -1465,7 +2311,7 @@ fn preview_gather_processing_command(
                         .pipeline
                         .trace_local_pipeline
                         .as_ref()
-                        .map(|pipeline| pipeline.operations.len())
+                        .map(|pipeline| pipeline.operation_count())
                         .unwrap_or(0),
                 ),
             ),
@@ -1625,9 +2471,9 @@ fn run_processing_command(
     let pipeline_spec = seis_runtime::ProcessingPipelineSpec::TraceLocal {
         pipeline: request.pipeline.clone(),
     };
-    let allow_exact_reuse = processing_cache.settings().policy != ProcessingCachePolicy::Off
+    let allow_exact_reuse = processing_cache.enabled()
         && request.output_store_path.is_none()
-        && request.checkpoints.is_empty();
+        && request.pipeline.checkpoint_indexes().is_empty();
 
     if allow_exact_reuse {
         let source_fingerprint = trace_local_source_fingerprint(&request.store_path)?;
@@ -1639,7 +2485,7 @@ fn run_processing_command(
         )? {
             let final_artifact = ProcessingJobArtifact {
                 kind: ProcessingJobArtifactKind::FinalOutput,
-                step_index: request.pipeline.operations.len().saturating_sub(1),
+                step_index: request.pipeline.operation_count().saturating_sub(1),
                 label: "Exact output reuse".to_string(),
                 store_path: hit.path.clone(),
             };
@@ -1696,7 +2542,7 @@ fn run_processing_command(
             ("outputStorePath", json_value(&output_store_path)),
             (
                 "operatorCount",
-                json_value(request.pipeline.operations.len()),
+                json_value(request.pipeline.operation_count()),
             ),
         ])),
     );
@@ -1759,7 +2605,7 @@ fn run_subvolume_processing_command(
                         .pipeline
                         .trace_local_pipeline
                         .as_ref()
-                        .map(|pipeline| pipeline.operations.len())
+                        .map(|pipeline| pipeline.operation_count())
                         .unwrap_or(0),
                 ),
             ),
@@ -2015,7 +2861,7 @@ fn run_processing_job(
     let job_id = record.snapshot().job_id;
     let reused_checkpoint = match app.try_state::<ProcessingCacheState>() {
         Some(processing_cache) => {
-            match resolve_reused_trace_local_checkpoint(&processing_cache, &request) {
+            match resolve_reused_trace_local_checkpoint(&processing_cache, &request, false) {
                 Ok(value) => value,
                 Err(error) => {
                     if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
@@ -2037,9 +2883,7 @@ fn run_processing_job(
         None => None,
     };
     let source_fingerprint = match app.try_state::<ProcessingCacheState>() {
-        Some(processing_cache)
-            if processing_cache.settings().policy != ProcessingCachePolicy::Off =>
-        {
+        Some(processing_cache) if processing_cache.enabled() => {
             match trace_local_source_fingerprint(&request.store_path) {
                 Ok(value) => Some(value),
                 Err(error) => {
@@ -2091,7 +2935,27 @@ fn run_processing_job(
             return;
         }
     };
+    let job_started_at = Instant::now();
     let _ = record.mark_running(stages.first().map(|stage| stage.stage_label.clone()));
+    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+        diagnostics.emit_session_event(
+            app,
+            "processing_job_started",
+            log::Level::Info,
+            "Processing job started",
+            Some(build_fields([
+                ("jobId", json_value(&job_id)),
+                ("storePath", json_value(&request.store_path)),
+                ("outputStorePath", json_value(&output_store_path)),
+                ("stageCount", json_value(stages.len())),
+                (
+                    "operatorCount",
+                    json_value(request.pipeline.operation_count()),
+                ),
+                ("reusedCheckpoint", json_value(reused_checkpoint.is_some())),
+            ])),
+        );
+    }
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
         &output_store_path,
@@ -2139,10 +3003,40 @@ fn run_processing_job(
         .map(|checkpoint| checkpoint.path.clone())
         .unwrap_or_else(|| request.store_path.clone());
     let result = stages.iter().try_for_each(|stage| {
+        let stage_started_at = Instant::now();
         if record.cancel_requested() {
             return Err(seis_runtime::SeisRefineError::Message(
                 "processing cancelled".to_string(),
             ));
+        }
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "processing_job_stage_started",
+                log::Level::Info,
+                "Processing stage started",
+                Some(build_fields([
+                    ("jobId", json_value(&job_id)),
+                    ("label", json_value(&stage.stage_label)),
+                    ("inputStorePath", json_value(&current_input_store_path)),
+                    ("outputStorePath", json_value(&stage.artifact.store_path)),
+                    (
+                        "artifactKind",
+                        json_value(match stage.artifact.kind {
+                            ProcessingJobArtifactKind::Checkpoint => "checkpoint",
+                            ProcessingJobArtifactKind::FinalOutput => "final_output",
+                        }),
+                    ),
+                    (
+                        "segmentOperatorCount",
+                        json_value(stage.segment_pipeline.operation_count()),
+                    ),
+                    (
+                        "lineageOperatorCount",
+                        json_value(stage.lineage_pipeline.operation_count()),
+                    ),
+                ])),
+            );
         }
         if !matches!(stage.artifact.kind, ProcessingJobArtifactKind::FinalOutput) {
             prepare_processing_output_store(
@@ -2154,6 +3048,7 @@ fn run_processing_job(
         }
         let materialize_options = materialize_options_for_store(&current_input_store_path)
             .map_err(seis_runtime::SeisRefineError::Message)?;
+        let materialize_started_at = Instant::now();
         materialize_processing_volume_with_progress(
             &current_input_store_path,
             &stage.artifact.store_path,
@@ -2169,9 +3064,18 @@ fn run_processing_job(
                 Ok(())
             },
         )?;
-        rewrite_trace_local_processing_lineage(&stage.artifact.store_path, &stage.lineage_pipeline)
-            .map_err(seis_runtime::SeisRefineError::Message)?;
+        let materialize_duration_ms = materialize_started_at.elapsed().as_millis() as u64;
+        let lineage_rewrite_started_at = Instant::now();
+        rewrite_trace_local_processing_lineage(
+            &stage.artifact.store_path,
+            &stage.lineage_pipeline,
+            stage.artifact.kind,
+        )
+        .map_err(seis_runtime::SeisRefineError::Message)?;
+        let lineage_rewrite_duration_ms =
+            lineage_rewrite_started_at.elapsed().as_millis() as u64;
         let _ = record.push_artifact(stage.artifact.clone());
+        let artifact_register_started_at = Instant::now();
         if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
             diagnostics.emit_session_event(
                 app,
@@ -2216,11 +3120,13 @@ fn run_processing_job(
                 );
             }
         }
+        let artifact_register_duration_ms =
+            artifact_register_started_at.elapsed().as_millis() as u64;
         if matches!(stage.artifact.kind, ProcessingJobArtifactKind::Checkpoint) {
             if let (Some(processing_cache), Some(source_fingerprint)) =
                 (app.try_state::<ProcessingCacheState>(), source_fingerprint.as_ref())
             {
-                if processing_cache.settings().policy != ProcessingCachePolicy::Off {
+                if processing_cache.enabled() {
                     match trace_local_pipeline_hash(&stage.lineage_pipeline) {
                         Ok(prefix_hash) => {
                             if let Err(error) = processing_cache.register_visible_checkpoint(
@@ -2266,6 +3172,39 @@ fn run_processing_job(
                 }
             }
         }
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "processing_job_stage_completed",
+                log::Level::Info,
+                "Processing stage completed",
+                Some(build_fields([
+                    ("jobId", json_value(&job_id)),
+                    ("label", json_value(&stage.stage_label)),
+                    ("storePath", json_value(&stage.artifact.store_path)),
+                    (
+                        "artifactKind",
+                        json_value(match stage.artifact.kind {
+                            ProcessingJobArtifactKind::Checkpoint => "checkpoint",
+                            ProcessingJobArtifactKind::FinalOutput => "final_output",
+                        }),
+                    ),
+                    (
+                        "stageDurationMs",
+                        json_value(stage_started_at.elapsed().as_millis() as u64),
+                    ),
+                    ("materializeDurationMs", json_value(materialize_duration_ms)),
+                    (
+                        "lineageRewriteDurationMs",
+                        json_value(lineage_rewrite_duration_ms),
+                    ),
+                    (
+                        "artifactRegisterDurationMs",
+                        json_value(artifact_register_duration_ms),
+                    ),
+                ])),
+            );
+        }
         current_input_store_path = stage.artifact.store_path.clone();
         Ok(())
     });
@@ -2273,7 +3212,7 @@ fn run_processing_job(
     match result {
         Ok(_) => {
             if let Some(processing_cache) = app.try_state::<ProcessingCacheState>() {
-                if processing_cache.settings().policy != ProcessingCachePolicy::Off {
+                if processing_cache.enabled() {
                     match (
                         source_fingerprint.as_ref(),
                         trace_local_pipeline_hash(&request.pipeline),
@@ -2285,7 +3224,7 @@ fn run_processing_job(
                                 source_fingerprint,
                                 &full_pipeline_hash,
                                 &full_pipeline_hash,
-                                request.pipeline.operations.len(),
+                                request.pipeline.operation_count(),
                                 PROCESSING_CACHE_RUNTIME_VERSION,
                                 TBVOL_STORE_FORMAT_VERSION,
                             ) {
@@ -2333,6 +3272,10 @@ fn run_processing_job(
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
                         ("outputStorePath", json_value(&output_store_path)),
+                        (
+                            "jobDurationMs",
+                            json_value(job_started_at.elapsed().as_millis() as u64),
+                        ),
                     ])),
                 );
             }
@@ -2365,6 +3308,10 @@ fn run_processing_job(
                     },
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "jobDurationMs",
+                            json_value(job_started_at.elapsed().as_millis() as u64),
+                        ),
                         (
                             "state",
                             json_value(format!("{:?}", final_status.state).to_ascii_lowercase()),
@@ -2406,7 +3353,137 @@ fn run_subvolume_processing_job(
         default_subvolume_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
             .unwrap_or_else(|_| "derived-output.tbvol".to_string())
     });
-    let _ = record.mark_running(Some("Crop Subvolume".to_string()));
+    let job_started_at = Instant::now();
+    let job_id = record.snapshot().job_id;
+    let prefix_request = request
+        .pipeline
+        .trace_local_pipeline
+        .as_ref()
+        .map(|pipeline| RunTraceLocalProcessingRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            store_path: request.store_path.clone(),
+            output_store_path: None,
+            overwrite_existing: false,
+            pipeline: pipeline.clone(),
+        });
+    let reused_checkpoint = match (
+        app.try_state::<ProcessingCacheState>(),
+        prefix_request.as_ref(),
+    ) {
+        (Some(processing_cache), Some(prefix_request)) => {
+            match resolve_reused_trace_local_checkpoint(&processing_cache, prefix_request, true) {
+                Ok(value) => value,
+                Err(error) => {
+                    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                        diagnostics.emit_session_event(
+                            app,
+                            "subvolume_processing_checkpoint_reuse_failed",
+                            log::Level::Warn,
+                            "Checkpoint reuse lookup failed; subvolume processing will continue from source",
+                            Some(build_fields([
+                                ("jobId", json_value(&job_id)),
+                                ("error", json_value(error)),
+                            ])),
+                        );
+                    }
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let source_fingerprint = match (
+        app.try_state::<ProcessingCacheState>(),
+        request.pipeline.trace_local_pipeline.as_ref(),
+    ) {
+        (Some(processing_cache), Some(_)) if processing_cache.enabled() => {
+            match trace_local_source_fingerprint(&request.store_path) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                        diagnostics.emit_session_event(
+                            app,
+                            "subvolume_processing_cache_fingerprint_failed",
+                            log::Level::Warn,
+                            "Processing cache fingerprinting failed; subvolume processing will continue without prefix registration",
+                            Some(build_fields([
+                                ("jobId", json_value(&job_id)),
+                                ("error", json_value(error)),
+                            ])),
+                        );
+                    }
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let checkpoint_stages = match request.pipeline.trace_local_pipeline.as_ref() {
+        Some(pipeline) => match build_trace_local_checkpoint_stages_from_pipeline(
+            pipeline,
+            &output_store_path,
+            &job_id,
+            reused_checkpoint
+                .as_ref()
+                .map(|checkpoint| checkpoint.after_operation_index + 1)
+                .unwrap_or(0),
+            true,
+        ) {
+            Ok(stages) => stages,
+            Err(error) => {
+                let final_status = record.mark_failed(error);
+                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                    diagnostics.emit_session_event(
+                        app,
+                        "subvolume_processing_job_failed",
+                        log::Level::Error,
+                        "Subvolume processing job failed",
+                        Some(build_fields([
+                            ("jobId", json_value(&final_status.job_id)),
+                            (
+                                "error",
+                                json_value(final_status.error_message.clone().unwrap_or_default()),
+                            ),
+                        ])),
+                    );
+                }
+                return;
+            }
+        },
+        None => Vec::new(),
+    };
+    let _ = record.mark_running(
+        checkpoint_stages
+            .first()
+            .map(|stage| stage.stage_label.clone())
+            .or_else(|| Some("Crop Subvolume".to_string())),
+    );
+    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+        diagnostics.emit_session_event(
+            app,
+            "subvolume_processing_job_started",
+            log::Level::Info,
+            "Subvolume processing job started",
+            Some(build_fields([
+                ("jobId", json_value(&record.snapshot().job_id)),
+                ("storePath", json_value(&request.store_path)),
+                ("outputStorePath", json_value(&output_store_path)),
+                (
+                    "traceLocalOperatorCount",
+                    json_value(
+                        request
+                            .pipeline
+                            .trace_local_pipeline
+                            .as_ref()
+                            .map(|pipeline| pipeline.operation_count())
+                            .unwrap_or(0),
+                    ),
+                ),
+                ("checkpointCount", json_value(checkpoint_stages.len())),
+                ("reusedCheckpoint", json_value(reused_checkpoint.is_some())),
+            ])),
+        );
+    }
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
         &output_store_path,
@@ -2431,8 +3508,7 @@ fn run_subvolume_processing_job(
         return;
     }
 
-    let job_id = record.snapshot().job_id;
-    let materialize_options = match materialize_options_for_store(&request.store_path) {
+    let final_materialize_options = match materialize_options_for_store(&request.store_path) {
         Ok(options) => options,
         Err(error) => {
             let final_status = record.mark_failed(error.clone());
@@ -2451,31 +3527,283 @@ fn run_subvolume_processing_job(
             return;
         }
     };
-    let result = materialize_subvolume_processing_volume_with_progress(
-        &request.store_path,
-        &output_store_path,
-        &request.pipeline,
-        materialize_options,
-        |completed, total| {
+    if let Some(reused_checkpoint) = reused_checkpoint.as_ref() {
+        let _ = record.push_artifact(reused_checkpoint.artifact.clone());
+        if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+            diagnostics.emit_session_event(
+                app,
+                "subvolume_processing_checkpoint_reused",
+                log::Level::Info,
+                "Subvolume processing reused a cached checkpoint",
+                Some(build_fields([
+                    ("jobId", json_value(&job_id)),
+                    ("storePath", json_value(&reused_checkpoint.path)),
+                    (
+                        "afterOperationIndex",
+                        json_value(reused_checkpoint.after_operation_index),
+                    ),
+                ])),
+            );
+        }
+    }
+
+    let mut current_input_store_path = reused_checkpoint
+        .as_ref()
+        .map(|checkpoint| checkpoint.path.clone())
+        .unwrap_or_else(|| request.store_path.clone());
+    let checkpoint_result: Result<(), seis_runtime::SeisRefineError> =
+        checkpoint_stages.iter().try_for_each(|stage| {
+            let stage_started_at = Instant::now();
             if record.cancel_requested() {
-                return Err(seis_runtime::SeismicStoreError::Message(
+                return Err(seis_runtime::SeisRefineError::Message(
                     "processing cancelled".to_string(),
                 ));
             }
-            let _ = record.mark_progress(completed, total, Some("Crop Subvolume"));
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_checkpoint_stage_started",
+                    log::Level::Info,
+                    "Subvolume checkpoint stage started",
+                    Some(build_fields([
+                        ("jobId", json_value(&job_id)),
+                        ("label", json_value(&stage.stage_label)),
+                        ("inputStorePath", json_value(&current_input_store_path)),
+                        ("outputStorePath", json_value(&stage.artifact.store_path)),
+                        (
+                            "segmentOperatorCount",
+                            json_value(stage.segment_pipeline.operation_count()),
+                        ),
+                        (
+                            "lineageOperatorCount",
+                            json_value(stage.lineage_pipeline.operation_count()),
+                        ),
+                    ])),
+                );
+            }
+            prepare_processing_output_store(
+                &current_input_store_path,
+                &stage.artifact.store_path,
+                false,
+            )
+            .map_err(seis_runtime::SeisRefineError::Message)?;
+            let stage_materialize_options = materialize_options_for_store(&current_input_store_path)
+                .map_err(seis_runtime::SeisRefineError::Message)?;
+            let materialize_started_at = Instant::now();
+            materialize_processing_volume_with_progress(
+                &current_input_store_path,
+                &stage.artifact.store_path,
+                &stage.segment_pipeline,
+                stage_materialize_options,
+                |completed, total| {
+                    if record.cancel_requested() {
+                        return Err(seis_runtime::SeisRefineError::Message(
+                            "processing cancelled".to_string(),
+                        ));
+                    }
+                    let _ = record.mark_progress(completed, total, Some(&stage.stage_label));
+                    Ok(())
+                },
+            )?;
+            let materialize_duration_ms = materialize_started_at.elapsed().as_millis() as u64;
+            let lineage_rewrite_started_at = Instant::now();
+            rewrite_trace_local_processing_lineage(
+                &stage.artifact.store_path,
+                &stage.lineage_pipeline,
+                stage.artifact.kind,
+            )
+            .map_err(seis_runtime::SeisRefineError::Message)?;
+            let lineage_rewrite_duration_ms =
+                lineage_rewrite_started_at.elapsed().as_millis() as u64;
+            let _ = record.push_artifact(stage.artifact.clone());
+            let artifact_register_started_at = Instant::now();
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_checkpoint_emitted",
+                    log::Level::Info,
+                    "Subvolume checkpoint emitted",
+                    Some(build_fields([
+                        ("jobId", json_value(&job_id)),
+                        ("storePath", json_value(&stage.artifact.store_path)),
+                        ("label", json_value(&stage.artifact.label)),
+                    ])),
+                );
+            }
+            if let Err(error) =
+                register_processing_store_artifact(app, &request.store_path, &stage.artifact)
+            {
+                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                    diagnostics.emit_session_event(
+                        app,
+                        "subvolume_processing_artifact_register_failed",
+                        log::Level::Warn,
+                        "Subvolume checkpoint emitted but workspace registration failed",
+                        Some(build_fields([
+                            ("jobId", json_value(&job_id)),
+                            ("storePath", json_value(&stage.artifact.store_path)),
+                            ("error", json_value(error)),
+                        ])),
+                    );
+                }
+            }
+            let artifact_register_duration_ms =
+                artifact_register_started_at.elapsed().as_millis() as u64;
+            if let (Some(processing_cache), Some(source_fingerprint)) =
+                (app.try_state::<ProcessingCacheState>(), source_fingerprint.as_ref())
+            {
+                if processing_cache.enabled() {
+                    match trace_local_pipeline_hash(&stage.lineage_pipeline) {
+                        Ok(prefix_hash) => {
+                            if let Err(error) = processing_cache.register_visible_checkpoint(
+                                TRACE_LOCAL_CACHE_FAMILY,
+                                &stage.artifact.store_path,
+                                source_fingerprint,
+                                &prefix_hash,
+                                stage.artifact.step_index + 1,
+                                PROCESSING_CACHE_RUNTIME_VERSION,
+                                TBVOL_STORE_FORMAT_VERSION,
+                            ) {
+                                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                    diagnostics.emit_session_event(
+                                        app,
+                                        "subvolume_processing_cache_checkpoint_register_failed",
+                                        log::Level::Warn,
+                                        "Subvolume checkpoint emitted but cache registration failed",
+                                        Some(build_fields([
+                                            ("jobId", json_value(&job_id)),
+                                            ("storePath", json_value(&stage.artifact.store_path)),
+                                            ("error", json_value(error)),
+                                        ])),
+                                    );
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                                diagnostics.emit_session_event(
+                                    app,
+                                    "subvolume_processing_cache_hash_failed",
+                                    log::Level::Warn,
+                                    "Subvolume checkpoint emitted but cache prefix hashing failed",
+                                    Some(build_fields([
+                                        ("jobId", json_value(&job_id)),
+                                        ("storePath", json_value(&stage.artifact.store_path)),
+                                        ("error", json_value(error)),
+                                    ])),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                diagnostics.emit_session_event(
+                    app,
+                    "subvolume_processing_checkpoint_stage_completed",
+                    log::Level::Info,
+                    "Subvolume checkpoint stage completed",
+                    Some(build_fields([
+                        ("jobId", json_value(&job_id)),
+                        ("label", json_value(&stage.stage_label)),
+                        (
+                            "stageDurationMs",
+                            json_value(stage_started_at.elapsed().as_millis() as u64),
+                        ),
+                        (
+                            "materializeDurationMs",
+                            json_value(materialize_duration_ms),
+                        ),
+                        (
+                            "lineageRewriteDurationMs",
+                            json_value(lineage_rewrite_duration_ms),
+                        ),
+                        (
+                            "artifactRegisterDurationMs",
+                            json_value(artifact_register_duration_ms),
+                        ),
+                    ])),
+                );
+            }
+            current_input_store_path = stage.artifact.store_path.clone();
             Ok(())
-        },
-    );
+        });
+
+    let result = checkpoint_result.and_then(|_| {
+        let remaining_trace_local_pipeline = request
+            .pipeline
+            .trace_local_pipeline
+            .as_ref()
+            .and_then(|pipeline| {
+                let start_index = checkpoint_stages
+                    .last()
+                    .map(|stage| stage.artifact.step_index + 1)
+                    .or_else(|| {
+                        reused_checkpoint
+                            .as_ref()
+                            .map(|checkpoint| checkpoint.after_operation_index + 1)
+                    })
+                    .unwrap_or(0);
+                (start_index < pipeline.operation_count()).then(|| {
+                    pipeline_segment(pipeline, start_index, pipeline.operation_count() - 1)
+                })
+            });
+        let execution_pipeline = SubvolumeProcessingPipeline {
+            schema_version: request.pipeline.schema_version,
+            revision: request.pipeline.revision,
+            preset_id: request.pipeline.preset_id.clone(),
+            name: request.pipeline.name.clone(),
+            description: request.pipeline.description.clone(),
+            trace_local_pipeline: remaining_trace_local_pipeline,
+            crop: request.pipeline.crop.clone(),
+        };
+        materialize_subvolume_processing_volume_with_progress(
+            &current_input_store_path,
+            &output_store_path,
+            &execution_pipeline,
+            final_materialize_options,
+            |completed, total| {
+                if record.cancel_requested() {
+                    return Err(seis_runtime::SeismicStoreError::Message(
+                        "processing cancelled".to_string(),
+                    ));
+                }
+                let _ = record.mark_progress(completed, total, Some("Crop Subvolume"));
+                Ok(())
+            },
+        )
+        .map_err(|error| seis_runtime::SeisRefineError::Message(error.to_string()))
+    });
 
     match result {
         Ok(_) => {
+            if let Err(error) = rewrite_subvolume_processing_lineage(
+                &output_store_path,
+                &request.pipeline,
+                ProcessingJobArtifactKind::FinalOutput,
+            ) {
+                let final_status = record.mark_failed(error.clone());
+                if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                    diagnostics.emit_session_event(
+                        app,
+                        "subvolume_processing_job_failed",
+                        log::Level::Error,
+                        "Subvolume processing job failed",
+                        Some(build_fields([
+                            ("jobId", json_value(&final_status.job_id)),
+                            ("error", json_value(&error)),
+                        ])),
+                    );
+                }
+                return;
+            }
             let final_artifact = ProcessingJobArtifact {
                 kind: ProcessingJobArtifactKind::FinalOutput,
                 step_index: request
                     .pipeline
                     .trace_local_pipeline
                     .as_ref()
-                    .map(|pipeline| pipeline.operations.len())
+                    .map(|pipeline| pipeline.operation_count())
                     .unwrap_or(0),
                 label: "Crop Subvolume".to_string(),
                 store_path: output_store_path.clone(),
@@ -2500,15 +3828,40 @@ fn run_subvolume_processing_job(
             }
             let final_status = record.mark_completed(output_store_path.clone());
             if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+                let mut completion_fields = vec![
+                    ("jobId", json_value(&final_status.job_id)),
+                    ("outputStorePath", json_value(&output_store_path)),
+                    ("executionOrder", json_value("trace_local_then_crop")),
+                    (
+                        "jobDurationMs",
+                        json_value(job_started_at.elapsed().as_millis() as u64),
+                    ),
+                    ("checkpointCount", json_value(checkpoint_stages.len())),
+                ];
+                if let Ok(handle) = open_store(&output_store_path) {
+                    completion_fields.push(("datasetId", json_value(&handle.dataset_id().0)));
+                    completion_fields.push(("shape", json_value(handle.manifest.volume.shape)));
+                    if let Some((inline_min, inline_max)) =
+                        section_axis_range(&handle, SectionAxis::Inline)
+                    {
+                        completion_fields
+                            .push(("inlineRange", json_value([inline_min, inline_max])));
+                    }
+                    if let Some((xline_min, xline_max)) =
+                        section_axis_range(&handle, SectionAxis::Xline)
+                    {
+                        completion_fields.push(("xlineRange", json_value([xline_min, xline_max])));
+                    }
+                    if let Some((z_min, z_max)) = sample_axis_range_ms(&handle) {
+                        completion_fields.push(("zRangeMs", json_value([z_min, z_max])));
+                    }
+                }
                 diagnostics.emit_session_event(
                     app,
                     "subvolume_processing_job_completed",
                     log::Level::Info,
                     "Subvolume processing job completed",
-                    Some(build_fields([
-                        ("jobId", json_value(&final_status.job_id)),
-                        ("outputStorePath", json_value(&output_store_path)),
-                    ])),
+                    Some(build_fields(completion_fields)),
                 );
             }
         }
@@ -2540,6 +3893,11 @@ fn run_subvolume_processing_job(
                     },
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "jobDurationMs",
+                            json_value(job_started_at.elapsed().as_millis() as u64),
+                        ),
+                        ("checkpointCount", json_value(checkpoint_stages.len())),
                         (
                             "state",
                             json_value(format!("{:?}", final_status.state).to_ascii_lowercase()),
@@ -2576,11 +3934,29 @@ fn run_gather_processing_job(
             return;
         }
     };
-    let _ = record.mark_running(None);
     let output_store_path = request.output_store_path.clone().unwrap_or_else(|| {
         default_gather_processing_store_path(&app_paths, &request.store_path, &request.pipeline)
             .unwrap_or_else(|_| "derived-output.tbgath".to_string())
     });
+    let job_started_at = Instant::now();
+    let _ = record.mark_running(None);
+    if let Some(diagnostics) = app.try_state::<DiagnosticsState>() {
+        diagnostics.emit_session_event(
+            app,
+            "gather_processing_job_started",
+            log::Level::Info,
+            "Gather processing job started",
+            Some(build_fields([
+                ("jobId", json_value(&record.snapshot().job_id)),
+                ("storePath", json_value(&request.store_path)),
+                ("outputStorePath", json_value(&output_store_path)),
+                (
+                    "operatorCount",
+                    json_value(request.pipeline.operations.len()),
+                ),
+            ])),
+        );
+    }
     if let Err(error) = prepare_processing_output_store(
         &request.store_path,
         &output_store_path,
@@ -2632,6 +4008,10 @@ fn run_gather_processing_job(
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
                         ("outputStorePath", json_value(&output_store_path)),
+                        (
+                            "jobDurationMs",
+                            json_value(job_started_at.elapsed().as_millis() as u64),
+                        ),
                     ])),
                 );
             }
@@ -2664,6 +4044,10 @@ fn run_gather_processing_job(
                     },
                     Some(build_fields([
                         ("jobId", json_value(&final_status.job_id)),
+                        (
+                            "jobDurationMs",
+                            json_value(job_started_at.elapsed().as_millis() as u64),
+                        ),
                         (
                             "state",
                             json_value(format!("{:?}", final_status.state).to_ascii_lowercase()),
@@ -2846,8 +4230,6 @@ pub fn run() {
             let processing_cache = ProcessingCacheState::initialize(
                 app_paths.processing_cache_dir(),
                 app_paths.processing_cache_volumes_dir(),
-                app_paths.processing_cache_gathers_dir(),
-                app_paths.processing_cache_tmp_dir(),
                 app_paths.processing_cache_index_path(),
                 app_paths.settings_path(),
             )?;
@@ -2881,10 +4263,16 @@ pub fn run() {
             import_dataset_command,
             import_prestack_offset_dataset_command,
             open_dataset_command,
+            export_dataset_segy_command,
+            import_horizon_xyz_command,
+            load_section_horizons_command,
             load_section_command,
+            load_section_binary_command,
             load_gather_command,
             preview_processing_command,
+            preview_processing_binary_command,
             preview_subvolume_processing_command,
+            preview_subvolume_processing_binary_command,
             preview_gather_processing_command,
             amplitude_spectrum_command,
             velocity_scan_command,

@@ -9,10 +9,12 @@ pub use ophiolite_project::{
 pub use ophiolite_seismic::{
     AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
     CancelProcessingJobResponse, DatasetSummary, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, GatherProcessingPipeline, GatherRequest, GatherView,
-    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
-    ImportDatasetResponse, ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    ListPipelinePresetsResponse, OpenDatasetRequest, OpenDatasetResponse, PrestackThirdAxisField,
+    DeletePipelinePresetResponse, ExportSegyRequest, ExportSegyResponse, GatherProcessingPipeline,
+    GatherRequest, GatherView, GetProcessingJobRequest, GetProcessingJobResponse,
+    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, ImportHorizonXyzRequest,
+    ImportHorizonXyzResponse, ImportPrestackOffsetDatasetRequest,
+    ImportPrestackOffsetDatasetResponse, ListPipelinePresetsResponse, LoadSectionHorizonsRequest,
+    LoadSectionHorizonsResponse, OpenDatasetRequest, OpenDatasetResponse, PrestackThirdAxisField,
     PreviewCommand, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
     PreviewResponse, PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
     PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse, ProcessingJobArtifact,
@@ -21,9 +23,9 @@ pub use ophiolite_seismic::{
     RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
     SectionAxis, SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType,
     SubvolumeCropOperation, SubvolumeProcessingPipeline, SuggestedImportAction,
-    SurveyPreflightRequest, SurveyPreflightResponse, TraceLocalProcessingCheckpoint,
-    VelocityAutopickParameters, VelocityFunctionEstimate, VelocityFunctionSource,
-    VelocityPickStrategy, VelocityScanRequest, VelocityScanResponse,
+    SurveyPreflightRequest, SurveyPreflightResponse, VelocityAutopickParameters,
+    VelocityFunctionEstimate, VelocityFunctionSource, VelocityPickStrategy, VelocityScanRequest,
+    VelocityScanResponse,
 };
 
 use schemars::JsonSchema;
@@ -48,8 +50,6 @@ pub struct WorkspacePipelineEntry {
     pub pipeline: TraceLocalProcessingPipeline,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subvolume_crop: Option<SubvolumeCropOperation>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub checkpoint_after_operation_indexes: Vec<usize>,
     #[ts(type = "number")]
     pub updated_at_unix_s: u64,
 }

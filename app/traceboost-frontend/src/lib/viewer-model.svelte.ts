@@ -1,14 +1,20 @@
-import { createContext } from "svelte";
+import { createContext, tick } from "svelte";
+import type { SectionHorizonOverlay as GeovizSectionHorizonOverlay } from "@geoviz/data-models";
 import type { SeismicChartInteractionState, SeismicChartTool } from "@geoviz/svelte";
 import type {
   DatasetRegistryEntry,
   DatasetSummary,
+  ExportSegyResponse,
   ImportDatasetResponse,
+  ImportedHorizonDescriptor,
+  ResolvedSurveyMapSourceDto,
+  SegyGeometryCandidate,
   SegyGeometryOverride,
   SegyHeaderField,
   SegyHeaderValueType,
   SectionAxis,
   SectionInteractionChanged,
+  SectionHorizonOverlayView,
   SectionProbeChanged,
   SectionView,
   SectionViewportChanged,
@@ -16,23 +22,31 @@ import type {
   WorkspacePipelineEntry,
   WorkspaceSession
 } from "@traceboost/seis-contracts";
-import type { DiagnosticsEvent, DiagnosticsStatus } from "./bridge";
+import type { DiagnosticsEvent, DiagnosticsStatus, TransportSectionView } from "./bridge";
 import {
+  exportDatasetSegy,
   defaultImportStorePath,
+  emitFrontendDiagnosticsEvent,
+  fetchSectionHorizons,
   fetchSectionView,
   getDiagnosticsStatus,
   importDataset,
+  importHorizonXyz,
   loadWorkspaceState,
   listenToDiagnosticsEvents,
   openDataset,
   preflightImport,
   removeDatasetEntry,
+  resolveSurveyMap,
   saveWorkspaceSession,
   setActiveDatasetEntry,
+  setDatasetNativeCoordinateReference,
   upsertDatasetEntry,
   setDiagnosticsVerbosity
 } from "./bridge";
-import { confirmOverwriteStore } from "./file-dialog";
+import { confirmOverwriteSegy, confirmOverwriteStore, pickSegyExportPath } from "./file-dialog";
+
+type DisplaySectionView = SectionView | TransportSectionView;
 
 export interface ViewerActivity {
   id: number;
@@ -142,8 +156,53 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function nowMs(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function bytePayloadLength(bytes: Array<number> | Uint8Array | null | undefined): number {
+  if (!bytes) {
+    return 0;
+  }
+  return bytes instanceof Uint8Array ? bytes.byteLength : bytes.length;
+}
+
+function estimateSectionPayloadBytes(section: DisplaySectionView): number {
+  return (
+    bytePayloadLength(section.horizontal_axis_f64le) +
+    bytePayloadLength(section.inline_axis_f64le) +
+    bytePayloadLength(section.xline_axis_f64le) +
+    bytePayloadLength(section.sample_axis_f32le) +
+    bytePayloadLength(section.amplitudes_f32le)
+  );
+}
+
+function adaptSectionHorizonOverlays(overlays: SectionHorizonOverlayView[]): GeovizSectionHorizonOverlay[] {
+  return overlays.map((overlay) => ({
+    id: overlay.id,
+    name: overlay.name ?? undefined,
+    color: overlay.style.color,
+    lineWidth: overlay.style.line_width ?? undefined,
+    lineStyle: overlay.style.line_style,
+    opacity: overlay.style.opacity ?? undefined,
+    samples: overlay.samples.map((sample) => ({
+      traceIndex: sample.trace_index,
+      sampleIndex: sample.sample_index,
+      sampleValue: sample.sample_value ?? undefined
+    }))
+  }));
+}
+
 function isExistingStoreError(message: string): boolean {
   return message.toLowerCase().includes("store root already exists:");
+}
+
+function isExistingSegyExportError(message: string): boolean {
+  return message.toLowerCase().includes("output seg-y path already exists:");
 }
 
 function describePreflight(preflight: SurveyPreflightResponse): string {
@@ -186,6 +245,20 @@ function sameGeometryOverride(
     sameHeaderField(left.crossline_3d, right.crossline_3d) &&
     sameHeaderField(left.third_axis, right.third_axis)
   );
+}
+
+function describeHeaderField(field: SegyHeaderField | null | undefined): string {
+  if (!field) {
+    return "unset";
+  }
+  return `${field.start_byte} (${field.value_type.toUpperCase()})`;
+}
+
+function describeGeometryOverride(geometry: SegyGeometryOverride | null | undefined): string {
+  if (!geometry) {
+    return "default SEG-Y mapping";
+  }
+  return `inline ${describeHeaderField(geometry.inline_3d)}, crossline ${describeHeaderField(geometry.crossline_3d)}`;
 }
 
 function geometryOverrideDraft(
@@ -258,6 +331,23 @@ function deriveStorePathFromInput(inputPath: string): string {
   }
 
   return `${directory}${basename}.tbvol`;
+}
+
+function deriveSegyExportPathFromStore(storePath: string): string {
+  const normalizedPath = trimPath(storePath);
+  if (!normalizedPath) {
+    return "";
+  }
+
+  const separatorIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+  const directory = separatorIndex >= 0 ? normalizedPath.slice(0, separatorIndex + 1) : "";
+  const filename = separatorIndex >= 0 ? normalizedPath.slice(separatorIndex + 1) : normalizedPath;
+  const basename = filename.replace(/\.[^.]+$/, "");
+  if (!basename) {
+    return "";
+  }
+
+  return `${directory}${basename}.export.sgy`;
 }
 
 function fileExtension(filePath: string): string {
@@ -434,10 +524,14 @@ export class ViewerModel {
   importGeometryRecovery = $state.raw<ImportGeometryRecoveryState | null>(null);
   axis = $state<SectionAxis>("inline");
   index = $state(0);
-  section = $state<SectionView | null>(null);
-  backgroundSection = $state<SectionView | null>(null);
+  section = $state.raw<DisplaySectionView | null>(null);
+  sectionHorizons = $state.raw<GeovizSectionHorizonOverlay[]>([]);
+  importedHorizons = $state.raw<ImportedHorizonDescriptor[]>([]);
+  backgroundSection = $state.raw<DisplaySectionView | null>(null);
   loading = $state(false);
   backgroundLoading = $state(false);
+  horizonImporting = $state(false);
+  segyExporting = $state(false);
   busyLabel = $state<string | null>(null);
   error = $state<string | null>(null);
   backgroundError = $state<string | null>(null);
@@ -463,6 +557,12 @@ export class ViewerModel {
   workspaceEntries = $state.raw<DatasetRegistryEntry[]>([]);
   activeEntryId = $state<string | null>(null);
   selectedPresetId = $state<string | null>(null);
+  displayCoordinateReferenceId = $state<string | null>(null);
+  surveyMapSource = $state.raw<ResolvedSurveyMapSourceDto | null>(null);
+  surveyMapLoading = $state(false);
+  surveyMapError = $state<string | null>(null);
+  nativeCoordinateReferenceOverrideIdDraft = $state("");
+  nativeCoordinateReferenceOverrideNameDraft = $state("");
   workspaceReady = $state(false);
   restoringWorkspace = $state(false);
   compareBackgroundStorePath = $state<string | null>(null);
@@ -474,6 +574,7 @@ export class ViewerModel {
   #outputPathSource: "auto" | "manual" = "auto";
   #backgroundLoadRequestId = 0;
   #backgroundSectionKey: string | null = null;
+  #surveyMapRequestId = 0;
   #copiedWorkspaceEntry: DatasetRegistryEntry | null = null;
   #workspaceEntryCounter = 0;
 
@@ -551,6 +652,10 @@ export class ViewerModel {
       activeEntry?.imported_store_path ?? activeEntry?.preferred_store_path ?? this.activeStorePath ?? null,
       activeEntry?.entry_id ?? this.dataset?.descriptor.id ?? "dataset"
     );
+  }
+
+  get canExportSegy(): boolean {
+    return this.tauriRuntime && !!trimPath(this.activeStorePath) && !!this.dataset && !this.segyExporting;
   }
 
   get comparePrimaryDataset(): DatasetSummary | null {
@@ -656,6 +761,72 @@ export class ViewerModel {
     return !!this.activeBackgroundCompareCandidate && this.displayTransform.renderMode === "heatmap";
   }
 
+  get activeCoordinateReferenceBinding() {
+    return this.comparePrimaryDataset?.descriptor.coordinate_reference_binding ?? null;
+  }
+
+  get activeDetectedNativeCoordinateReferenceId(): string | null {
+    return this.activeCoordinateReferenceBinding?.detected?.id ?? null;
+  }
+
+  get activeDetectedNativeCoordinateReferenceName(): string | null {
+    return this.activeCoordinateReferenceBinding?.detected?.name ?? null;
+  }
+
+  get activeEffectiveNativeCoordinateReferenceId(): string | null {
+    return this.activeCoordinateReferenceBinding?.effective?.id ?? null;
+  }
+
+  get activeEffectiveNativeCoordinateReferenceName(): string | null {
+    return this.activeCoordinateReferenceBinding?.effective?.name ?? null;
+  }
+
+  get activeSurveyMapSurvey() {
+    return this.surveyMapSource?.surveys[0] ?? null;
+  }
+
+  get workspaceCoordinateReferenceWarnings(): string[] {
+    const warnings: string[] = [];
+    const activeDataset = this.comparePrimaryDataset;
+    if (!activeDataset) {
+      return warnings;
+    }
+
+    if (!this.activeEffectiveNativeCoordinateReferenceId) {
+      warnings.push("Active survey native CRS is unknown. Assign an override before relying on cross-survey map alignment.");
+    }
+
+    if (this.displayCoordinateReferenceId && !this.activeEffectiveNativeCoordinateReferenceId) {
+      warnings.push(`Display CRS ${this.displayCoordinateReferenceId} is set, but the active survey has no effective native CRS.`);
+    } else if (
+      this.displayCoordinateReferenceId &&
+      this.activeEffectiveNativeCoordinateReferenceId &&
+      this.displayCoordinateReferenceId.toLowerCase() !==
+        this.activeEffectiveNativeCoordinateReferenceId.toLowerCase()
+    ) {
+      const transformStatus = this.activeSurveyMapSurvey?.transform_status ?? "native_only";
+      if (transformStatus === "display_unavailable") {
+        warnings.push(
+          `Display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}, but no display transform is currently available.`
+        );
+      } else if (transformStatus === "display_degraded") {
+        warnings.push(
+          `Display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}. The current map preview uses a degraded transform.`
+        );
+      } else if (transformStatus === "native_only") {
+        warnings.push(
+          `Display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}. The current map preview is still in native coordinates.`
+        );
+      }
+    }
+
+    if (this.surveyMapError) {
+      warnings.push(this.surveyMapError);
+    }
+
+    return warnings;
+  }
+
   selectCompareBackground = (storePath: string | null): void => {
     const normalizedStorePath = trimPath(storePath ?? "") || null;
 
@@ -732,6 +903,55 @@ export class ViewerModel {
     }
   };
 
+  refreshSurveyMap = async (): Promise<void> => {
+    const requestId = ++this.#surveyMapRequestId;
+    const storePath = this.comparePrimaryStorePath;
+
+    if (!storePath) {
+      this.surveyMapSource = null;
+      this.surveyMapError = null;
+      this.surveyMapLoading = false;
+      return;
+    }
+
+    if (!this.tauriRuntime) {
+      this.surveyMapSource = null;
+      this.surveyMapError = null;
+      this.surveyMapLoading = false;
+      return;
+    }
+
+    this.surveyMapLoading = true;
+    this.surveyMapError = null;
+
+    try {
+      const response = await resolveSurveyMap({
+        schema_version: 1,
+        store_path: storePath,
+        display_coordinate_reference_id: this.displayCoordinateReferenceId
+      });
+
+      if (requestId !== this.#surveyMapRequestId) {
+        return;
+      }
+
+      this.surveyMapSource = response.survey_map;
+      this.surveyMapError = null;
+    } catch (error) {
+      if (requestId !== this.#surveyMapRequestId) {
+        return;
+      }
+
+      this.surveyMapSource = null;
+      this.surveyMapError = errorMessage(error, "Failed to resolve the active survey map.");
+      this.note("Failed to resolve survey map geometry.", "backend", "warn", this.surveyMapError);
+    } finally {
+      if (requestId === this.#surveyMapRequestId) {
+        this.surveyMapLoading = false;
+      }
+    }
+  };
+
   private async loadBackgroundSection(
     storePath: string,
     axis: SectionAxis,
@@ -775,15 +995,28 @@ export class ViewerModel {
     void this.persistWorkspaceSession();
   };
 
+  setDisplayCoordinateReferenceId = (coordinateReferenceId: string | null): void => {
+    this.displayCoordinateReferenceId = coordinateReferenceId?.trim() || null;
+    if (!this.workspaceReady) {
+      void this.refreshSurveyMap();
+      return;
+    }
+    void this.refreshSurveyMap();
+    void this.persistWorkspaceSession();
+  };
+
   #applyWorkspaceSession = (session: WorkspaceSession): void => {
     this.activeEntryId = session.active_entry_id;
     this.selectedPresetId = session.selected_preset_id;
+    this.displayCoordinateReferenceId = session.display_coordinate_reference_id;
     this.axis = session.active_axis;
     this.index = session.active_index;
   };
 
   #applyWorkspaceEntry = (entry: DatasetRegistryEntry | null): void => {
     if (!entry) {
+      this.nativeCoordinateReferenceOverrideIdDraft = "";
+      this.nativeCoordinateReferenceOverrideNameDraft = "";
       return;
     }
 
@@ -795,11 +1028,18 @@ export class ViewerModel {
     this.#outputPathSource = storePath ? "manual" : "auto";
     this.error = null;
     this.preflight = null;
+    this.nativeCoordinateReferenceOverrideIdDraft =
+      entry.last_dataset?.descriptor.coordinate_reference_binding?.effective?.id ?? "";
+    this.nativeCoordinateReferenceOverrideNameDraft =
+      entry.last_dataset?.descriptor.coordinate_reference_binding?.effective?.name ?? "";
   };
 
   #clearLoadedDataset = (): void => {
     this.activeStorePath = "";
     this.dataset = null;
+    this.surveyMapSource = null;
+    this.surveyMapError = null;
+    this.surveyMapLoading = false;
     this.section = null;
     this.backgroundSection = null;
     this.lastProbe = null;
@@ -812,6 +1052,8 @@ export class ViewerModel {
     this.backgroundError = null;
     this.backgroundLoading = false;
     this.#backgroundSectionKey = null;
+    this.nativeCoordinateReferenceOverrideIdDraft = "";
+    this.nativeCoordinateReferenceOverrideNameDraft = "";
   };
 
   #syncWorkspaceState = (entries: DatasetRegistryEntry[], session: WorkspaceSession): void => {
@@ -822,6 +1064,7 @@ export class ViewerModel {
     );
     this.refreshCompareSelection();
     this.workspaceReady = true;
+    void this.refreshSurveyMap();
   };
 
   updateActiveEntryPipelines = async (
@@ -875,7 +1118,8 @@ export class ViewerModel {
         active_store_path: trimPath(this.activeStorePath) || null,
         active_axis: this.axis,
         active_index: this.index,
-        selected_preset_id: this.selectedPresetId
+        selected_preset_id: this.selectedPresetId,
+        display_coordinate_reference_id: this.displayCoordinateReferenceId
       });
       this.#applyWorkspaceSession(response.session);
     } catch (error) {
@@ -884,6 +1128,55 @@ export class ViewerModel {
         "backend",
         "warn",
         errorMessage(error, "Unknown workspace session error")
+      );
+    }
+  };
+
+  setActiveDatasetNativeCoordinateReference = async (
+    coordinateReferenceId: string | null,
+    coordinateReferenceName: string | null
+  ): Promise<void> => {
+    const storePath = this.comparePrimaryStorePath;
+    if (!storePath) {
+      this.note("Native CRS override blocked because no active runtime store is available.", "ui", "warn");
+      return;
+    }
+
+    try {
+      const response = await setDatasetNativeCoordinateReference({
+        schema_version: 1,
+        store_path: storePath,
+        coordinate_reference_id: coordinateReferenceId?.trim() || null,
+        coordinate_reference_name: coordinateReferenceName?.trim() || null
+      });
+      this.dataset = response.dataset;
+      const activeEntry = this.activeDatasetEntry;
+      if (activeEntry) {
+        this.workspaceEntries = mergeWorkspaceEntry(this.workspaceEntries, {
+          ...activeEntry,
+          imported_store_path: activeEntry.imported_store_path ?? response.dataset.store_path,
+          last_dataset: response.dataset
+        });
+      }
+      this.nativeCoordinateReferenceOverrideIdDraft =
+        response.dataset.descriptor.coordinate_reference_binding?.effective?.id ?? "";
+      this.nativeCoordinateReferenceOverrideNameDraft =
+        response.dataset.descriptor.coordinate_reference_binding?.effective?.name ?? "";
+      void this.refreshSurveyMap();
+      this.note(
+        coordinateReferenceId?.trim()
+          ? "Updated active dataset native CRS override."
+          : "Cleared active dataset native CRS override.",
+        "backend",
+        "info",
+        coordinateReferenceId?.trim() || null
+      );
+    } catch (error) {
+      this.note(
+        "Failed to update the active dataset native CRS override.",
+        "backend",
+        "error",
+        errorMessage(error, "Unknown CRS override error")
       );
     }
   };
@@ -987,13 +1280,15 @@ export class ViewerModel {
       const preflight = await preflightImport(normalizedPath);
       this.preflight = preflight;
 
+      const outputStorePath =
+        trimPath(matchingEntry?.imported_store_path ?? matchingEntry?.preferred_store_path ?? "") ||
+        (await defaultImportStorePath(normalizedPath));
+
       if (!canAutoImportPreflight(preflight)) {
-        const outputStorePath =
-          trimPath(matchingEntry?.imported_store_path ?? matchingEntry?.preferred_store_path ?? "") ||
-          (await defaultImportStorePath(normalizedPath));
+        this.loading = false;
+        this.busyLabel = null;
+
         if (canRecoverPreflight(preflight)) {
-          this.loading = false;
-          this.busyLabel = null;
           this.error = null;
           this.openImportGeometryRecovery(preflight, {
             inputPath: normalizedPath,
@@ -1010,18 +1305,15 @@ export class ViewerModel {
             "SEG-Y import requires geometry review; opened the mapping recovery dialog.",
             "ui",
             "warn",
-            normalizedPath
+            describePreflight(preflight)
           );
           return;
         }
+
         throw new Error(
           `This SEG-Y survey cannot be opened automatically yet. Resolved layout: ${describePreflight(preflight)}. Suggested action: ${preflight.suggested_action}.`
         );
       }
-
-      const outputStorePath =
-        trimPath(matchingEntry?.imported_store_path ?? matchingEntry?.preferred_store_path ?? "") ||
-        (await defaultImportStorePath(normalizedPath));
       this.loading = false;
       this.busyLabel = null;
       await this.importDataset({
@@ -1056,7 +1348,11 @@ export class ViewerModel {
       inputPath: trimPath(importOptions.inputPath ?? ""),
       outputStorePath: trimPath(importOptions.outputStorePath ?? ""),
       preflight,
-      importOptions,
+      importOptions: {
+        ...importOptions,
+        inputPath: trimPath(importOptions.inputPath ?? ""),
+        outputStorePath: trimPath(importOptions.outputStorePath ?? "")
+      },
       mode: preferredIndex >= 0 ? "candidate" : "manual",
       selectedCandidateIndex: preferredIndex,
       draft: geometryOverrideDraft(initialGeometry),
@@ -1128,7 +1424,8 @@ export class ViewerModel {
       state.mode === "candidate" && state.selectedCandidateIndex >= 0
         ? state.preflight.geometry_candidates[state.selectedCandidateIndex] ?? null
         : null;
-    const geometryOverride = selectedCandidate?.geometry ?? geometryOverrideFromDraft(state.draft);
+    const geometryOverride =
+      selectedCandidate?.geometry ?? geometryOverrideFromDraft(state.draft);
 
     if (!geometryOverride?.inline_3d || !geometryOverride.crossline_3d) {
       this.importGeometryRecovery = {
@@ -1600,6 +1897,7 @@ export class ViewerModel {
         this.error = null;
         this.activeEntryId = workspaceResponse.entry.entry_id;
         this.#applyWorkspaceSession(workspaceResponse.session);
+        void this.refreshSurveyMap();
 
         this.note(
           "Runtime store opened.",
@@ -1822,6 +2120,7 @@ export class ViewerModel {
         this.error = null;
         this.activeEntryId = workspaceResponse.entry.entry_id;
         this.#applyWorkspaceSession(workspaceResponse.session);
+        void this.refreshSurveyMap();
         this.note(
           "Dataset import completed.",
           "backend",
@@ -1868,6 +2167,108 @@ export class ViewerModel {
     }
   };
 
+  importHorizonFiles = async (inputPaths: string[]): Promise<void> => {
+    const activeStorePath = this.activeStorePath.trim();
+    const normalizedPaths = inputPaths.map(trimPath).filter((value) => value.length > 0);
+    if (!activeStorePath) {
+      this.error = "Open a runtime store before importing horizons.";
+      this.note("Horizon import blocked because no active runtime store is open.", "ui", "error");
+      return;
+    }
+    if (normalizedPaths.length === 0) {
+      return;
+    }
+
+    this.horizonImporting = true;
+    this.error = null;
+    this.note(
+      "Started horizon xyz import.",
+      "ui",
+      "info",
+      `${normalizedPaths.length} file${normalizedPaths.length === 1 ? "" : "s"}`
+    );
+
+    try {
+      const response = await importHorizonXyz(activeStorePath, normalizedPaths);
+      this.importedHorizons = response.imported;
+      this.sectionHorizons = adaptSectionHorizonOverlays(
+        await fetchSectionHorizons(activeStorePath, this.axis, this.index)
+      );
+      this.note(
+        "Imported horizon xyz files into the active runtime store.",
+        "backend",
+        "info",
+        response.imported.map((item) => item.name).join(", ")
+      );
+    } catch (error) {
+      this.error = errorMessage(error, "Unknown horizon import error");
+      this.note("Horizon import failed.", "backend", "error", this.error);
+    } finally {
+      this.horizonImporting = false;
+    }
+  };
+
+  exportActiveDatasetSegy = async (): Promise<void> => {
+    const activeStorePath = trimPath(this.activeStorePath);
+    if (!this.tauriRuntime) {
+      this.note("SEG-Y export is only available in the desktop app.", "ui", "warn");
+      return;
+    }
+    if (!activeStorePath) {
+      this.error = "Open a runtime store before exporting SEG-Y.";
+      this.note("SEG-Y export blocked because no active runtime store is open.", "ui", "error");
+      return;
+    }
+
+    const selectedOutputPath = await pickSegyExportPath(
+      deriveSegyExportPathFromStore(activeStorePath) || "survey.export.sgy"
+    );
+    const outputPath = trimPath(selectedOutputPath ?? "");
+    if (!outputPath) {
+      this.note("SEG-Y export was cancelled before an output path was chosen.", "ui", "warn");
+      return;
+    }
+
+    this.segyExporting = true;
+    this.error = null;
+    this.note("Started SEG-Y export.", "ui", "info", `${activeStorePath} -> ${outputPath}`);
+
+    try {
+      let response: ExportSegyResponse;
+
+      try {
+        response = await exportDatasetSegy(activeStorePath, outputPath, false);
+      } catch (error) {
+        const message = errorMessage(error, "Unknown SEG-Y export error");
+        if (!isExistingSegyExportError(message)) {
+          throw error;
+        }
+
+        this.note(
+          "SEG-Y export target already exists; waiting for overwrite confirmation.",
+          "backend",
+          "warn",
+          outputPath
+        );
+        const confirmed = await confirmOverwriteSegy(outputPath);
+        if (!confirmed) {
+          this.note("SEG-Y export overwrite was cancelled.", "ui", "warn", outputPath);
+          return;
+        }
+
+        this.note("Confirmed overwrite of the existing SEG-Y export target.", "ui", "warn", outputPath);
+        response = await exportDatasetSegy(activeStorePath, outputPath, true);
+      }
+
+      this.note("Exported active runtime store to SEG-Y.", "backend", "info", response.output_path);
+    } catch (error) {
+      this.error = errorMessage(error, "Failed to export SEG-Y from the active runtime store.");
+      this.note("SEG-Y export failed.", "backend", "error", this.error);
+    } finally {
+      this.segyExporting = false;
+    }
+  };
+
   load = async (axis: SectionAxis, index: number, storePathOverride?: string): Promise<void> => {
     const activeStorePath = (storePathOverride ?? this.activeStorePath).trim();
     this.activeStorePath = storePathOverride ?? this.activeStorePath;
@@ -1882,20 +2283,65 @@ export class ViewerModel {
       this.loading = false;
       this.busyLabel = null;
       this.error = "Open or import a dataset before loading sections.";
+      this.sectionHorizons = [];
       this.note("Section load blocked because no active store is open.", "ui", "error");
       return;
     }
 
     try {
-      const section = await fetchSectionView(activeStorePath, axis, index);
+      const loadStartedMs = nowMs();
+      const [section, sectionHorizons] = await Promise.all([
+        fetchSectionView(activeStorePath, axis, index),
+        fetchSectionHorizons(activeStorePath, axis, index)
+      ]);
+      const loadResolvedMs = nowMs();
       this.axis = axis;
       this.index = index;
       this.section = section;
+      this.sectionHorizons = adaptSectionHorizonOverlays(sectionHorizons);
+      const stateAssignedMs = nowMs();
       this.loading = false;
       this.busyLabel = null;
       this.error = null;
       this.resetToken = `${axis}:${index}`;
       await this.persistWorkspaceSession();
+      const afterPersistMs = nowMs();
+      await tick();
+      const afterTickMs = nowMs();
+      await nextAnimationFrame();
+      const afterFirstFrameMs = nowMs();
+      await nextAnimationFrame();
+      const afterSecondFrameMs = nowMs();
+      void emitFrontendDiagnosticsEvent({
+        stage: "load_section",
+        level: "info",
+        message: "Frontend section load timings recorded",
+        fields: {
+          storePath: activeStorePath,
+          datasetId: section.dataset_id,
+          axis,
+          index,
+          traces: section.traces,
+          samples: section.samples,
+          payloadBytes: estimateSectionPayloadBytes(section),
+          frontendAwaitMs: loadResolvedMs - loadStartedMs,
+          frontendStateAssignMs: stateAssignedMs - loadResolvedMs,
+          frontendPersistWorkspaceMs: afterPersistMs - stateAssignedMs,
+          frontendTickMs: afterTickMs - afterPersistMs,
+          frontendFirstFrameMs: afterFirstFrameMs - afterTickMs,
+          frontendSecondFrameMs: afterSecondFrameMs - afterFirstFrameMs,
+          frontendCommitToSecondFrameMs: afterSecondFrameMs - stateAssignedMs,
+          frontendTotalMs: afterSecondFrameMs - loadStartedMs,
+          frontendStage: "viewer_load_section"
+        }
+      }).catch((error) => {
+        this.note(
+          "Failed to record frontend section load timings.",
+          "backend",
+          "warn",
+          error instanceof Error ? error.message : String(error)
+        );
+      });
       this.note(
         "Section payload loaded.",
         "backend",

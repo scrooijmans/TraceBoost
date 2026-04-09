@@ -1,11 +1,14 @@
 import type {
   AmplitudeSpectrumRequest,
   AmplitudeSpectrumResponse,
+  ExportSegyResponse,
+  DatasetId,
   CancelProcessingJobResponse,
   DatasetRegistryEntry,
   DatasetRegistryStatus,
   GetProcessingJobResponse,
   ImportDatasetResponse,
+  ImportHorizonXyzResponse,
   LoadWorkspaceStateResponse,
   ListPipelinePresetsResponse,
   OpenDatasetResponse,
@@ -20,12 +23,17 @@ import type {
   SaveWorkspaceSessionRequest,
   SaveWorkspaceSessionResponse,
   SavePipelinePresetResponse,
+  SectionHorizonOverlayView,
   SegyGeometryOverride,
   SetDatasetNativeCoordinateReferenceRequest,
   SetDatasetNativeCoordinateReferenceResponse,
   SetActiveDatasetEntryResponse,
+  SectionCoordinate,
   SectionAxis,
+  SectionDisplayDefaults,
+  SectionMetadata,
   SectionView,
+  SectionUnits,
   SurveyPreflightResponse,
   PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
   ResolveSurveyMapRequest,
@@ -64,6 +72,56 @@ export interface FrontendDiagnosticsEventRequest {
   fields?: Record<string, unknown> | null;
 }
 
+export type SectionBytePayload = Array<number> | Uint8Array;
+
+export interface TransportSectionView
+  extends Omit<
+    SectionView,
+    "horizontal_axis_f64le" | "inline_axis_f64le" | "xline_axis_f64le" | "sample_axis_f32le" | "amplitudes_f32le"
+  > {
+  horizontal_axis_f64le: SectionBytePayload;
+  inline_axis_f64le: SectionBytePayload | null;
+  xline_axis_f64le: SectionBytePayload | null;
+  sample_axis_f32le: SectionBytePayload;
+  amplitudes_f32le: SectionBytePayload;
+}
+
+export interface TransportPreviewView {
+  section: TransportSectionView;
+  processing_label: string;
+  preview_ready: boolean;
+}
+
+export interface TransportPreviewProcessingResponse {
+  preview: TransportPreviewView;
+}
+
+interface PackedPreviewSectionHeader {
+  datasetId: DatasetId;
+  axis: SectionAxis;
+  coordinate: SectionCoordinate;
+  traces: number;
+  samples: number;
+  horizontalAxisBytes: number;
+  inlineAxisBytes: number | null;
+  xlineAxisBytes: number | null;
+  sampleAxisBytes: number;
+  amplitudesBytes: number;
+  units: SectionUnits | null;
+  metadata: SectionMetadata | null;
+  displayDefaults: SectionDisplayDefaults | null;
+}
+
+interface PackedSectionResponseHeader {
+  section: PackedPreviewSectionHeader;
+}
+
+interface PackedPreviewResponseHeader {
+  previewReady: boolean;
+  processingLabel: string;
+  section: PackedPreviewSectionHeader;
+}
+
 export function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -74,6 +132,12 @@ const WORKSPACE_SESSION_STORAGE_KEY = "traceboost.workspace-session";
 async function invokeTauri<T>(command: string, args: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(command, args);
+}
+
+async function invokeTauriRaw(command: string, args: Record<string, unknown>): Promise<Uint8Array> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const response = await invoke<Uint8Array | ArrayBuffer>(command, args);
+  return response instanceof Uint8Array ? response : new Uint8Array(response);
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -96,7 +160,9 @@ async function postJson<T>(url: string, body: Record<string, unknown>): Promise<
 }
 
 function operationSlug(
-  operation: ProcessingPreset["pipeline"]["operations"][number] | RunProcessingRequest["pipeline"]["operations"][number]
+  operation:
+    | ProcessingPreset["pipeline"]["steps"][number]["operation"]
+    | RunProcessingRequest["pipeline"]["steps"][number]["operation"]
 ): string {
   if (typeof operation === "string") {
     return "trace-rms-normalize";
@@ -188,6 +254,47 @@ function saveLocalRegistry(entries: DatasetRegistryEntry[]): void {
     return;
   }
   window.localStorage.setItem(DATASET_REGISTRY_STORAGE_KEY, JSON.stringify(entries));
+}
+
+function entryStoreIdentity(entry: DatasetRegistryEntry): { storeId: string; storePath: string } | null {
+  const storeId = entry.last_dataset?.descriptor.store_id?.trim();
+  const storePath =
+    entry.last_dataset?.store_path?.trim() ||
+    entry.imported_store_path?.trim() ||
+    entry.preferred_store_path?.trim() ||
+    "";
+  if (!storeId || !storePath) {
+    return null;
+  }
+  return { storeId, storePath };
+}
+
+function ensureUniqueStoreIdentityLocal(
+  entries: DatasetRegistryEntry[],
+  request: UpsertDatasetEntryRequest,
+  existingIndex: number
+): void {
+  const storeId = request.dataset?.descriptor.store_id?.trim();
+  const storePath = request.dataset?.store_path?.trim();
+  if (!storeId || !storePath) {
+    return;
+  }
+
+  for (let index = 0; index < entries.length; index += 1) {
+    if (index === existingIndex) {
+      continue;
+    }
+    const identity = entryStoreIdentity(entries[index]);
+    if (!identity || identity.storeId !== storeId) {
+      continue;
+    }
+    if (identity.storePath === storePath) {
+      continue;
+    }
+    throw new Error(
+      `Refusing to register duplicate store identity '${storeId}' for '${storePath}' because it is already used by '${entries[index].display_name}' at '${identity.storePath}'. This usually means a store folder was copied outside TraceBoost.`
+    );
+  }
 }
 
 function saveLocalSession(session: WorkspaceSession): void {
@@ -302,17 +409,79 @@ export async function openDataset(storePath: string): Promise<OpenDatasetRespons
   return postJson<OpenDatasetResponse>("/api/open", { storePath });
 }
 
+export async function exportDatasetSegy(
+  storePath: string,
+  outputPath: string,
+  overwriteExisting = false
+): Promise<ExportSegyResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ExportSegyResponse>("export_dataset_segy_command", {
+      storePath,
+      outputPath,
+      overwriteExisting
+    });
+  }
+
+  return postJson<ExportSegyResponse>("/api/export/segy", {
+    storePath,
+    outputPath,
+    overwriteExisting
+  });
+}
+
+export async function importHorizonXyz(
+  storePath: string,
+  inputPaths: string[]
+): Promise<ImportHorizonXyzResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportHorizonXyzResponse>("import_horizon_xyz_command", {
+      storePath,
+      inputPaths
+    });
+  }
+
+  return postJson<ImportHorizonXyzResponse>("/api/horizons/import", {
+    storePath,
+    inputPaths
+  });
+}
+
+export async function fetchSectionHorizons(
+  storePath: string,
+  axis: SectionAxis,
+  index: number
+): Promise<SectionHorizonOverlayView[]> {
+  if (isTauriEnvironment()) {
+    const response = await invokeTauri<{ schema_version: number; overlays: SectionHorizonOverlayView[] }>(
+      "load_section_horizons_command",
+      {
+        storePath,
+        axis,
+        index
+      }
+    );
+    return response.overlays;
+  }
+
+  const response = await fetch(
+    `/api/horizons/section?storePath=${encodeURIComponent(storePath)}&axis=${encodeURIComponent(axis)}&index=${encodeURIComponent(index)}`
+  );
+  const payload = await readJson<{ schema_version: number; overlays: SectionHorizonOverlayView[] }>(response);
+  return payload.overlays;
+}
+
 export async function fetchSectionView(
   storePath: string,
   axis: SectionAxis,
   index: number
-): Promise<SectionView> {
+): Promise<TransportSectionView | SectionView> {
   if (isTauriEnvironment()) {
-    return invokeTauri<SectionView>("load_section_command", {
+    const payload = await invokeTauriRaw("load_section_binary_command", {
       storePath,
       axis,
       index
     });
+    return parsePackedSectionViewResponse(payload);
   }
 
   const response = await fetch(
@@ -323,9 +492,10 @@ export async function fetchSectionView(
 
 export async function previewProcessing(
   request: PreviewProcessingRequest
-): Promise<PreviewProcessingResponse> {
+): Promise<TransportPreviewProcessingResponse> {
   if (isTauriEnvironment()) {
-    return invokeTauri<PreviewProcessingResponse>("preview_processing_command", { request });
+    const payload = await invokeTauriRaw("preview_processing_binary_command", { request });
+    return parsePackedPreviewProcessingResponse(payload);
   }
 
   return postJson<PreviewProcessingResponse>("/api/processing/preview", request as Record<string, unknown>);
@@ -333,12 +503,121 @@ export async function previewProcessing(
 
 export async function previewSubvolumeProcessing(
   request: PreviewSubvolumeProcessingRequest
-): Promise<PreviewSubvolumeProcessingResponse> {
+): Promise<TransportPreviewProcessingResponse> {
   if (isTauriEnvironment()) {
-    return invokeTauri<PreviewSubvolumeProcessingResponse>("preview_subvolume_processing_command", { request });
+    const payload = await invokeTauriRaw("preview_subvolume_processing_binary_command", { request });
+    return parsePackedPreviewProcessingResponse(payload);
   }
 
   return postJson<PreviewSubvolumeProcessingResponse>("/api/processing/subvolume/preview", request as Record<string, unknown>);
+}
+
+function parsePackedPreviewProcessingResponse(bytes: Uint8Array): TransportPreviewProcessingResponse {
+  const MAGIC = "TBPRV001";
+  if (bytes.byteLength < 16) {
+    throw new Error("Packed preview response is too small.");
+  }
+
+  const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+  if (magic !== MAGIC) {
+    throw new Error(`Unexpected packed preview response magic: ${magic}`);
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerLength = view.getUint32(8, true);
+  const dataOffset = view.getUint32(12, true);
+  const headerStart = 16;
+  const headerEnd = headerStart + headerLength;
+  if (headerEnd > bytes.byteLength || dataOffset > bytes.byteLength || dataOffset < headerEnd) {
+    throw new Error("Packed preview response header is invalid.");
+  }
+
+  const header = JSON.parse(
+    new TextDecoder().decode(bytes.subarray(headerStart, headerEnd))
+  ) as PackedPreviewResponseHeader;
+
+  let cursor = dataOffset;
+  const nextBytes = (length: number | null): Uint8Array | null => {
+    if (length === null) {
+      return null;
+    }
+    const next = bytes.subarray(cursor, cursor + length);
+    cursor += length;
+    return next;
+  };
+
+  return {
+    preview: {
+      preview_ready: header.previewReady,
+      processing_label: header.processingLabel,
+      section: {
+        dataset_id: header.section.datasetId,
+        axis: header.section.axis,
+        coordinate: header.section.coordinate,
+        traces: header.section.traces,
+        samples: header.section.samples,
+        horizontal_axis_f64le: nextBytes(header.section.horizontalAxisBytes) ?? new Uint8Array(0),
+        inline_axis_f64le: nextBytes(header.section.inlineAxisBytes),
+        xline_axis_f64le: nextBytes(header.section.xlineAxisBytes),
+        sample_axis_f32le: nextBytes(header.section.sampleAxisBytes) ?? new Uint8Array(0),
+        amplitudes_f32le: nextBytes(header.section.amplitudesBytes) ?? new Uint8Array(0),
+        units: header.section.units,
+        metadata: header.section.metadata,
+        display_defaults: header.section.displayDefaults
+      }
+    }
+  };
+}
+
+function parsePackedSectionViewResponse(bytes: Uint8Array): TransportSectionView {
+  const MAGIC = "TBSEC001";
+  if (bytes.byteLength < 16) {
+    throw new Error("Packed section response is too small.");
+  }
+
+  const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+  if (magic !== MAGIC) {
+    throw new Error(`Unexpected packed section response magic: ${magic}`);
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerLength = view.getUint32(8, true);
+  const dataOffset = view.getUint32(12, true);
+  const headerStart = 16;
+  const headerEnd = headerStart + headerLength;
+  if (headerEnd > bytes.byteLength || dataOffset > bytes.byteLength || dataOffset < headerEnd) {
+    throw new Error("Packed section response header is invalid.");
+  }
+
+  const header = JSON.parse(
+    new TextDecoder().decode(bytes.subarray(headerStart, headerEnd))
+  ) as PackedSectionResponseHeader;
+
+  let cursor = dataOffset;
+  const nextBytes = (length: number | null): Uint8Array | null => {
+    if (length === null) {
+      return null;
+    }
+    const next = bytes.subarray(cursor, cursor + length);
+    cursor += length;
+    return next;
+  };
+
+  return {
+    dataset_id: header.section.datasetId,
+    axis: header.section.axis,
+    coordinate: header.section.coordinate,
+    traces: header.section.traces,
+    samples: header.section.samples,
+    horizontal_axis_f64le: nextBytes(header.section.horizontalAxisBytes) ?? new Uint8Array(0),
+    inline_axis_f64le: nextBytes(header.section.inlineAxisBytes),
+    xline_axis_f64le: nextBytes(header.section.xlineAxisBytes),
+    sample_axis_f32le: nextBytes(header.section.sampleAxisBytes) ?? new Uint8Array(0),
+    amplitudes_f32le: nextBytes(header.section.amplitudesBytes) ?? new Uint8Array(0),
+    units: header.section.units,
+    metadata: header.section.metadata,
+    display_defaults: header.section.displayDefaults
+  };
 }
 
 export async function emitFrontendDiagnosticsEvent(request: FrontendDiagnosticsEventRequest): Promise<void> {
@@ -397,7 +676,7 @@ export async function defaultProcessingStorePath(
   const sourceStem = filename.replace(/\.[^.]+$/, "") || "dataset";
   const namedPipeline = pipeline.name?.trim();
   const pipelineOperationSlug =
-    pipeline.operations.map((operation) => operationSlug(operation)).join("-") || "pipeline";
+    pipeline.steps.map(({ operation }) => operationSlug(operation)).join("-") || "pipeline";
   const pipelineStem = (namedPipeline || pipelineOperationSlug)
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-")
@@ -428,7 +707,7 @@ export async function defaultSubvolumeProcessingStorePath(
   const sourceStem = filename.replace(/\.[^.]+$/, "") || "dataset";
   const namedPipeline = pipeline.name?.trim();
   const prefixLabel =
-    pipeline.trace_local_pipeline?.operations.map((operation) => operationSlug(operation)).join("-") ?? "";
+    pipeline.trace_local_pipeline?.steps.map(({ operation }) => operationSlug(operation)).join("-") ?? "";
   const cropLabel = `crop-il-${pipeline.crop.inline_min}-${pipeline.crop.inline_max}-xl-${pipeline.crop.xline_min}-${pipeline.crop.xline_max}-z-${pipeline.crop.z_min_ms}-${pipeline.crop.z_max_ms}`;
   const pipelineStem = (namedPipeline || [prefixLabel, cropLabel].filter(Boolean).join("-") || "crop-subvolume")
     .toLowerCase()
@@ -541,6 +820,7 @@ export async function upsertDatasetEntry(
           (trimmedSource && entry.source_path === trimmedSource) ||
           (trimmedImportedStore && entry.imported_store_path === trimmedImportedStore)
       );
+  ensureUniqueStoreIdentityLocal(entries, request, existingIndex);
   const now = Math.floor(Date.now() / 1000);
   const entry: DatasetRegistryEntry =
     existingIndex >= 0

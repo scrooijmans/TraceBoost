@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 
-use traceboost_app::{import_dataset, open_dataset_summary, preflight_dataset};
+use traceboost_app::{
+    export_dataset_segy, import_dataset, import_horizon_xyz, load_section_horizons,
+    open_dataset_summary, preflight_dataset,
+};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use seis_contracts_interop::{
-    IPC_SCHEMA_VERSION, ImportDatasetRequest, OpenDatasetRequest, SegyGeometryOverride,
-    SegyHeaderField, SegyHeaderValueType, SurveyPreflightRequest,
+    ExportSegyRequest, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportHorizonXyzRequest,
+    LoadSectionHorizonsRequest, OpenDatasetRequest, SegyGeometryOverride, SegyHeaderField,
+    SegyHeaderValueType, SurveyPreflightRequest,
 };
 use seis_runtime::{
     IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
@@ -105,7 +109,23 @@ enum Command {
     OpenDataset {
         store: PathBuf,
     },
+    ExportSegy {
+        store: PathBuf,
+        output: PathBuf,
+        #[arg(long, default_value_t = false)]
+        overwrite_existing: bool,
+    },
+    ImportHorizons {
+        store: PathBuf,
+        inputs: Vec<PathBuf>,
+    },
     ViewSection {
+        store: PathBuf,
+        #[arg(value_enum)]
+        axis: SectionAxisArg,
+        index: usize,
+    },
+    ViewSectionHorizons {
         store: PathBuf,
         #[arg(value_enum)]
         axis: SectionAxisArg,
@@ -276,9 +296,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
+        Command::ExportSegy {
+            store,
+            output,
+            overwrite_existing,
+        } => {
+            let response = export_dataset_segy(ExportSegyRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                store_path: store.to_string_lossy().into_owned(),
+                output_path: output.to_string_lossy().into_owned(),
+                overwrite_existing,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ImportHorizons { store, inputs } => {
+            let response = import_horizon_xyz(ImportHorizonXyzRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                store_path: store.to_string_lossy().into_owned(),
+                input_paths: inputs
+                    .into_iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
         Command::ViewSection { store, axis, index } => {
             let view = open_store(store)?.section_view(axis.into(), index)?;
             println!("{}", serde_json::to_string(&view)?);
+        }
+        Command::ViewSectionHorizons { store, axis, index } => {
+            let response = load_section_horizons(LoadSectionHorizonsRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                store_path: store.to_string_lossy().into_owned(),
+                axis: axis.into(),
+                index,
+            })?;
+            println!("{}", serde_json::to_string(&response)?);
         }
     }
 

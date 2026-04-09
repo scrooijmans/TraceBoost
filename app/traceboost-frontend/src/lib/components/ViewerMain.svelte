@@ -10,6 +10,7 @@
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
   import PipelineSessionList from "./PipelineSessionList.svelte";
   import SpectrumInspector from "./SpectrumInspector.svelte";
+  import { pickHorizonFiles } from "../file-dialog";
   import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
 
@@ -150,6 +151,15 @@
     );
   }
 
+  async function handleImportHorizons(): Promise<void> {
+    const inputPaths = await pickHorizonFiles();
+    if (inputPaths.length === 0) {
+      viewerModel.note("Horizon import selection did not produce usable files.", "ui", "warn");
+      return;
+    }
+    await viewerModel.importHorizonFiles(inputPaths);
+  }
+
   function openDisplaySettings(): void {
     draftGain = viewerModel.displayTransform.gain;
     draftClipMode =
@@ -257,6 +267,21 @@
     </div>
 
     <div class="display-chip-row">
+      <button
+        class:active={viewerModel.sectionHorizons.length > 0}
+        class="display-chip action"
+        onclick={() => void handleImportHorizons()}
+        disabled={!viewerModel.activeStorePath || viewerModel.horizonImporting}
+      >
+        {viewerModel.horizonImporting ? "Importing…" : `Horizons ${viewerModel.sectionHorizons.length}`}
+      </button>
+      <button
+        class="display-chip action"
+        onclick={() => void viewerModel.exportActiveDatasetSegy()}
+        disabled={!viewerModel.canExportSegy}
+      >
+        {viewerModel.segyExporting ? "Exporting…" : "Export SEG-Y"}
+      </button>
       <button
         class:active={viewerModel.displayTransform.renderMode === "heatmap"}
         class="display-chip action"
@@ -444,7 +469,7 @@
         <div class="definition-grid">
           <PipelineSequenceList
             operations={processingModel.workspaceOperations}
-            traceLocalOperationCount={processingModel.pipeline.operations.length}
+            traceLocalOperationCount={processingModel.pipeline.steps.length}
             hasSubvolumeCrop={processingModel.hasSubvolumeCrop}
             selectedIndex={processingModel.selectedStepIndex}
             checkpointAfterOperationIndexes={processingModel.checkpointAfterOperationIndexes}
@@ -464,6 +489,8 @@
             primaryVolumeLabel={processingModel.activePrimaryVolumeLabel}
             sourceSubvolumeBounds={processingModel.sourceSubvolumeBounds}
             secondaryVolumeOptions={processingModel.volumeArithmeticSecondaryOptions}
+            selectedStepCanCheckpoint={processingModel.canToggleSelectedCheckpoint}
+            selectedStepCheckpoint={processingModel.selectedStepCheckpoint}
             onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
             onSetAgcWindow={processingModel.setSelectedAgcWindow}
             onSetPhaseRotationAngle={processingModel.setSelectedPhaseRotationAngle}
@@ -473,6 +500,7 @@
             onSetVolumeArithmeticOperator={processingModel.setSelectedVolumeArithmeticOperator}
             onSetVolumeArithmeticSecondaryStorePath={processingModel.setSelectedVolumeArithmeticSecondaryStorePath}
             onSetSubvolumeCropBound={processingModel.setSelectedSubvolumeCropBound}
+            onSetSelectedCheckpoint={processingModel.setSelectedCheckpoint}
             canMoveUp={processingModel.canMoveSelectedUp}
             canMoveDown={processingModel.canMoveSelectedDown}
             onMoveUp={processingModel.moveSelectedUp}
@@ -492,6 +520,7 @@
             chartId="traceboost-main"
             viewId={`${viewerModel.axis}:${viewerModel.index}:${processingModel.displaySectionMode}`}
             section={processingModel.displaySection}
+            sectionHorizons={viewerModel.sectionHorizons}
             secondarySection={splitReady ? viewerModel.backgroundSection : null}
             compareMode={splitReady ? "split" : "single"}
             splitPosition={viewerModel.compareSplitPosition}

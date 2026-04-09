@@ -9,38 +9,42 @@ use seis_contracts_core::{
     AmplitudeSpectrumCurve, AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, AxisSummaryF32,
     AxisSummaryI32, DatasetId, FrequencyPhaseMode, FrequencyWindowShape, GatherInterpolationMode,
     GatherProcessingOperation, GatherProcessingPipeline, GatherRequest, GatherSelector,
-    GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary, InterpretationPoint,
-    ProcessingJobArtifact, ProcessingJobArtifactKind, ProcessingJobProgress, ProcessingJobState,
-    ProcessingJobStatus, ProcessingPipelineFamily, ProcessingPipelineSpec, SectionAxis,
-    SectionRequest, SectionSpectrumSelection, SectionTileRequest, SemblancePanel,
-    TraceLocalProcessingCheckpoint, TraceLocalProcessingOperation, TraceLocalProcessingPipeline,
-    TraceLocalProcessingPreset, TraceLocalVolumeArithmeticOperator, VelocityFunctionSource,
-    VelocityScanRequest, VelocityScanResponse, VolumeDescriptor,
+    GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary, ImportedHorizonDescriptor,
+    InterpretationPoint, ProcessingArtifactRole, ProcessingJobArtifact, ProcessingJobArtifactKind,
+    ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingLineageSummary,
+    ProcessingPipelineFamily, ProcessingPipelineSpec, SectionAxis, SectionRequest,
+    SectionSpectrumSelection, SectionTileRequest, SemblancePanel, TraceLocalProcessingOperation,
+    TraceLocalProcessingPipeline, TraceLocalProcessingPreset, TraceLocalProcessingStep,
+    TraceLocalVolumeArithmeticOperator, VelocityFunctionSource, VelocityScanRequest,
+    VelocityScanResponse, VolumeDescriptor,
 };
 use seis_contracts_interop::{
     CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetRegistryEntry,
     DatasetRegistryStatus, DatasetSummary, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
-    IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse, ListPipelinePresetsResponse,
-    LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse, PreviewCommand,
-    PreviewGatherProcessingRequest, PreviewGatherProcessingResponse, PreviewResponse,
-    PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
-    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, ResolveSurveyMapRequest,
-    ResolveSurveyMapResponse, ResolvedSurveyMapSourceDto, RunGatherProcessingRequest,
-    RunGatherProcessingResponse, RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse,
-    RunTraceLocalProcessingRequest, RunTraceLocalProcessingResponse, SavePipelinePresetRequest,
-    SavePipelinePresetResponse, SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
-    SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType,
-    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
-    SetDatasetNativeCoordinateReferenceRequest, SetDatasetNativeCoordinateReferenceResponse,
-    SubvolumeCropOperation, SubvolumeProcessingPipeline, SuggestedImportAction,
-    SurveyPreflightRequest, SurveyPreflightResponse, UpsertDatasetEntryRequest,
-    UpsertDatasetEntryResponse, WorkspacePipelineEntry, WorkspaceSession,
+    DeletePipelinePresetResponse, ExportSegyRequest, ExportSegyResponse, GetProcessingJobRequest,
+    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
+    ImportHorizonXyzRequest, ImportHorizonXyzResponse, ListPipelinePresetsResponse,
+    LoadSectionHorizonsRequest, LoadSectionHorizonsResponse, LoadWorkspaceStateResponse,
+    OpenDatasetRequest, OpenDatasetResponse, PreviewCommand, PreviewGatherProcessingRequest,
+    PreviewGatherProcessingResponse, PreviewResponse, PreviewSubvolumeProcessingRequest,
+    PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
+    ResolveSurveyMapRequest, ResolveSurveyMapResponse, ResolvedSurveyMapSourceDto,
+    RunGatherProcessingRequest, RunGatherProcessingResponse, RunSubvolumeProcessingRequest,
+    RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
+    RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SegyGeometryCandidate,
+    SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType, SetActiveDatasetEntryRequest,
+    SetActiveDatasetEntryResponse, SetDatasetNativeCoordinateReferenceRequest,
+    SetDatasetNativeCoordinateReferenceResponse, SubvolumeCropOperation,
+    SubvolumeProcessingPipeline, SuggestedImportAction, SurveyPreflightRequest,
+    SurveyPreflightResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+    WorkspacePipelineEntry, WorkspaceSession,
 };
 use seis_contracts_views::{
     GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
     GatherViewportChanged, PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
+    SectionHorizonLineStyle, SectionHorizonOverlayView, SectionHorizonSample, SectionHorizonStyle,
     SectionInteractionChanged, SectionMetadata, SectionPolarity, SectionPrimaryMode, SectionProbe,
     SectionProbeChanged, SectionRenderMode, SectionUnits, SectionView, SectionViewport,
     SectionViewportChanged,
@@ -79,6 +83,8 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "GeometryDescriptor.ts",
         "GeometryProvenanceSummary.ts",
         "GeometrySummary.ts",
+        "ProcessingArtifactRole.ts",
+        "ProcessingLineageSummary.ts",
         "VolumeDescriptor.ts",
         "SectionAxis.ts",
         "SectionRequest.ts",
@@ -100,7 +106,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "TraceLocalProcessingPipeline.ts",
         "SubvolumeCropOperation.ts",
         "SubvolumeProcessingPipeline.ts",
-        "TraceLocalProcessingCheckpoint.ts",
+        "TraceLocalProcessingStep.ts",
         "TraceLocalVolumeArithmeticOperator.ts",
         "GatherProcessingOperation.ts",
         "GatherProcessingPipeline.ts",
@@ -122,6 +128,10 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionMetadata.ts",
         "SectionDisplayDefaults.ts",
         "SectionView.ts",
+        "SectionHorizonLineStyle.ts",
+        "SectionHorizonStyle.ts",
+        "SectionHorizonSample.ts",
+        "SectionHorizonOverlayView.ts",
         "GatherView.ts",
         "PreviewView.ts",
         "GatherPreviewView.ts",
@@ -147,6 +157,13 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SurveyPreflightResponse.ts",
         "ImportDatasetRequest.ts",
         "ImportDatasetResponse.ts",
+        "ExportSegyRequest.ts",
+        "ExportSegyResponse.ts",
+        "ImportHorizonXyzRequest.ts",
+        "ImportHorizonXyzResponse.ts",
+        "ImportedHorizonDescriptor.ts",
+        "LoadSectionHorizonsRequest.ts",
+        "LoadSectionHorizonsResponse.ts",
         "OpenDatasetRequest.ts",
         "OpenDatasetResponse.ts",
         "PreviewCommand.ts",
@@ -204,6 +221,8 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     GeometryDescriptor::export_all_to(output_dir)?;
     GeometryProvenanceSummary::export_all_to(output_dir)?;
     GeometrySummary::export_all_to(output_dir)?;
+    ProcessingArtifactRole::export_all_to(output_dir)?;
+    ProcessingLineageSummary::export_all_to(output_dir)?;
     VolumeDescriptor::export_all_to(output_dir)?;
     GatherRequest::export_all_to(output_dir)?;
     GatherSelector::export_all_to(output_dir)?;
@@ -218,9 +237,9 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     AmplitudeSpectrumResponse::export_all_to(output_dir)?;
     TraceLocalProcessingOperation::export_all_to(output_dir)?;
     TraceLocalProcessingPipeline::export_all_to(output_dir)?;
+    TraceLocalProcessingStep::export_all_to(output_dir)?;
     SubvolumeCropOperation::export_all_to(output_dir)?;
     SubvolumeProcessingPipeline::export_all_to(output_dir)?;
-    TraceLocalProcessingCheckpoint::export_all_to(output_dir)?;
     TraceLocalVolumeArithmeticOperator::export_all_to(output_dir)?;
     GatherProcessingOperation::export_all_to(output_dir)?;
     GatherProcessingPipeline::export_all_to(output_dir)?;
@@ -242,6 +261,10 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SectionMetadata::export_all_to(output_dir)?;
     SectionDisplayDefaults::export_all_to(output_dir)?;
     SectionView::export_all_to(output_dir)?;
+    SectionHorizonLineStyle::export_all_to(output_dir)?;
+    SectionHorizonStyle::export_all_to(output_dir)?;
+    SectionHorizonSample::export_all_to(output_dir)?;
+    SectionHorizonOverlayView::export_all_to(output_dir)?;
     GatherView::export_all_to(output_dir)?;
     PreviewView::export_all_to(output_dir)?;
     GatherPreviewView::export_all_to(output_dir)?;
@@ -267,6 +290,13 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SurveyPreflightResponse::export_all_to(output_dir)?;
     ImportDatasetRequest::export_all_to(output_dir)?;
     ImportDatasetResponse::export_all_to(output_dir)?;
+    ExportSegyRequest::export_all_to(output_dir)?;
+    ExportSegyResponse::export_all_to(output_dir)?;
+    ImportedHorizonDescriptor::export_all_to(output_dir)?;
+    ImportHorizonXyzRequest::export_all_to(output_dir)?;
+    ImportHorizonXyzResponse::export_all_to(output_dir)?;
+    LoadSectionHorizonsRequest::export_all_to(output_dir)?;
+    LoadSectionHorizonsResponse::export_all_to(output_dir)?;
     OpenDatasetRequest::export_all_to(output_dir)?;
     OpenDatasetResponse::export_all_to(output_dir)?;
     PreviewCommand::export_all_to(output_dir)?;
@@ -341,6 +371,8 @@ export type { AxisSummaryI32 } from "./AxisSummaryI32";
 export type { GeometryDescriptor } from "./GeometryDescriptor";
 export type { GeometryProvenanceSummary } from "./GeometryProvenanceSummary";
 export type { GeometrySummary } from "./GeometrySummary";
+export type { ProcessingArtifactRole } from "./ProcessingArtifactRole";
+export type { ProcessingLineageSummary } from "./ProcessingLineageSummary";
 export type { VolumeDescriptor } from "./VolumeDescriptor";
 export type { SectionAxis } from "./SectionAxis";
 export type { SectionRequest } from "./SectionRequest";
@@ -357,9 +389,9 @@ export type { AmplitudeSpectrumRequest } from "./AmplitudeSpectrumRequest";
 export type { AmplitudeSpectrumResponse } from "./AmplitudeSpectrumResponse";
 export type { TraceLocalProcessingOperation } from "./TraceLocalProcessingOperation";
 export type { TraceLocalProcessingPipeline } from "./TraceLocalProcessingPipeline";
+export type { TraceLocalProcessingStep } from "./TraceLocalProcessingStep";
 export type { SubvolumeCropOperation } from "./SubvolumeCropOperation";
 export type { SubvolumeProcessingPipeline } from "./SubvolumeProcessingPipeline";
-export type { TraceLocalProcessingCheckpoint } from "./TraceLocalProcessingCheckpoint";
 export type { TraceLocalVolumeArithmeticOperator } from "./TraceLocalVolumeArithmeticOperator";
 export type { GatherProcessingOperation } from "./GatherProcessingOperation";
 export type { GatherProcessingPipeline } from "./GatherProcessingPipeline";
@@ -381,6 +413,10 @@ export type { SectionUnits } from "./SectionUnits";
 export type { SectionMetadata } from "./SectionMetadata";
 export type { SectionDisplayDefaults } from "./SectionDisplayDefaults";
 export type { SectionView } from "./SectionView";
+export type { SectionHorizonLineStyle } from "./SectionHorizonLineStyle";
+export type { SectionHorizonStyle } from "./SectionHorizonStyle";
+export type { SectionHorizonSample } from "./SectionHorizonSample";
+export type { SectionHorizonOverlayView } from "./SectionHorizonOverlayView";
 export type { GatherView } from "./GatherView";
 export type { PreviewView } from "./PreviewView";
 export type { GatherPreviewView } from "./GatherPreviewView";
@@ -406,6 +442,13 @@ export type { SurveyPreflightRequest } from "./SurveyPreflightRequest";
 export type { SurveyPreflightResponse } from "./SurveyPreflightResponse";
 export type { ImportDatasetRequest } from "./ImportDatasetRequest";
 export type { ImportDatasetResponse } from "./ImportDatasetResponse";
+export type { ExportSegyRequest } from "./ExportSegyRequest";
+export type { ExportSegyResponse } from "./ExportSegyResponse";
+export type { ImportedHorizonDescriptor } from "./ImportedHorizonDescriptor";
+export type { ImportHorizonXyzRequest } from "./ImportHorizonXyzRequest";
+export type { ImportHorizonXyzResponse } from "./ImportHorizonXyzResponse";
+export type { LoadSectionHorizonsRequest } from "./LoadSectionHorizonsRequest";
+export type { LoadSectionHorizonsResponse } from "./LoadSectionHorizonsResponse";
 export type { OpenDatasetRequest } from "./OpenDatasetRequest";
 export type { OpenDatasetResponse } from "./OpenDatasetResponse";
 export type { PreviewCommand } from "./PreviewCommand";
@@ -466,6 +509,8 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "GeometryDescriptor": schema_for!(GeometryDescriptor),
             "GeometryProvenanceSummary": schema_for!(GeometryProvenanceSummary),
             "GeometrySummary": schema_for!(GeometrySummary),
+            "ProcessingArtifactRole": schema_for!(ProcessingArtifactRole),
+            "ProcessingLineageSummary": schema_for!(ProcessingLineageSummary),
             "VolumeDescriptor": schema_for!(VolumeDescriptor),
             "SectionAxis": schema_for!(SectionAxis),
             "SectionRequest": schema_for!(SectionRequest),
@@ -482,9 +527,9 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "AmplitudeSpectrumResponse": schema_for!(AmplitudeSpectrumResponse),
             "TraceLocalProcessingOperation": schema_for!(TraceLocalProcessingOperation),
             "TraceLocalProcessingPipeline": schema_for!(TraceLocalProcessingPipeline),
+            "TraceLocalProcessingStep": schema_for!(TraceLocalProcessingStep),
             "SubvolumeCropOperation": schema_for!(SubvolumeCropOperation),
             "SubvolumeProcessingPipeline": schema_for!(SubvolumeProcessingPipeline),
-            "TraceLocalProcessingCheckpoint": schema_for!(TraceLocalProcessingCheckpoint),
             "TraceLocalVolumeArithmeticOperator": schema_for!(TraceLocalVolumeArithmeticOperator),
             "GatherProcessingOperation": schema_for!(GatherProcessingOperation),
             "GatherProcessingPipeline": schema_for!(GatherProcessingPipeline),
@@ -531,6 +576,8 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SurveyPreflightResponse": schema_for!(SurveyPreflightResponse),
             "ImportDatasetRequest": schema_for!(ImportDatasetRequest),
             "ImportDatasetResponse": schema_for!(ImportDatasetResponse),
+            "ExportSegyRequest": schema_for!(ExportSegyRequest),
+            "ExportSegyResponse": schema_for!(ExportSegyResponse),
             "OpenDatasetRequest": schema_for!(OpenDatasetRequest),
             "OpenDatasetResponse": schema_for!(OpenDatasetResponse),
             "PreviewCommand": schema_for!(PreviewCommand),
