@@ -1,13 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use ndarray::Array3;
 use seis_runtime::{
     DatasetId, IngestOptions, InterpMethod, PreflightAction, SectionAxis, SectionRequest,
     SeisGeometryOptions, SeisRefineError, SparseSurveyPolicy, ValidationOptions, describe_store,
-    ingest_segy, load_array, load_occupancy, load_source_volume_with_options, open_store,
-    preflight_segy, render_section_csv, render_section_csv_for_request, run_validation,
-    section_view, upscale_2x, upscale_store,
+    export_store_to_segy, export_store_to_zarr, ingest_segy, ingest_volume, load_array,
+    load_occupancy, load_source_volume_with_options, open_store, preflight_segy,
+    render_section_csv, render_section_csv_for_request, run_validation, section_view, upscale_2x,
+    upscale_store,
 };
 use tempfile::tempdir;
 
@@ -66,6 +68,27 @@ fn remove_last_trace(src: &Path, dst: &Path) {
         240 + summary.samples_per_trace as usize * bytes_per_sample(summary.sample_format_code);
     bytes.truncate(bytes.len() - trace_size);
     fs::write(dst, bytes).unwrap();
+}
+
+fn assert_arrays_close(left: &Array3<f32>, right: &Array3<f32>) {
+    assert_eq!(left.shape(), right.shape());
+    for (index, (lhs, rhs)) in left.iter().zip(right.iter()).enumerate() {
+        assert!(
+            (lhs - rhs).abs() <= 1.0e-6,
+            "array mismatch at linear index {index}: left={lhs} right={rhs}"
+        );
+    }
+}
+
+fn python_has_segyio() -> bool {
+    Command::new("python")
+        .args([
+            "-c",
+            "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('segyio') else 1)",
+        ])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[test]
@@ -400,4 +423,257 @@ fn validation_writes_dataset_and_summary_reports() {
     assert_eq!(summary.dataset_count, 1);
     assert!(output_dir.join("summary.json").exists());
     assert!(output_dir.join("small.json").exists());
+}
+
+#[test]
+fn segy_roundtrip_preserves_f3_amplitudes_and_key_survey_metadata() {
+    let fixture = fixture_path("f3.sgy");
+    if !fixture.exists() {
+        return;
+    }
+
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("f3-source.tbvol");
+    let exported_segy = temp.path().join("f3-roundtrip.sgy");
+    let roundtrip_root = temp.path().join("f3-roundtrip.tbvol");
+
+    let source = ingest_segy(&fixture, &source_root, IngestOptions::default()).unwrap();
+    export_store_to_segy(&source_root, &exported_segy, false).unwrap();
+    let roundtrip = ingest_segy(&exported_segy, &roundtrip_root, IngestOptions::default()).unwrap();
+
+    let source_array = load_array(&source).unwrap();
+    let roundtrip_array = load_array(&roundtrip).unwrap();
+    assert_arrays_close(&source_array, &roundtrip_array);
+
+    let source_summary = seis_io::inspect_file(&fixture).unwrap();
+    let roundtrip_summary = seis_io::inspect_file(&exported_segy).unwrap();
+    assert_eq!(source_summary.endianness, roundtrip_summary.endianness);
+    assert_eq!(
+        source_summary.sample_interval_us,
+        roundtrip_summary.sample_interval_us
+    );
+    assert_eq!(
+        source_summary.samples_per_trace,
+        roundtrip_summary.samples_per_trace
+    );
+    assert_eq!(
+        source_summary.sample_format_code,
+        roundtrip_summary.sample_format_code
+    );
+    assert_eq!(source_summary.revision_raw, roundtrip_summary.revision_raw);
+    assert_eq!(
+        source_summary.fixed_length_trace_flag_raw,
+        roundtrip_summary.fixed_length_trace_flag_raw
+    );
+    assert_eq!(
+        source_summary.extended_textual_headers,
+        roundtrip_summary.extended_textual_headers
+    );
+    assert_eq!(source_summary.trace_count, roundtrip_summary.trace_count);
+    assert_eq!(
+        source_summary
+            .textual_headers
+            .iter()
+            .map(|header| header.raw.clone())
+            .collect::<Vec<_>>(),
+        roundtrip_summary
+            .textual_headers
+            .iter()
+            .map(|header| header.raw.clone())
+            .collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        source.manifest.volume.shape,
+        roundtrip.manifest.volume.shape
+    );
+    assert_eq!(
+        source.manifest.volume.axes.ilines,
+        roundtrip.manifest.volume.axes.ilines
+    );
+    assert_eq!(
+        source.manifest.volume.axes.xlines,
+        roundtrip.manifest.volume.axes.xlines
+    );
+    assert_eq!(
+        source.manifest.volume.axes.sample_axis_ms,
+        roundtrip.manifest.volume.axes.sample_axis_ms
+    );
+    assert_eq!(
+        source.manifest.volume.source.trace_count,
+        roundtrip.manifest.volume.source.trace_count
+    );
+    assert_eq!(
+        source.manifest.volume.source.samples_per_trace,
+        roundtrip.manifest.volume.source.samples_per_trace
+    );
+}
+
+#[test]
+fn segy_roundtrip_preserves_extended_textual_headers_for_multi_text_fixture() {
+    let fixture = fixture_path("multi-text.sgy");
+    if !fixture.exists() {
+        return;
+    }
+
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("multi-text-source.tbvol");
+    let exported_segy = temp.path().join("multi-text-roundtrip.sgy");
+    let roundtrip_root = temp.path().join("multi-text-roundtrip.tbvol");
+
+    let source = ingest_segy(&fixture, &source_root, IngestOptions::default()).unwrap();
+    export_store_to_segy(&source_root, &exported_segy, false).unwrap();
+    let roundtrip = ingest_segy(&exported_segy, &roundtrip_root, IngestOptions::default()).unwrap();
+
+    let source_array = load_array(&source).unwrap();
+    let roundtrip_array = load_array(&roundtrip).unwrap();
+    assert_arrays_close(&source_array, &roundtrip_array);
+
+    let source_summary = seis_io::inspect_file(&fixture).unwrap();
+    let roundtrip_summary = seis_io::inspect_file(&exported_segy).unwrap();
+    assert_eq!(source_summary.extended_textual_headers, 4);
+    assert_eq!(
+        source_summary.extended_textual_headers,
+        roundtrip_summary.extended_textual_headers
+    );
+    assert_eq!(
+        source_summary
+            .textual_headers
+            .iter()
+            .map(|header| header.raw.clone())
+            .collect::<Vec<_>>(),
+        roundtrip_summary
+            .textual_headers
+            .iter()
+            .map(|header| header.raw.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(source_summary.trace_count, roundtrip_summary.trace_count);
+    assert_eq!(
+        source.manifest.volume.shape,
+        roundtrip.manifest.volume.shape
+    );
+}
+
+#[test]
+fn zarr_import_matches_f3_reference_amplitudes_and_axes() {
+    let segy_fixture = fixture_path("f3.sgy");
+    let zarr_fixture = fixture_path("survey.zarr");
+    if !segy_fixture.exists() || !zarr_fixture.exists() {
+        return;
+    }
+
+    let temp = tempdir().unwrap();
+    let segy_root = temp.path().join("f3-reference.tbvol");
+    let zarr_root = temp.path().join("survey.tbvol");
+
+    let segy = ingest_segy(&segy_fixture, &segy_root, IngestOptions::default()).unwrap();
+    let zarr = ingest_volume(&zarr_fixture, &zarr_root, IngestOptions::default()).unwrap();
+
+    let segy_array = load_array(&segy).unwrap();
+    let zarr_array = load_array(&zarr).unwrap();
+    assert_arrays_close(&segy_array, &zarr_array);
+
+    assert_eq!(segy.manifest.volume.shape, zarr.manifest.volume.shape);
+    assert_eq!(
+        segy.manifest.volume.axes.ilines,
+        zarr.manifest.volume.axes.ilines
+    );
+    assert_eq!(
+        segy.manifest.volume.axes.xlines,
+        zarr.manifest.volume.axes.xlines
+    );
+    assert_eq!(
+        segy.manifest.volume.axes.sample_axis_ms,
+        zarr.manifest.volume.axes.sample_axis_ms
+    );
+    assert_eq!(
+        segy.manifest.volume.source.trace_count,
+        zarr.manifest.volume.source.trace_count
+    );
+    assert_eq!(
+        segy.manifest.volume.source.samples_per_trace,
+        zarr.manifest.volume.source.samples_per_trace
+    );
+    assert_eq!(
+        segy.manifest.volume.source.sample_interval_us,
+        zarr.manifest.volume.source.sample_interval_us
+    );
+    assert_eq!(
+        segy.manifest.volume.source.sample_format_code,
+        zarr.manifest.volume.source.sample_format_code
+    );
+}
+
+#[test]
+fn zarr_roundtrip_preserves_f3_amplitudes_and_axes() {
+    let fixture = fixture_path("f3.sgy");
+    if !fixture.exists() {
+        return;
+    }
+
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("f3-source.tbvol");
+    let exported_zarr = temp.path().join("f3-roundtrip.zarr");
+    let roundtrip_root = temp.path().join("f3-zarr-roundtrip.tbvol");
+
+    let source = ingest_segy(&fixture, &source_root, IngestOptions::default()).unwrap();
+    export_store_to_zarr(&source_root, &exported_zarr, false).unwrap();
+    let roundtrip =
+        ingest_volume(&exported_zarr, &roundtrip_root, IngestOptions::default()).unwrap();
+
+    let source_array = load_array(&source).unwrap();
+    let roundtrip_array = load_array(&roundtrip).unwrap();
+    assert_arrays_close(&source_array, &roundtrip_array);
+
+    assert_eq!(
+        source.manifest.volume.shape,
+        roundtrip.manifest.volume.shape
+    );
+    assert_eq!(
+        source.manifest.volume.axes.ilines,
+        roundtrip.manifest.volume.axes.ilines
+    );
+    assert_eq!(
+        source.manifest.volume.axes.xlines,
+        roundtrip.manifest.volume.axes.xlines
+    );
+    assert_eq!(
+        source.manifest.volume.axes.sample_axis_ms,
+        roundtrip.manifest.volume.axes.sample_axis_ms
+    );
+    assert!(exported_zarr.join("metadata").exists());
+    assert!(exported_zarr.join("metadata").join("iline").exists());
+    assert!(exported_zarr.join("metadata").join("xline").exists());
+    assert!(exported_zarr.join("metadata").join("sample_ms").exists());
+}
+
+#[test]
+fn segy_roundtrip_matches_external_segyio_verifier() {
+    let fixture = fixture_path("f3.sgy");
+    if !fixture.exists() || !python_has_segyio() {
+        return;
+    }
+
+    let temp = tempdir().unwrap();
+    let source_root = temp.path().join("f3-source.tbvol");
+    let exported_segy = temp.path().join("f3-roundtrip.sgy");
+    let script = find_monorepo_root()
+        .join("scripts")
+        .join("verify_segy_roundtrip_with_segyio.py");
+
+    ingest_segy(&fixture, &source_root, IngestOptions::default()).unwrap();
+    export_store_to_segy(&source_root, &exported_segy, false).unwrap();
+
+    let output = Command::new("python")
+        .arg(script)
+        .arg(&fixture)
+        .arg(&exported_segy)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "segyio verifier failed: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }

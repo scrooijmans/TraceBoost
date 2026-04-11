@@ -449,6 +449,136 @@
         }
       }
     },
+    "ProcessingArtifactRole": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ProcessingArtifactRole",
+      "type": "string",
+      "enum": [
+        "final_output",
+        "checkpoint"
+      ]
+    },
+    "ProcessingLineageSummary": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ProcessingLineageSummary",
+      "type": "object",
+      "required": [
+        "artifact_role",
+        "parent_store_id",
+        "parent_store_path",
+        "pipeline_family",
+        "pipeline_revision"
+      ],
+      "properties": {
+        "artifact_role": {
+          "$ref": "#/definitions/ProcessingArtifactRole"
+        },
+        "parent_store_id": {
+          "type": "string"
+        },
+        "parent_store_path": {
+          "type": "string"
+        },
+        "pipeline_family": {
+          "$ref": "#/definitions/ProcessingPipelineFamily"
+        },
+        "pipeline_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pipeline_revision": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "definitions": {
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        }
+      }
+    },
+    "SampleDataConversionKind": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SampleDataConversionKind",
+      "type": "string",
+      "enum": [
+        "identity",
+        "cast",
+        "format_transcode"
+      ]
+    },
+    "SampleDataFidelity": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SampleDataFidelity",
+      "type": "object",
+      "required": [
+        "conversion",
+        "preservation",
+        "source_sample_type",
+        "working_sample_type"
+      ],
+      "properties": {
+        "conversion": {
+          "$ref": "#/definitions/SampleDataConversionKind"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preservation": {
+          "$ref": "#/definitions/SampleValuePreservation"
+        },
+        "source_sample_type": {
+          "type": "string"
+        },
+        "working_sample_type": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
+        }
+      }
+    },
+    "SampleValuePreservation": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SampleValuePreservation",
+      "type": "string",
+      "enum": [
+        "exact",
+        "potentially_lossy"
+      ]
+    },
     "VolumeDescriptor": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "VolumeDescriptor",
@@ -458,8 +588,10 @@
         "geometry",
         "id",
         "label",
+        "sample_data_fidelity",
         "sample_interval_ms",
-        "shape"
+        "shape",
+        "store_id"
       ],
       "properties": {
         "chunk_shape": {
@@ -491,6 +623,19 @@
         "label": {
           "type": "string"
         },
+        "processing_lineage_summary": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProcessingLineageSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_data_fidelity": {
+          "$ref": "#/definitions/SampleDataFidelity"
+        },
         "sample_interval_ms": {
           "type": "number",
           "format": "float"
@@ -514,6 +659,9 @@
               "type": "null"
             }
           ]
+        },
+        "store_id": {
+          "type": "string"
         }
       },
       "definitions": {
@@ -762,6 +910,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -809,6 +1007,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -1284,6 +1526,16 @@
           },
           "additionalProperties": false
         }
+      ]
+    },
+    "VelocityQuantityKind": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "VelocityQuantityKind",
+      "type": "string",
+      "enum": [
+        "interval",
+        "rms",
+        "average"
       ]
     },
     "GatherInterpolationMode": {
@@ -1769,7 +2021,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -1784,12 +2036,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -1803,10 +2049,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -2232,7 +2499,7 @@
       "title": "TraceLocalProcessingPipeline",
       "type": "object",
       "required": [
-        "operations"
+        "steps"
       ],
       "properties": {
         "description": {
@@ -2247,12 +2514,6 @@
             "null"
           ]
         },
-        "operations": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/TraceLocalProcessingOperation"
-          }
-        },
         "preset_id": {
           "type": [
             "string",
@@ -2266,10 +2527,280 @@
           "minimum": 0.0
         },
         "schema_version": {
-          "default": 1,
+          "default": 2,
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TraceLocalProcessingStep"
+          }
+        }
+      },
+      "definitions": {
+        "FrequencyPhaseMode": {
+          "type": "string",
+          "enum": [
+            "zero"
+          ]
+        },
+        "FrequencyWindowShape": {
+          "type": "string",
+          "enum": [
+            "cosine_taper"
+          ]
+        },
+        "TraceLocalProcessingOperation": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "trace_rms_normalize"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "amplitude_scalar"
+              ],
+              "properties": {
+                "amplitude_scalar": {
+                  "type": "object",
+                  "required": [
+                    "factor"
+                  ],
+                  "properties": {
+                    "factor": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "agc_rms"
+              ],
+              "properties": {
+                "agc_rms": {
+                  "type": "object",
+                  "required": [
+                    "window_ms"
+                  ],
+                  "properties": {
+                    "window_ms": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "phase_rotation"
+              ],
+              "properties": {
+                "phase_rotation": {
+                  "type": "object",
+                  "required": [
+                    "angle_degrees"
+                  ],
+                  "properties": {
+                    "angle_degrees": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "lowpass_filter"
+              ],
+              "properties": {
+                "lowpass_filter": {
+                  "type": "object",
+                  "required": [
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "properties": {
+                    "f3_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "f4_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "highpass_filter"
+              ],
+              "properties": {
+                "highpass_filter": {
+                  "type": "object",
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "properties": {
+                    "f1_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "f2_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "bandpass_filter"
+              ],
+              "properties": {
+                "bandpass_filter": {
+                  "type": "object",
+                  "required": [
+                    "f1_hz",
+                    "f2_hz",
+                    "f3_hz",
+                    "f4_hz",
+                    "phase",
+                    "window"
+                  ],
+                  "properties": {
+                    "f1_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "f2_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "f3_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "f4_hz": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "phase": {
+                      "$ref": "#/definitions/FrequencyPhaseMode"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/FrequencyWindowShape"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "volume_arithmetic"
+              ],
+              "properties": {
+                "volume_arithmetic": {
+                  "type": "object",
+                  "required": [
+                    "operator",
+                    "secondary_store_path"
+                  ],
+                  "properties": {
+                    "operator": {
+                      "$ref": "#/definitions/TraceLocalVolumeArithmeticOperator"
+                    },
+                    "secondary_store_path": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
+            }
+          }
+        },
+        "TraceLocalVolumeArithmeticOperator": {
+          "type": "string",
+          "enum": [
+            "add",
+            "subtract",
+            "multiply",
+            "divide"
+          ]
+        }
+      }
+    },
+    "TraceLocalProcessingStep": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "TraceLocalProcessingStep",
+      "type": "object",
+      "required": [
+        "operation"
+      ],
+      "properties": {
+        "checkpoint": {
+          "default": false,
+          "type": "boolean"
+        },
+        "operation": {
+          "$ref": "#/definitions/TraceLocalProcessingOperation"
         }
       },
       "definitions": {
@@ -2580,7 +3111,7 @@
           "minimum": 0.0
         },
         "schema_version": {
-          "default": 1,
+          "default": 2,
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
@@ -2858,7 +3389,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -2873,12 +3404,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -2892,10 +3417,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -2907,21 +3453,6 @@
             "multiply",
             "divide"
           ]
-        }
-      }
-    },
-    "TraceLocalProcessingCheckpoint": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "TraceLocalProcessingCheckpoint",
-      "type": "object",
-      "required": [
-        "after_operation_index"
-      ],
-      "properties": {
-        "after_operation_index": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
         }
       }
     },
@@ -3143,7 +3674,7 @@
           "minimum": 0.0
         },
         "schema_version": {
-          "default": 1,
+          "default": 2,
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
@@ -3471,7 +4002,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -3486,12 +4017,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -3505,10 +4030,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -3812,7 +4358,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -3900,7 +4446,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -4129,7 +4675,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -4144,12 +4690,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -4163,10 +4703,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -4537,7 +5098,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -4750,7 +5311,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -4979,7 +5540,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -4994,12 +5555,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -5013,10 +5568,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -5361,7 +5937,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -5376,12 +5952,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -5395,10 +5965,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -5853,6 +6444,778 @@
               ]
             }
           }
+        }
+      }
+    },
+    "SectionTimeDepthTransformMode": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SectionTimeDepthTransformMode",
+      "type": "string",
+      "enum": [
+        "none",
+        "global1d",
+        "survey3d"
+      ]
+    },
+    "SectionTimeDepthDiagnostics": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SectionTimeDepthDiagnostics",
+      "type": "object",
+      "required": [
+        "coverage_relationship",
+        "display_domain",
+        "trace_varying",
+        "transform_mode"
+      ],
+      "properties": {
+        "coverage_relationship": {
+          "$ref": "#/definitions/SpatialCoverageRelationship"
+        },
+        "display_domain": {
+          "$ref": "#/definitions/TimeDepthDomain"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TimeDepthTransformSourceKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trace_varying": {
+          "type": "boolean"
+        },
+        "transform_mode": {
+          "$ref": "#/definitions/SectionTimeDepthTransformMode"
+        },
+        "velocity_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VelocityQuantityKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "definitions": {
+        "SectionTimeDepthTransformMode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "global1d",
+            "survey3d"
+          ]
+        },
+        "SpatialCoverageRelationship": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "contains",
+            "partial_overlap",
+            "disjoint",
+            "unknown"
+          ]
+        },
+        "TimeDepthDomain": {
+          "type": "string",
+          "enum": [
+            "time",
+            "depth"
+          ]
+        },
+        "TimeDepthTransformSourceKind": {
+          "type": "string",
+          "enum": [
+            "constant_velocity",
+            "velocity_function1_d",
+            "velocity_grid3_d",
+            "checkshot_model1_d",
+            "sonic_log1_d",
+            "vp_log1_d",
+            "horizon_layer_model"
+          ]
+        },
+        "VelocityQuantityKind": {
+          "type": "string",
+          "enum": [
+            "interval",
+            "rms",
+            "average"
+          ]
+        }
+      }
+    },
+    "SectionScalarOverlayColorMap": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SectionScalarOverlayColorMap",
+      "type": "string",
+      "enum": [
+        "grayscale",
+        "viridis",
+        "turbo"
+      ]
+    },
+    "SectionScalarOverlayValueRange": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SectionScalarOverlayValueRange",
+      "type": "object",
+      "required": [
+        "max",
+        "min"
+      ],
+      "properties": {
+        "max": {
+          "type": "number",
+          "format": "float"
+        },
+        "min": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "SectionScalarOverlayView": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SectionScalarOverlayView",
+      "type": "object",
+      "required": [
+        "color_map",
+        "height",
+        "id",
+        "opacity",
+        "value_range",
+        "values_f32le",
+        "width"
+      ],
+      "properties": {
+        "color_map": {
+          "$ref": "#/definitions/SectionScalarOverlayColorMap"
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "opacity": {
+          "type": "number",
+          "format": "float"
+        },
+        "units": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value_range": {
+          "$ref": "#/definitions/SectionScalarOverlayValueRange"
+        },
+        "values_f32le": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          }
+        },
+        "width": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      },
+      "definitions": {
+        "SectionScalarOverlayColorMap": {
+          "type": "string",
+          "enum": [
+            "grayscale",
+            "viridis",
+            "turbo"
+          ]
+        },
+        "SectionScalarOverlayValueRange": {
+          "type": "object",
+          "required": [
+            "max",
+            "min"
+          ],
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float"
+            },
+            "min": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "ResolvedSectionDisplayView": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ResolvedSectionDisplayView",
+      "type": "object",
+      "required": [
+        "section"
+      ],
+      "properties": {
+        "horizon_overlays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SectionHorizonOverlayView"
+          }
+        },
+        "scalar_overlays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SectionScalarOverlayView"
+          }
+        },
+        "section": {
+          "$ref": "#/definitions/SectionView"
+        },
+        "time_depth_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SectionTimeDepthDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "definitions": {
+        "DatasetId": {
+          "type": "string"
+        },
+        "SectionAxis": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "xline"
+          ]
+        },
+        "SectionColorMap": {
+          "type": "string",
+          "enum": [
+            "grayscale",
+            "red_white_blue"
+          ]
+        },
+        "SectionCoordinate": {
+          "type": "object",
+          "required": [
+            "index",
+            "value"
+          ],
+          "properties": {
+            "index": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "value": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "SectionDisplayDefaults": {
+          "type": "object",
+          "required": [
+            "colormap",
+            "gain",
+            "polarity",
+            "render_mode"
+          ],
+          "properties": {
+            "clip_max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "clip_min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "colormap": {
+              "$ref": "#/definitions/SectionColorMap"
+            },
+            "gain": {
+              "type": "number",
+              "format": "float"
+            },
+            "polarity": {
+              "$ref": "#/definitions/SectionPolarity"
+            },
+            "render_mode": {
+              "$ref": "#/definitions/SectionRenderMode"
+            }
+          }
+        },
+        "SectionHorizonLineStyle": {
+          "type": "string",
+          "enum": [
+            "solid",
+            "dashed",
+            "dotted"
+          ]
+        },
+        "SectionHorizonOverlayView": {
+          "type": "object",
+          "required": [
+            "id",
+            "style"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "samples": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SectionHorizonSample"
+              }
+            },
+            "style": {
+              "$ref": "#/definitions/SectionHorizonStyle"
+            }
+          }
+        },
+        "SectionHorizonSample": {
+          "type": "object",
+          "required": [
+            "sample_index",
+            "trace_index"
+          ],
+          "properties": {
+            "sample_index": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "sample_value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "trace_index": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            }
+          }
+        },
+        "SectionHorizonStyle": {
+          "type": "object",
+          "required": [
+            "color",
+            "line_style"
+          ],
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "line_style": {
+              "$ref": "#/definitions/SectionHorizonLineStyle"
+            },
+            "line_width": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "opacity": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            }
+          }
+        },
+        "SectionMetadata": {
+          "type": "object",
+          "required": [
+            "notes"
+          ],
+          "properties": {
+            "derived_from": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "store_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "SectionPolarity": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "reversed"
+          ]
+        },
+        "SectionRenderMode": {
+          "type": "string",
+          "enum": [
+            "heatmap",
+            "wiggle"
+          ]
+        },
+        "SectionScalarOverlayColorMap": {
+          "type": "string",
+          "enum": [
+            "grayscale",
+            "viridis",
+            "turbo"
+          ]
+        },
+        "SectionScalarOverlayValueRange": {
+          "type": "object",
+          "required": [
+            "max",
+            "min"
+          ],
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float"
+            },
+            "min": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        },
+        "SectionScalarOverlayView": {
+          "type": "object",
+          "required": [
+            "color_map",
+            "height",
+            "id",
+            "opacity",
+            "value_range",
+            "values_f32le",
+            "width"
+          ],
+          "properties": {
+            "color_map": {
+              "$ref": "#/definitions/SectionScalarOverlayColorMap"
+            },
+            "height": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "opacity": {
+              "type": "number",
+              "format": "float"
+            },
+            "units": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "value_range": {
+              "$ref": "#/definitions/SectionScalarOverlayValueRange"
+            },
+            "values_f32le": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0.0
+              }
+            },
+            "width": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            }
+          }
+        },
+        "SectionTimeDepthDiagnostics": {
+          "type": "object",
+          "required": [
+            "coverage_relationship",
+            "display_domain",
+            "trace_varying",
+            "transform_mode"
+          ],
+          "properties": {
+            "coverage_relationship": {
+              "$ref": "#/definitions/SpatialCoverageRelationship"
+            },
+            "display_domain": {
+              "$ref": "#/definitions/TimeDepthDomain"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "source_kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TimeDepthTransformSourceKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "trace_varying": {
+              "type": "boolean"
+            },
+            "transform_mode": {
+              "$ref": "#/definitions/SectionTimeDepthTransformMode"
+            },
+            "velocity_kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/VelocityQuantityKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "SectionTimeDepthTransformMode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "global1d",
+            "survey3d"
+          ]
+        },
+        "SectionUnits": {
+          "type": "object",
+          "properties": {
+            "amplitude": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "horizontal": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sample": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "SectionView": {
+          "type": "object",
+          "required": [
+            "amplitudes_f32le",
+            "axis",
+            "coordinate",
+            "dataset_id",
+            "horizontal_axis_f64le",
+            "sample_axis_f32le",
+            "samples",
+            "traces"
+          ],
+          "properties": {
+            "amplitudes_f32le": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0.0
+              }
+            },
+            "axis": {
+              "$ref": "#/definitions/SectionAxis"
+            },
+            "coordinate": {
+              "$ref": "#/definitions/SectionCoordinate"
+            },
+            "dataset_id": {
+              "$ref": "#/definitions/DatasetId"
+            },
+            "display_defaults": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionDisplayDefaults"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "horizontal_axis_f64le": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0.0
+              }
+            },
+            "inline_axis_f64le": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0.0
+              }
+            },
+            "metadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_axis_f32le": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0.0
+              }
+            },
+            "samples": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "traces": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "units": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SectionUnits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "xline_axis_f64le": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "integer",
+                "format": "uint8",
+                "minimum": 0.0
+              }
+            }
+          }
+        },
+        "SpatialCoverageRelationship": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "contains",
+            "partial_overlap",
+            "disjoint",
+            "unknown"
+          ]
+        },
+        "TimeDepthDomain": {
+          "type": "string",
+          "enum": [
+            "time",
+            "depth"
+          ]
+        },
+        "TimeDepthTransformSourceKind": {
+          "type": "string",
+          "enum": [
+            "constant_velocity",
+            "velocity_function1_d",
+            "velocity_grid3_d",
+            "checkshot_model1_d",
+            "sonic_log1_d",
+            "vp_log1_d",
+            "horizon_layer_model"
+          ]
+        },
+        "VelocityQuantityKind": {
+          "type": "string",
+          "enum": [
+            "interval",
+            "rms",
+            "average"
+          ]
         }
       }
     },
@@ -7439,7 +8802,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -7454,12 +8817,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -7473,10 +8830,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -8265,6 +9643,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -8312,6 +9740,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -8411,8 +9883,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -8444,6 +9918,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -8467,6 +9954,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         }
@@ -8576,6 +10066,7 @@
         "observed_trace_count",
         "organization",
         "resolved_geometry",
+        "sample_data_fidelity",
         "samples_per_trace",
         "schema_version",
         "stacking_state",
@@ -8630,6 +10121,9 @@
         "resolved_geometry": {
           "$ref": "#/definitions/SegyGeometryOverride"
         },
+        "sample_data_fidelity": {
+          "$ref": "#/definitions/SampleDataFidelity"
+        },
         "samples_per_trace": {
           "type": "integer",
           "format": "uint",
@@ -8663,6 +10157,50 @@
         }
       },
       "definitions": {
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
+        },
         "SegyGeometryCandidate": {
           "type": "object",
           "required": [
@@ -9196,6 +10734,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -9243,6 +10831,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -9342,8 +10974,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -9375,6 +11009,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -9398,8 +11045,61 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
+        }
+      }
+    },
+    "ExportSegyRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ExportSegyRequest",
+      "type": "object",
+      "required": [
+        "output_path",
+        "schema_version",
+        "store_path"
+      ],
+      "properties": {
+        "output_path": {
+          "type": "string"
+        },
+        "overwrite_existing": {
+          "default": false,
+          "type": "boolean"
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "store_path": {
+          "type": "string"
+        }
+      }
+    },
+    "ExportSegyResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ExportSegyResponse",
+      "type": "object",
+      "required": [
+        "output_path",
+        "schema_version",
+        "store_path"
+      ],
+      "properties": {
+        "output_path": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "store_path": {
+          "type": "string"
         }
       }
     },
@@ -9701,6 +11401,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -9748,6 +11498,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -9847,8 +11641,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -9880,6 +11676,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -9903,6 +11712,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         }
@@ -10528,7 +12340,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -10543,12 +12355,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -10562,10 +12368,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -11092,7 +12919,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -11107,12 +12934,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -11126,10 +12947,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -11285,7 +13127,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -11514,7 +13356,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -11529,12 +13371,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -11548,10 +13384,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -11937,7 +13794,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -12166,7 +14023,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -12181,12 +14038,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -12200,10 +14051,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -12228,12 +14100,6 @@
         "store_path"
       ],
       "properties": {
-        "checkpoints": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/TraceLocalProcessingCheckpoint"
-          }
-        },
         "output_store_path": {
           "type": [
             "string",
@@ -12268,19 +14134,6 @@
           "enum": [
             "cosine_taper"
           ]
-        },
-        "TraceLocalProcessingCheckpoint": {
-          "type": "object",
-          "required": [
-            "after_operation_index"
-          ],
-          "properties": {
-            "after_operation_index": {
-              "type": "integer",
-              "format": "uint",
-              "minimum": 0.0
-            }
-          }
         },
         "TraceLocalProcessingOperation": {
           "oneOf": [
@@ -12494,7 +14347,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -12509,12 +14362,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -12528,10 +14375,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -12701,7 +14569,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -12977,7 +14845,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -13206,7 +15074,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -13221,12 +15089,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -13240,10 +15102,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -13451,7 +15334,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -13680,7 +15563,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -13695,12 +15578,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -13714,10 +15591,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -13887,7 +15785,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -14163,7 +16061,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -14392,7 +16290,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -14407,12 +16305,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -14426,10 +16318,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -14687,7 +16600,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -15004,7 +16917,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -15019,12 +16932,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -15038,10 +16945,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -15327,7 +17255,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -15763,7 +17691,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -15778,12 +17706,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -15797,10 +17719,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -16061,7 +18004,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -16290,7 +18233,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -16305,12 +18248,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -16324,10 +18261,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -16574,7 +18532,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -16850,7 +18808,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -17079,7 +19037,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -17094,12 +19052,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -17113,10 +19065,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -17382,7 +19355,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -17658,7 +19631,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -17887,7 +19860,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -17902,12 +19875,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -17921,10 +19888,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -18190,7 +20178,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -18466,7 +20454,7 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
@@ -18695,7 +20683,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -18710,12 +20698,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -18729,10 +20711,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -19070,7 +21073,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -19085,12 +21088,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -19104,10 +21101,16 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
             }
           }
         },
@@ -19135,6 +21138,21 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -19392,7 +21410,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -19407,12 +21425,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -19426,10 +21438,16 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
             }
           }
         },
@@ -19457,6 +21475,21 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -19714,7 +21747,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -19729,12 +21762,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -19748,10 +21775,16 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
             }
           }
         },
@@ -19779,6 +21812,21 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -19852,14 +21900,6 @@
         "updated_at_unix_s"
       ],
       "properties": {
-        "checkpoint_after_operation_indexes": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0.0
-          }
-        },
         "pipeline": {
           "$ref": "#/definitions/TraceLocalProcessingPipeline"
         },
@@ -20144,7 +22184,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -20159,12 +22199,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -20178,10 +22212,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -20562,6 +22617,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -20609,6 +22714,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -20950,7 +23099,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -20965,12 +23114,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -20984,10 +23127,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -21007,8 +23171,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -21040,6 +23206,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -21063,6 +23242,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         },
@@ -21074,14 +23256,6 @@
             "updated_at_unix_s"
           ],
           "properties": {
-            "checkpoint_after_operation_indexes": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint",
-                "minimum": 0.0
-              }
-            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -21136,13 +23310,50 @@
             "null"
           ]
         },
+        "active_velocity_model_asset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "display_coordinate_reference_id": {
           "type": [
             "string",
             "null"
           ]
         },
+        "project_root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_section_tolerance_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "project_survey_asset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_wellbore_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "selected_preset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_project_well_time_depth_model_asset_id": {
           "type": [
             "string",
             "null"
@@ -21549,6 +23760,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -21596,6 +23857,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SectionAxis": {
           "type": "string",
@@ -21944,7 +24249,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -21959,12 +24264,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -21978,10 +24277,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -22001,8 +24321,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -22034,6 +24356,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -22057,6 +24392,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         },
@@ -22068,14 +24406,6 @@
             "updated_at_unix_s"
           ],
           "properties": {
-            "checkpoint_after_operation_indexes": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint",
-                "minimum": 0.0
-              }
-            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -22126,13 +24456,50 @@
                 "null"
               ]
             },
+            "active_velocity_model_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_coordinate_reference_id": {
               "type": [
                 "string",
                 "null"
               ]
             },
+            "project_root": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_section_tolerance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "project_survey_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_wellbore_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_project_well_time_depth_model_asset_id": {
               "type": [
                 "string",
                 "null"
@@ -22490,6 +24857,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -22537,6 +24954,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -22878,7 +25339,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -22893,12 +25354,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -22912,10 +25367,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -22935,8 +25411,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -22968,6 +25446,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -22991,6 +25482,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         },
@@ -23002,14 +25496,6 @@
             "updated_at_unix_s"
           ],
           "properties": {
-            "checkpoint_after_operation_indexes": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint",
-                "minimum": 0.0
-              }
-            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -23422,6 +25908,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -23469,6 +26005,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SectionAxis": {
           "type": "string",
@@ -23817,7 +26397,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -23832,12 +26412,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -23851,10 +26425,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -23874,8 +26469,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -23907,6 +26504,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -23930,6 +26540,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         },
@@ -23941,14 +26554,6 @@
             "updated_at_unix_s"
           ],
           "properties": {
-            "checkpoint_after_operation_indexes": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint",
-                "minimum": 0.0
-              }
-            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -23999,13 +26604,50 @@
                 "null"
               ]
             },
+            "active_velocity_model_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_coordinate_reference_id": {
               "type": [
                 "string",
                 "null"
               ]
             },
+            "project_root": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_section_tolerance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "project_survey_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_wellbore_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_project_well_time_depth_model_asset_id": {
               "type": [
                 "string",
                 "null"
@@ -24091,13 +26733,50 @@
                 "null"
               ]
             },
+            "active_velocity_model_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_coordinate_reference_id": {
               "type": [
                 "string",
                 "null"
               ]
             },
+            "project_root": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_section_tolerance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "project_survey_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_wellbore_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_project_well_time_depth_model_asset_id": {
               "type": [
                 "string",
                 "null"
@@ -24513,6 +27192,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -24560,6 +27289,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SectionAxis": {
           "type": "string",
@@ -24908,7 +27681,7 @@
         "TraceLocalProcessingPipeline": {
           "type": "object",
           "required": [
-            "operations"
+            "steps"
           ],
           "properties": {
             "description": {
@@ -24923,12 +27696,6 @@
                 "null"
               ]
             },
-            "operations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/TraceLocalProcessingOperation"
-              }
-            },
             "preset_id": {
               "type": [
                 "string",
@@ -24942,10 +27709,31 @@
               "minimum": 0.0
             },
             "schema_version": {
-              "default": 1,
+              "default": 2,
               "type": "integer",
               "format": "uint32",
               "minimum": 0.0
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TraceLocalProcessingStep"
+              }
+            }
+          }
+        },
+        "TraceLocalProcessingStep": {
+          "type": "object",
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "checkpoint": {
+              "default": false,
+              "type": "boolean"
+            },
+            "operation": {
+              "$ref": "#/definitions/TraceLocalProcessingOperation"
             }
           }
         },
@@ -24965,8 +27753,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -24998,6 +27788,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -25021,6 +27824,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         },
@@ -25032,14 +27838,6 @@
             "updated_at_unix_s"
           ],
           "properties": {
-            "checkpoint_after_operation_indexes": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "format": "uint",
-                "minimum": 0.0
-              }
-            },
             "pipeline": {
               "$ref": "#/definitions/TraceLocalProcessingPipeline"
             },
@@ -25090,13 +27888,50 @@
                 "null"
               ]
             },
+            "active_velocity_model_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_coordinate_reference_id": {
               "type": [
                 "string",
                 "null"
               ]
             },
+            "project_root": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_section_tolerance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "project_survey_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_wellbore_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "selected_preset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_project_well_time_depth_model_asset_id": {
               "type": [
                 "string",
                 "null"
@@ -25136,7 +27971,38 @@
             "null"
           ]
         },
+        "active_velocity_model_asset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "display_coordinate_reference_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_section_tolerance_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "project_survey_asset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_wellbore_id": {
           "type": [
             "string",
             "null"
@@ -25148,6 +28014,12 @@
           "minimum": 0.0
         },
         "selected_preset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_project_well_time_depth_model_asset_id": {
           "type": [
             "string",
             "null"
@@ -25217,7 +28089,38 @@
                 "null"
               ]
             },
+            "active_velocity_model_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "display_coordinate_reference_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_root": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_section_tolerance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "project_survey_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_wellbore_id": {
               "type": [
                 "string",
                 "null"
@@ -25228,6 +28131,315 @@
                 "string",
                 "null"
               ]
+            },
+            "selected_project_well_time_depth_model_asset_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "LoadVelocityModelsRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LoadVelocityModelsRequest",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "store_path"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "store_path": {
+          "type": "string"
+        }
+      }
+    },
+    "LoadVelocityModelsResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LoadVelocityModelsResponse",
+      "type": "object",
+      "required": [
+        "models",
+        "schema_version"
+      ],
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SurveyTimeDepthTransform3D"
+          }
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "definitions": {
+        "CoordinateReferenceDescriptor": {
+          "type": "object",
+          "properties": {
+            "geodetic_datum": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "ProjectedPoint2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "ProjectedVector2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "SpatialCoverageRelationship": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "contains",
+            "partial_overlap",
+            "disjoint",
+            "unknown"
+          ]
+        },
+        "SpatialCoverageSummary": {
+          "type": "object",
+          "required": [
+            "relationship"
+          ],
+          "properties": {
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "relationship": {
+              "$ref": "#/definitions/SpatialCoverageRelationship"
+            },
+            "source_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "SurveyGridTransform": {
+          "type": "object",
+          "required": [
+            "inline_basis",
+            "origin",
+            "xline_basis"
+          ],
+          "properties": {
+            "inline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            },
+            "origin": {
+              "$ref": "#/definitions/ProjectedPoint2"
+            },
+            "xline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            }
+          }
+        },
+        "SurveyTimeDepthTransform3D": {
+          "type": "object",
+          "required": [
+            "coverage",
+            "depth_unit",
+            "id",
+            "inline_count",
+            "name",
+            "sample_count",
+            "source_kind",
+            "time_axis",
+            "xline_count"
+          ],
+          "properties": {
+            "coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "coverage": {
+              "$ref": "#/definitions/SpatialCoverageSummary"
+            },
+            "depth_unit": {
+              "type": "string"
+            },
+            "derived_from": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "grid_transform": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SurveyGridTransform"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "inline_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sample_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "source_kind": {
+              "$ref": "#/definitions/TimeDepthTransformSourceKind"
+            },
+            "time_axis": {
+              "$ref": "#/definitions/VerticalAxisDescriptor"
+            },
+            "xline_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            }
+          }
+        },
+        "TimeDepthDomain": {
+          "type": "string",
+          "enum": [
+            "time",
+            "depth"
+          ]
+        },
+        "TimeDepthTransformSourceKind": {
+          "type": "string",
+          "enum": [
+            "constant_velocity",
+            "velocity_function1_d",
+            "velocity_grid3_d",
+            "checkshot_model1_d",
+            "sonic_log1_d",
+            "vp_log1_d",
+            "horizon_layer_model"
+          ]
+        },
+        "VerticalAxisDescriptor": {
+          "type": "object",
+          "required": [
+            "count",
+            "domain",
+            "start",
+            "step",
+            "unit"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "domain": {
+              "$ref": "#/definitions/TimeDepthDomain"
+            },
+            "start": {
+              "type": "number",
+              "format": "float"
+            },
+            "step": {
+              "type": "number",
+              "format": "float"
+            },
+            "unit": {
+              "type": "string"
             }
           }
         }
@@ -25543,6 +28755,56 @@
             }
           }
         },
+        "ProcessingArtifactRole": {
+          "type": "string",
+          "enum": [
+            "final_output",
+            "checkpoint"
+          ]
+        },
+        "ProcessingLineageSummary": {
+          "type": "object",
+          "required": [
+            "artifact_role",
+            "parent_store_id",
+            "parent_store_path",
+            "pipeline_family",
+            "pipeline_revision"
+          ],
+          "properties": {
+            "artifact_role": {
+              "$ref": "#/definitions/ProcessingArtifactRole"
+            },
+            "parent_store_id": {
+              "type": "string"
+            },
+            "parent_store_path": {
+              "type": "string"
+            },
+            "pipeline_family": {
+              "$ref": "#/definitions/ProcessingPipelineFamily"
+            },
+            "pipeline_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pipeline_revision": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          }
+        },
+        "ProcessingPipelineFamily": {
+          "type": "string",
+          "enum": [
+            "trace_local",
+            "subvolume",
+            "gather"
+          ]
+        },
         "ProjectedPoint2": {
           "type": "object",
           "required": [
@@ -25590,6 +28852,50 @@
               "format": "double"
             }
           }
+        },
+        "SampleDataConversionKind": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "cast",
+            "format_transcode"
+          ]
+        },
+        "SampleDataFidelity": {
+          "type": "object",
+          "required": [
+            "conversion",
+            "preservation",
+            "source_sample_type",
+            "working_sample_type"
+          ],
+          "properties": {
+            "conversion": {
+              "$ref": "#/definitions/SampleDataConversionKind"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preservation": {
+              "$ref": "#/definitions/SampleValuePreservation"
+            },
+            "source_sample_type": {
+              "type": "string"
+            },
+            "working_sample_type": {
+              "type": "string"
+            }
+          }
+        },
+        "SampleValuePreservation": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "potentially_lossy"
+          ]
         },
         "SeismicLayout": {
           "type": "string",
@@ -25689,8 +28995,10 @@
             "geometry",
             "id",
             "label",
+            "sample_data_fidelity",
             "sample_interval_ms",
-            "shape"
+            "shape",
+            "store_id"
           ],
           "properties": {
             "chunk_shape": {
@@ -25722,6 +29030,19 @@
             "label": {
               "type": "string"
             },
+            "processing_lineage_summary": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProcessingLineageSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sample_data_fidelity": {
+              "$ref": "#/definitions/SampleDataFidelity"
+            },
             "sample_interval_ms": {
               "type": "number",
               "format": "float"
@@ -25745,6 +29066,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "store_id": {
+              "type": "string"
             }
           }
         }
@@ -25762,11 +29086,33 @@
         "wells"
       ],
       "properties": {
+        "horizons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ResolvedSurveyMapHorizonDto"
+          }
+        },
         "id": {
           "type": "string"
         },
         "name": {
           "type": "string"
+        },
+        "scalar_field": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SurveyMapScalarFieldDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scalar_field_horizon_id": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "schema_version": {
           "type": "integer",
@@ -25907,6 +29253,85 @@
             "y": {
               "type": "number",
               "format": "double"
+            }
+          }
+        },
+        "ResolvedSurveyMapHorizonDto": {
+          "type": "object",
+          "required": [
+            "id",
+            "mapped_point_count",
+            "missing_cell_count",
+            "name",
+            "point_count",
+            "preview_available",
+            "preview_status",
+            "source_path",
+            "survey_asset_id"
+          ],
+          "properties": {
+            "aligned_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDto"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "mapped_point_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "missing_cell_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "point_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "preview_available": {
+              "type": "boolean"
+            },
+            "preview_status": {
+              "$ref": "#/definitions/SurveyMapTransformStatusDto"
+            },
+            "source_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDto"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source_path": {
+              "type": "string"
+            },
+            "survey_asset_id": {
+              "type": "string"
+            },
+            "transformed": {
+              "default": false,
+              "type": "boolean"
             }
           }
         },
@@ -26092,6 +29517,69 @@
             }
           }
         },
+        "SurveyMapScalarFieldDto": {
+          "type": "object",
+          "required": [
+            "columns",
+            "id",
+            "name",
+            "origin",
+            "rows",
+            "step",
+            "values"
+          ],
+          "properties": {
+            "columns": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "id": {
+              "type": "string"
+            },
+            "max_value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "min_value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "$ref": "#/definitions/ProjectedPoint2Dto"
+            },
+            "rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "step": {
+              "$ref": "#/definitions/ProjectedPoint2Dto"
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
+        },
         "SurveyMapSpatialAvailabilityDto": {
           "type": "string",
           "enum": [
@@ -26213,6 +29701,13 @@
               "format": "double"
             },
             "true_vertical_depth": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            },
+            "true_vertical_depth_subsea": {
               "type": [
                 "number",
                 "null"
@@ -26459,6 +29954,85 @@
             }
           }
         },
+        "ResolvedSurveyMapHorizonDto": {
+          "type": "object",
+          "required": [
+            "id",
+            "mapped_point_count",
+            "missing_cell_count",
+            "name",
+            "point_count",
+            "preview_available",
+            "preview_status",
+            "source_path",
+            "survey_asset_id"
+          ],
+          "properties": {
+            "aligned_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDto"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "mapped_point_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "missing_cell_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "point_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "preview_available": {
+              "type": "boolean"
+            },
+            "preview_status": {
+              "$ref": "#/definitions/SurveyMapTransformStatusDto"
+            },
+            "source_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDto"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source_path": {
+              "type": "string"
+            },
+            "survey_asset_id": {
+              "type": "string"
+            },
+            "transformed": {
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        },
         "ResolvedSurveyMapSourceDto": {
           "type": "object",
           "required": [
@@ -26469,11 +30043,33 @@
             "wells"
           ],
           "properties": {
+            "horizons": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ResolvedSurveyMapHorizonDto"
+              }
+            },
             "id": {
               "type": "string"
             },
             "name": {
               "type": "string"
+            },
+            "scalar_field": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SurveyMapScalarFieldDto"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scalar_field_horizon_id": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "schema_version": {
               "type": "integer",
@@ -26676,6 +30272,69 @@
             }
           }
         },
+        "SurveyMapScalarFieldDto": {
+          "type": "object",
+          "required": [
+            "columns",
+            "id",
+            "name",
+            "origin",
+            "rows",
+            "step",
+            "values"
+          ],
+          "properties": {
+            "columns": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "id": {
+              "type": "string"
+            },
+            "max_value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "min_value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "$ref": "#/definitions/ProjectedPoint2Dto"
+            },
+            "rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "step": {
+              "$ref": "#/definitions/ProjectedPoint2Dto"
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
+        },
         "SurveyMapSpatialAvailabilityDto": {
           "type": "string",
           "enum": [
@@ -26802,6 +30461,13 @@
                 "null"
               ],
               "format": "double"
+            },
+            "true_vertical_depth_subsea": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
             }
           }
         },
@@ -26873,6 +30539,1619 @@
             "display_degraded",
             "display_unavailable"
           ]
+        }
+      }
+    },
+    "BuildSurveyTimeDepthTransformRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "BuildSurveyTimeDepthTransformRequest",
+      "type": "object",
+      "required": [
+        "model",
+        "output_depth_unit",
+        "store_path"
+      ],
+      "properties": {
+        "control_profile_sets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VelocityControlProfileSet"
+          }
+        },
+        "model": {
+          "$ref": "#/definitions/LayeredVelocityModel"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "output_depth_unit": {
+          "type": "string"
+        },
+        "output_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preferred_velocity_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VelocityQuantityKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "default": 2,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "store_path": {
+          "type": "string"
+        }
+      },
+      "definitions": {
+        "CoordinateReferenceDescriptor": {
+          "type": "object",
+          "properties": {
+            "geodetic_datum": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "DepthReferenceKind": {
+          "type": "string",
+          "enum": [
+            "measured_depth",
+            "true_vertical_depth",
+            "true_vertical_depth_subsea"
+          ]
+        },
+        "LateralInterpolationMethod": {
+          "type": "string",
+          "enum": [
+            "nearest",
+            "linear",
+            "inverse_distance",
+            "minimum_curvature",
+            "kriging"
+          ]
+        },
+        "LayeredVelocityInterval": {
+          "type": "object",
+          "required": [
+            "base_boundary",
+            "id",
+            "name",
+            "top_boundary",
+            "trend"
+          ],
+          "properties": {
+            "base_boundary": {
+              "$ref": "#/definitions/StratigraphicBoundaryReference"
+            },
+            "control_blend_weight": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "control_profile_set_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "control_profile_velocity_kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/VelocityQuantityKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "lateral_interpolation": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/LateralInterpolationMethod"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "top_boundary": {
+              "$ref": "#/definitions/StratigraphicBoundaryReference"
+            },
+            "trend": {
+              "$ref": "#/definitions/VelocityIntervalTrend"
+            },
+            "vertical_interpolation": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/VerticalInterpolationMethod"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "LayeredVelocityModel": {
+          "type": "object",
+          "required": [
+            "id",
+            "name",
+            "vertical_domain"
+          ],
+          "properties": {
+            "coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "depth_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DepthReferenceKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "derived_from": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "grid_transform": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SurveyGridTransform"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "intervals": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/LayeredVelocityInterval"
+              }
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "travel_time_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TravelTimeReference"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "vertical_domain": {
+              "$ref": "#/definitions/TimeDepthDomain"
+            }
+          }
+        },
+        "ProjectedPoint2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "ProjectedVector2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "StratigraphicBoundaryReference": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "survey_top",
+                "survey_base"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "horizon_asset"
+              ],
+              "properties": {
+                "horizon_asset": {
+                  "type": "object",
+                  "required": [
+                    "horizon_id"
+                  ],
+                  "properties": {
+                    "horizon_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "SurveyGridTransform": {
+          "type": "object",
+          "required": [
+            "inline_basis",
+            "origin",
+            "xline_basis"
+          ],
+          "properties": {
+            "inline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            },
+            "origin": {
+              "$ref": "#/definitions/ProjectedPoint2"
+            },
+            "xline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            }
+          }
+        },
+        "TimeDepthDomain": {
+          "type": "string",
+          "enum": [
+            "time",
+            "depth"
+          ]
+        },
+        "TravelTimeReference": {
+          "type": "string",
+          "enum": [
+            "one_way",
+            "two_way"
+          ]
+        },
+        "VelocityControlProfile": {
+          "type": "object",
+          "required": [
+            "id",
+            "location"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/definitions/ProjectedPoint2"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "samples": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/VelocityControlProfileSample"
+              }
+            },
+            "wellbore_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "VelocityControlProfileSample": {
+          "type": "object",
+          "required": [
+            "time_ms"
+          ],
+          "properties": {
+            "depth_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "time_ms": {
+              "type": "number",
+              "format": "float"
+            },
+            "vavg_m_per_s": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "vint_m_per_s": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "vrms_m_per_s": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            }
+          }
+        },
+        "VelocityControlProfileSet": {
+          "type": "object",
+          "required": [
+            "depth_reference",
+            "id",
+            "name",
+            "travel_time_reference"
+          ],
+          "properties": {
+            "coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "depth_reference": {
+              "$ref": "#/definitions/DepthReferenceKind"
+            },
+            "derived_from": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "profiles": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/VelocityControlProfile"
+              }
+            },
+            "travel_time_reference": {
+              "$ref": "#/definitions/TravelTimeReference"
+            }
+          }
+        },
+        "VelocityIntervalTrend": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "constant"
+              ],
+              "properties": {
+                "constant": {
+                  "type": "object",
+                  "required": [
+                    "velocity_m_per_s"
+                  ],
+                  "properties": {
+                    "velocity_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "linear_with_depth"
+              ],
+              "properties": {
+                "linear_with_depth": {
+                  "type": "object",
+                  "required": [
+                    "gradient_m_per_s_per_m",
+                    "velocity_at_top_m_per_s"
+                  ],
+                  "properties": {
+                    "gradient_m_per_s_per_m": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "velocity_at_top_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "linear_with_time"
+              ],
+              "properties": {
+                "linear_with_time": {
+                  "type": "object",
+                  "required": [
+                    "gradient_m_per_s_per_ms",
+                    "velocity_at_top_m_per_s"
+                  ],
+                  "properties": {
+                    "gradient_m_per_s_per_ms": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "velocity_at_top_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "VelocityQuantityKind": {
+          "type": "string",
+          "enum": [
+            "interval",
+            "rms",
+            "average"
+          ]
+        },
+        "VerticalInterpolationMethod": {
+          "type": "string",
+          "enum": [
+            "step",
+            "linear",
+            "monotonic_cubic"
+          ]
+        }
+      }
+    },
+    "LayeredVelocityModel": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LayeredVelocityModel",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "vertical_domain"
+      ],
+      "properties": {
+        "coordinate_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CoordinateReferenceDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depth_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DepthReferenceKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "derived_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "grid_transform": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SurveyGridTransform"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "intervals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LayeredVelocityInterval"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "travel_time_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TravelTimeReference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vertical_domain": {
+          "$ref": "#/definitions/TimeDepthDomain"
+        }
+      },
+      "definitions": {
+        "CoordinateReferenceDescriptor": {
+          "type": "object",
+          "properties": {
+            "geodetic_datum": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "DepthReferenceKind": {
+          "type": "string",
+          "enum": [
+            "measured_depth",
+            "true_vertical_depth",
+            "true_vertical_depth_subsea"
+          ]
+        },
+        "LateralInterpolationMethod": {
+          "type": "string",
+          "enum": [
+            "nearest",
+            "linear",
+            "inverse_distance",
+            "minimum_curvature",
+            "kriging"
+          ]
+        },
+        "LayeredVelocityInterval": {
+          "type": "object",
+          "required": [
+            "base_boundary",
+            "id",
+            "name",
+            "top_boundary",
+            "trend"
+          ],
+          "properties": {
+            "base_boundary": {
+              "$ref": "#/definitions/StratigraphicBoundaryReference"
+            },
+            "control_blend_weight": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "control_profile_set_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "control_profile_velocity_kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/VelocityQuantityKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "lateral_interpolation": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/LateralInterpolationMethod"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "top_boundary": {
+              "$ref": "#/definitions/StratigraphicBoundaryReference"
+            },
+            "trend": {
+              "$ref": "#/definitions/VelocityIntervalTrend"
+            },
+            "vertical_interpolation": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/VerticalInterpolationMethod"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "ProjectedPoint2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "ProjectedVector2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "StratigraphicBoundaryReference": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "survey_top",
+                "survey_base"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "horizon_asset"
+              ],
+              "properties": {
+                "horizon_asset": {
+                  "type": "object",
+                  "required": [
+                    "horizon_id"
+                  ],
+                  "properties": {
+                    "horizon_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "SurveyGridTransform": {
+          "type": "object",
+          "required": [
+            "inline_basis",
+            "origin",
+            "xline_basis"
+          ],
+          "properties": {
+            "inline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            },
+            "origin": {
+              "$ref": "#/definitions/ProjectedPoint2"
+            },
+            "xline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            }
+          }
+        },
+        "TimeDepthDomain": {
+          "type": "string",
+          "enum": [
+            "time",
+            "depth"
+          ]
+        },
+        "TravelTimeReference": {
+          "type": "string",
+          "enum": [
+            "one_way",
+            "two_way"
+          ]
+        },
+        "VelocityIntervalTrend": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "constant"
+              ],
+              "properties": {
+                "constant": {
+                  "type": "object",
+                  "required": [
+                    "velocity_m_per_s"
+                  ],
+                  "properties": {
+                    "velocity_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "linear_with_depth"
+              ],
+              "properties": {
+                "linear_with_depth": {
+                  "type": "object",
+                  "required": [
+                    "gradient_m_per_s_per_m",
+                    "velocity_at_top_m_per_s"
+                  ],
+                  "properties": {
+                    "gradient_m_per_s_per_m": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "velocity_at_top_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "linear_with_time"
+              ],
+              "properties": {
+                "linear_with_time": {
+                  "type": "object",
+                  "required": [
+                    "gradient_m_per_s_per_ms",
+                    "velocity_at_top_m_per_s"
+                  ],
+                  "properties": {
+                    "gradient_m_per_s_per_ms": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "velocity_at_top_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "VelocityQuantityKind": {
+          "type": "string",
+          "enum": [
+            "interval",
+            "rms",
+            "average"
+          ]
+        },
+        "VerticalInterpolationMethod": {
+          "type": "string",
+          "enum": [
+            "step",
+            "linear",
+            "monotonic_cubic"
+          ]
+        }
+      }
+    },
+    "LayeredVelocityInterval": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LayeredVelocityInterval",
+      "type": "object",
+      "required": [
+        "base_boundary",
+        "id",
+        "name",
+        "top_boundary",
+        "trend"
+      ],
+      "properties": {
+        "base_boundary": {
+          "$ref": "#/definitions/StratigraphicBoundaryReference"
+        },
+        "control_blend_weight": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "control_profile_set_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "control_profile_velocity_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VelocityQuantityKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "lateral_interpolation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LateralInterpolationMethod"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "top_boundary": {
+          "$ref": "#/definitions/StratigraphicBoundaryReference"
+        },
+        "trend": {
+          "$ref": "#/definitions/VelocityIntervalTrend"
+        },
+        "vertical_interpolation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VerticalInterpolationMethod"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "definitions": {
+        "LateralInterpolationMethod": {
+          "type": "string",
+          "enum": [
+            "nearest",
+            "linear",
+            "inverse_distance",
+            "minimum_curvature",
+            "kriging"
+          ]
+        },
+        "StratigraphicBoundaryReference": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "survey_top",
+                "survey_base"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "horizon_asset"
+              ],
+              "properties": {
+                "horizon_asset": {
+                  "type": "object",
+                  "required": [
+                    "horizon_id"
+                  ],
+                  "properties": {
+                    "horizon_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "VelocityIntervalTrend": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "constant"
+              ],
+              "properties": {
+                "constant": {
+                  "type": "object",
+                  "required": [
+                    "velocity_m_per_s"
+                  ],
+                  "properties": {
+                    "velocity_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "linear_with_depth"
+              ],
+              "properties": {
+                "linear_with_depth": {
+                  "type": "object",
+                  "required": [
+                    "gradient_m_per_s_per_m",
+                    "velocity_at_top_m_per_s"
+                  ],
+                  "properties": {
+                    "gradient_m_per_s_per_m": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "velocity_at_top_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "linear_with_time"
+              ],
+              "properties": {
+                "linear_with_time": {
+                  "type": "object",
+                  "required": [
+                    "gradient_m_per_s_per_ms",
+                    "velocity_at_top_m_per_s"
+                  ],
+                  "properties": {
+                    "gradient_m_per_s_per_ms": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "velocity_at_top_m_per_s": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "VelocityQuantityKind": {
+          "type": "string",
+          "enum": [
+            "interval",
+            "rms",
+            "average"
+          ]
+        },
+        "VerticalInterpolationMethod": {
+          "type": "string",
+          "enum": [
+            "step",
+            "linear",
+            "monotonic_cubic"
+          ]
+        }
+      }
+    },
+    "VelocityIntervalTrend": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "VelocityIntervalTrend",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "constant"
+          ],
+          "properties": {
+            "constant": {
+              "type": "object",
+              "required": [
+                "velocity_m_per_s"
+              ],
+              "properties": {
+                "velocity_m_per_s": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "linear_with_depth"
+          ],
+          "properties": {
+            "linear_with_depth": {
+              "type": "object",
+              "required": [
+                "gradient_m_per_s_per_m",
+                "velocity_at_top_m_per_s"
+              ],
+              "properties": {
+                "gradient_m_per_s_per_m": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "velocity_at_top_m_per_s": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "linear_with_time"
+          ],
+          "properties": {
+            "linear_with_time": {
+              "type": "object",
+              "required": [
+                "gradient_m_per_s_per_ms",
+                "velocity_at_top_m_per_s"
+              ],
+              "properties": {
+                "gradient_m_per_s_per_ms": {
+                  "type": "number",
+                  "format": "float"
+                },
+                "velocity_at_top_m_per_s": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StratigraphicBoundaryReference": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "StratigraphicBoundaryReference",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "survey_top",
+            "survey_base"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "horizon_asset"
+          ],
+          "properties": {
+            "horizon_asset": {
+              "type": "object",
+              "required": [
+                "horizon_id"
+              ],
+              "properties": {
+                "horizon_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "LateralInterpolationMethod": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "LateralInterpolationMethod",
+      "type": "string",
+      "enum": [
+        "nearest",
+        "linear",
+        "inverse_distance",
+        "minimum_curvature",
+        "kriging"
+      ]
+    },
+    "VerticalInterpolationMethod": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "VerticalInterpolationMethod",
+      "type": "string",
+      "enum": [
+        "step",
+        "linear",
+        "monotonic_cubic"
+      ]
+    },
+    "TimeDepthDomain": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "TimeDepthDomain",
+      "type": "string",
+      "enum": [
+        "time",
+        "depth"
+      ]
+    },
+    "TravelTimeReference": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "TravelTimeReference",
+      "type": "string",
+      "enum": [
+        "one_way",
+        "two_way"
+      ]
+    },
+    "DepthReferenceKind": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "DepthReferenceKind",
+      "type": "string",
+      "enum": [
+        "measured_depth",
+        "true_vertical_depth",
+        "true_vertical_depth_subsea"
+      ]
+    },
+    "SurveyTimeDepthTransform3D": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SurveyTimeDepthTransform3D",
+      "type": "object",
+      "required": [
+        "coverage",
+        "depth_unit",
+        "id",
+        "inline_count",
+        "name",
+        "sample_count",
+        "source_kind",
+        "time_axis",
+        "xline_count"
+      ],
+      "properties": {
+        "coordinate_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CoordinateReferenceDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "coverage": {
+          "$ref": "#/definitions/SpatialCoverageSummary"
+        },
+        "depth_unit": {
+          "type": "string"
+        },
+        "derived_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "grid_transform": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SurveyGridTransform"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "inline_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sample_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "source_kind": {
+          "$ref": "#/definitions/TimeDepthTransformSourceKind"
+        },
+        "time_axis": {
+          "$ref": "#/definitions/VerticalAxisDescriptor"
+        },
+        "xline_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      },
+      "definitions": {
+        "CoordinateReferenceDescriptor": {
+          "type": "object",
+          "properties": {
+            "geodetic_datum": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "ProjectedPoint2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "ProjectedVector2": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "format": "double"
+            },
+            "y": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "SpatialCoverageRelationship": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "contains",
+            "partial_overlap",
+            "disjoint",
+            "unknown"
+          ]
+        },
+        "SpatialCoverageSummary": {
+          "type": "object",
+          "required": [
+            "relationship"
+          ],
+          "properties": {
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "relationship": {
+              "$ref": "#/definitions/SpatialCoverageRelationship"
+            },
+            "source_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "target_coordinate_reference": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CoordinateReferenceDescriptor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "SurveyGridTransform": {
+          "type": "object",
+          "required": [
+            "inline_basis",
+            "origin",
+            "xline_basis"
+          ],
+          "properties": {
+            "inline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            },
+            "origin": {
+              "$ref": "#/definitions/ProjectedPoint2"
+            },
+            "xline_basis": {
+              "$ref": "#/definitions/ProjectedVector2"
+            }
+          }
+        },
+        "TimeDepthDomain": {
+          "type": "string",
+          "enum": [
+            "time",
+            "depth"
+          ]
+        },
+        "TimeDepthTransformSourceKind": {
+          "type": "string",
+          "enum": [
+            "constant_velocity",
+            "velocity_function1_d",
+            "velocity_grid3_d",
+            "checkshot_model1_d",
+            "sonic_log1_d",
+            "vp_log1_d",
+            "horizon_layer_model"
+          ]
+        },
+        "VerticalAxisDescriptor": {
+          "type": "object",
+          "required": [
+            "count",
+            "domain",
+            "start",
+            "step",
+            "unit"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "domain": {
+              "$ref": "#/definitions/TimeDepthDomain"
+            },
+            "start": {
+              "type": "number",
+              "format": "float"
+            },
+            "step": {
+              "type": "number",
+              "format": "float"
+            },
+            "unit": {
+              "type": "string"
+            }
+          }
         }
       }
     }

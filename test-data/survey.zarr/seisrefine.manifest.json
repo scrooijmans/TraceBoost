@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "store_id": "",
   "kind": "Source",
   "source": {
     "source_path": "/Users/sc/segyio/test-data/f3.sgy",
@@ -8,6 +9,19 @@
     "samples_per_trace": 75,
     "sample_interval_us": 4000,
     "sample_format_code": 3,
+    "sample_data_fidelity": {
+      "source_sample_type": "int16",
+      "working_sample_type": "f32",
+      "conversion": "cast",
+      "preservation": "exact",
+      "notes": [
+        "This source sample type is exactly representable in the working IEEE f32 store."
+      ]
+    },
+    "endianness": "big",
+    "revision_raw": 0,
+    "fixed_length_trace_flag_raw": 1,
+    "extended_textual_headers": 0,
     "geometry": {
       "inline_field": {
         "name": "INLINE_3D",

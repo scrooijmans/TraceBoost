@@ -248,7 +248,7 @@
       {#each traceLocalOperations as operation, index (`trace:${index}:${summary(operation)}`)}
         {@const label = summary(operation)}
         {@const checkpointArmed = checkpointIndexSet.has(index)}
-        {@const canToggleCheckpoint = index < traceLocalOperationCount - 1}
+        {@const canToggleCheckpoint = index < traceLocalOperationCount - 1 || hasSubvolumeCrop}
         <div
           class="sequence-row-shell"
           role="presentation"

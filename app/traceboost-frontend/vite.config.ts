@@ -177,6 +177,59 @@ function traceboostDevApi(): Plugin {
         }
       });
 
+      server.middlewares.use("/api/horizons/import", async (req, res) => {
+        try {
+          const body = await readJsonBody(req);
+          const storePath = typeof body.storePath === "string" ? body.storePath.trim() : "";
+          const inputPaths = Array.isArray(body.inputPaths)
+            ? body.inputPaths
+                .map((value) => (typeof value === "string" ? value.trim() : ""))
+                .filter((value) => value.length > 0)
+            : [];
+          const sourceCoordinateReferenceId =
+            typeof body.sourceCoordinateReferenceId === "string"
+              ? body.sourceCoordinateReferenceId.trim()
+              : "";
+          const sourceCoordinateReferenceName =
+            typeof body.sourceCoordinateReferenceName === "string"
+              ? body.sourceCoordinateReferenceName.trim()
+              : "";
+          const assumeSameAsSurvey = body.assumeSameAsSurvey === true;
+          if (!storePath || inputPaths.length === 0) {
+            res.statusCode = 400;
+            res.end("Missing storePath or inputPaths");
+            return;
+          }
+          const args = [
+            "run",
+            "-q",
+            "-p",
+            "traceboost-app",
+            "--",
+            "import-horizons",
+            storePath
+          ];
+          if (sourceCoordinateReferenceId) {
+            args.push("--source-coordinate-reference-id", sourceCoordinateReferenceId);
+          }
+          if (sourceCoordinateReferenceName) {
+            args.push("--source-coordinate-reference-name", sourceCoordinateReferenceName);
+          }
+          if (assumeSameAsSurvey) {
+            args.push("--assume-same-as-survey");
+          }
+          const payload = runCargo([
+            ...args,
+            ...inputPaths
+          ]);
+          res.setHeader("Content-Type", "application/json");
+          res.end(payload);
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(error instanceof Error ? error.message : "Unknown horizon import error");
+        }
+      });
+
       server.middlewares.use("/api/section", (req, res) => {
         try {
           const url = new URL(req.url ?? "/", "http://localhost");
@@ -195,6 +248,41 @@ function traceboostDevApi(): Plugin {
             "traceboost-app",
             "--",
             "view-section",
+            storePath,
+            axis,
+            index
+          ]);
+          res.setHeader("Content-Type", "application/json");
+          res.end(body);
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              message: error instanceof Error ? error.message : "Unknown backend bridge error"
+            })
+          );
+        }
+      });
+
+      server.middlewares.use("/api/horizons/section", (req, res) => {
+        try {
+          const url = new URL(req.url ?? "/", "http://localhost");
+          const storePath = url.searchParams.get("storePath")?.trim();
+          const axis = url.searchParams.get("axis") ?? "inline";
+          const index = url.searchParams.get("index") ?? "0";
+          if (!storePath) {
+            res.statusCode = 400;
+            res.end("Missing storePath");
+            return;
+          }
+          const body = runCargo([
+            "run",
+            "-q",
+            "-p",
+            "traceboost-app",
+            "--",
+            "view-section-horizons",
             storePath,
             axis,
             index

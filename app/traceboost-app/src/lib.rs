@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -10,29 +10,70 @@ use seis_contracts_interop::{
     ExportSegyResponse, GatherProcessingPipeline, GatherRequest, GatherView, IPC_SCHEMA_VERSION,
     ImportDatasetRequest, ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
     ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    LoadSectionHorizonsRequest, LoadSectionHorizonsResponse, OpenDatasetRequest,
-    OpenDatasetResponse, PrestackThirdAxisField, PreviewGatherProcessingRequest,
-    PreviewGatherProcessingResponse, PreviewSubvolumeProcessingRequest,
-    PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
-    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest, RunSubvolumeProcessingRequest,
-    RunTraceLocalProcessingRequest, SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField,
-    SegyHeaderValueType, SubvolumeProcessingPipeline, SuggestedImportAction,
-    SurveyPreflightRequest, SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest,
-    VelocityScanResponse,
+    LoadSectionHorizonsRequest, LoadSectionHorizonsResponse, LoadVelocityModelsResponse,
+    OpenDatasetRequest, OpenDatasetResponse, PrestackThirdAxisField,
+    PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
+    PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
+    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
+    RunGatherProcessingRequest, RunSubvolumeProcessingRequest, RunTraceLocalProcessingRequest,
+    SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType,
+    SubvolumeProcessingPipeline, SuggestedImportAction, SurveyPreflightRequest,
+    SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse,
 };
 use seis_io::HeaderField;
 use seis_runtime::{
-    GatherInterpolationMode, IngestOptions, MaterializeOptions, PreviewView, SeisGeometryOptions,
-    SparseSurveyPolicy, TraceLocalProcessingPipeline, amplitude_spectrum_from_store,
-    describe_prestack_store, describe_store, export_store_to_segy, import_horizon_xyzs,
-    ingest_prestack_offset_segy, ingest_segy, materialize_gather_processing_store,
+    BuildSurveyTimeDepthTransformRequest, DepthReferenceKind, GatherInterpolationMode,
+    IngestOptions, LateralInterpolationMethod, LayeredVelocityInterval, LayeredVelocityModel,
+    MaterializeOptions, PreviewView, ProjectedPoint2, ResolvedSectionDisplayView,
+    SeisGeometryOptions, SparseSurveyPolicy, SpatialCoverageRelationship, SpatialCoverageSummary,
+    StratigraphicBoundaryReference, SurveyTimeDepthTransform3D, TimeDepthDomain,
+    TimeDepthTransformSourceKind, TraceLocalProcessingPipeline, TravelTimeReference,
+    VelocityControlProfile, VelocityControlProfileSample, VelocityControlProfileSet,
+    VelocityIntervalTrend, VelocityQuantityKind, VerticalAxisDescriptor,
+    VerticalInterpolationMethod, amplitude_spectrum_from_store, build_survey_time_depth_transform,
+    depth_converted_section_view, describe_prestack_store, describe_store, export_store_to_segy,
+    export_store_to_zarr, import_horizon_xyzs, ingest_prestack_offset_segy, ingest_volume,
+    load_survey_time_depth_transforms, materialize_gather_processing_store,
     materialize_processing_volume, materialize_subvolume_processing_volume, open_prestack_store,
     open_store, preflight_segy, prestack_gather_view, preview_gather_processing_view,
     preview_processing_section_view, preview_subvolume_processing_section_view,
-    section_horizon_overlays, velocity_scan,
+    resolved_section_display_view, section_horizon_overlays, store_survey_time_depth_transform,
+    velocity_scan,
 };
+use serde::Serialize;
 
 const DEFAULT_SPARSE_FILL_VALUE: f32 = 0.0;
+const DEMO_SURVEY_TIME_DEPTH_TRANSFORM_ID: &str = "demo-survey-3d-transform";
+const DEMO_SURVEY_TIME_DEPTH_TRANSFORM_NAME: &str = "Synthetic Survey 3D Time-Depth Transform";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportZarrResponse {
+    pub store_path: String,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportVelocityFunctionsModelResponse {
+    pub schema_version: u32,
+    pub input_path: String,
+    pub velocity_kind: VelocityQuantityKind,
+    pub profile_count: usize,
+    pub sample_count: usize,
+    pub model: SurveyTimeDepthTransform3D,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedVelocityFunctions {
+    profiles: Vec<VelocityControlProfile>,
+    sample_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedVelocityProfileRow {
+    x: f64,
+    y: f64,
+    sample: VelocityControlProfileSample,
+}
 
 #[derive(Debug, Clone)]
 struct GeometryCandidateSpec {
@@ -122,7 +163,7 @@ pub fn import_dataset(
     let input = PathBuf::from(&request.input_path);
     let output = PathBuf::from(&request.output_store_path);
     prepare_output_store(&input, &output, request.overwrite_existing)?;
-    let handle = ingest_segy(
+    let handle = ingest_volume(
         &input,
         &output,
         IngestOptions {
@@ -207,12 +248,37 @@ pub fn export_dataset_segy(
 ) -> Result<ExportSegyResponse, Box<dyn std::error::Error>> {
     let store_path = PathBuf::from(&request.store_path);
     let output_path = PathBuf::from(&request.output_path);
-    prepare_export_output_path(&store_path, &output_path, request.overwrite_existing)?;
+    prepare_export_output_path(
+        &store_path,
+        &output_path,
+        request.overwrite_existing,
+        "SEG-Y file",
+    )?;
     export_store_to_segy(&store_path, &output_path, request.overwrite_existing)?;
     Ok(ExportSegyResponse {
         schema_version: IPC_SCHEMA_VERSION,
         store_path: request.store_path,
         output_path: request.output_path,
+    })
+}
+
+pub fn export_dataset_zarr(
+    store_path: String,
+    output_path: String,
+    overwrite_existing: bool,
+) -> Result<ExportZarrResponse, Box<dyn std::error::Error>> {
+    let store_path_buf = PathBuf::from(&store_path);
+    let output_path_buf = PathBuf::from(&output_path);
+    prepare_export_output_path(
+        &store_path_buf,
+        &output_path_buf,
+        overwrite_existing,
+        "Zarr store",
+    )?;
+    export_store_to_zarr(&store_path_buf, &output_path_buf, overwrite_existing)?;
+    Ok(ExportZarrResponse {
+        store_path,
+        output_path,
     })
 }
 
@@ -226,6 +292,9 @@ pub fn import_horizon_xyz(
             .iter()
             .map(PathBuf::from)
             .collect::<Vec<_>>(),
+        request.source_coordinate_reference_id.as_deref(),
+        request.source_coordinate_reference_name.as_deref(),
+        request.assume_same_as_survey,
     )?;
     Ok(ImportHorizonXyzResponse {
         schema_version: IPC_SCHEMA_VERSION,
@@ -241,6 +310,525 @@ pub fn load_section_horizons(
         schema_version: IPC_SCHEMA_VERSION,
         overlays,
     })
+}
+
+pub fn load_depth_converted_section(
+    store_path: String,
+    axis: seis_runtime::SectionAxis,
+    index: usize,
+    velocity_model: VelocityFunctionSource,
+    velocity_kind: seis_runtime::VelocityQuantityKind,
+) -> Result<seis_runtime::SectionView, Box<dyn std::error::Error>> {
+    let handle = open_store(&store_path)?;
+    let section =
+        depth_converted_section_view(&store_path, axis, index, &velocity_model, velocity_kind)?;
+    ensure_dataset_matches(&handle, &section.dataset_id.0)?;
+    Ok(section)
+}
+
+pub fn load_resolved_section_display(
+    store_path: String,
+    axis: seis_runtime::SectionAxis,
+    index: usize,
+    domain: TimeDepthDomain,
+    velocity_model: Option<VelocityFunctionSource>,
+    velocity_kind: Option<seis_runtime::VelocityQuantityKind>,
+    include_velocity_overlay: bool,
+) -> Result<ResolvedSectionDisplayView, Box<dyn std::error::Error>> {
+    let handle = open_store(&store_path)?;
+    let display = resolved_section_display_view(
+        &store_path,
+        axis,
+        index,
+        domain,
+        velocity_model.as_ref(),
+        velocity_kind,
+        include_velocity_overlay,
+    )?;
+    ensure_dataset_matches(&handle, &display.section.dataset_id.0)?;
+    Ok(display)
+}
+
+pub fn ensure_demo_survey_time_depth_transform(
+    store_path: String,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let handle = open_store(&store_path)?;
+    let sample_axis_ms = &handle.manifest.volume.axes.sample_axis_ms;
+    if sample_axis_ms.is_empty() {
+        return Err(
+            "Cannot create a survey time-depth transform for a store without a sample axis.".into(),
+        );
+    }
+
+    let shape = handle.manifest.volume.shape;
+    let inline_count = shape[0];
+    let xline_count = shape[1];
+    let sample_count = shape[2];
+    if inline_count == 0 || xline_count == 0 || sample_count == 0 {
+        return Err("Cannot create a survey time-depth transform for an empty survey grid.".into());
+    }
+
+    let time_axis = VerticalAxisDescriptor {
+        domain: TimeDepthDomain::Time,
+        unit: "ms".to_string(),
+        start: sample_axis_ms[0],
+        step: inferred_sample_interval_ms(sample_axis_ms),
+        count: sample_axis_ms.len(),
+    };
+    let descriptor = SurveyTimeDepthTransform3D {
+        id: DEMO_SURVEY_TIME_DEPTH_TRANSFORM_ID.to_string(),
+        name: DEMO_SURVEY_TIME_DEPTH_TRANSFORM_NAME.to_string(),
+        derived_from: vec![handle.dataset_id().0.clone()],
+        source_kind: TimeDepthTransformSourceKind::VelocityGrid3D,
+        coordinate_reference: handle
+            .manifest
+            .volume
+            .coordinate_reference_binding
+            .as_ref()
+            .and_then(|binding| binding.effective.clone()),
+        grid_transform: handle
+            .manifest
+            .volume
+            .spatial
+            .as_ref()
+            .and_then(|spatial| spatial.grid_transform.clone()),
+        time_axis,
+        depth_unit: "m".to_string(),
+        inline_count,
+        xline_count,
+        sample_count,
+        coverage: SpatialCoverageSummary {
+            relationship: SpatialCoverageRelationship::Exact,
+            source_coordinate_reference: handle
+                .manifest
+                .volume
+                .coordinate_reference_binding
+                .as_ref()
+                .and_then(|binding| binding.effective.clone()),
+            target_coordinate_reference: handle
+                .manifest
+                .volume
+                .coordinate_reference_binding
+                .as_ref()
+                .and_then(|binding| binding.effective.clone()),
+            notes: vec![
+                "Synthetic survey-aligned trace-varying transform for time-depth demo workflows."
+                    .to_string(),
+            ],
+        },
+        notes: vec![
+            "This transform is synthetic demo data, not an imported velocity model.".to_string(),
+            "It is survey-aligned and spatially varying so TraceBoost can exercise the survey-3D section conversion path.".to_string(),
+        ],
+    };
+
+    let cell_count = inline_count * xline_count * sample_count;
+    let mut depths_m = vec![0.0_f32; cell_count];
+    let validity = vec![1_u8; cell_count];
+    for inline_index in 0..inline_count {
+        for xline_index in 0..xline_count {
+            let mut cumulative_depth_m = 0.0_f32;
+            let inline_ratio = normalized_index(inline_index, inline_count);
+            let xline_ratio = normalized_index(xline_index, xline_count);
+            let structural_uplift =
+                (-(distance_squared(inline_ratio, xline_ratio, 0.58, 0.46) / 0.035)).exp() * 14.0;
+            let layer_one = 0.18 + f32::sin(inline_ratio * std::f32::consts::TAU * 1.15) * 0.035;
+            let layer_two =
+                0.36 + f32::sin(xline_ratio * std::f32::consts::TAU * 1.35 + 0.55) * 0.045;
+            let layer_three =
+                0.56 + f32::sin((inline_ratio + xline_ratio) * std::f32::consts::PI * 1.4) * 0.05;
+            let layer_four = 0.74
+                + f32::cos((inline_ratio * 0.7 + xline_ratio * 1.3) * std::f32::consts::PI * 1.6)
+                    * 0.055;
+
+            let mut previous_time_ms = 0.0_f32;
+            for sample_index in 0..sample_count {
+                let offset =
+                    ((inline_index * xline_count + xline_index) * sample_count) + sample_index;
+                let time_ms = sample_axis_ms[sample_index];
+                let dt_ms = if sample_index == 0 {
+                    time_ms.max(0.0)
+                } else {
+                    (time_ms - previous_time_ms).max(0.0)
+                };
+                previous_time_ms = time_ms;
+
+                let vertical_ratio = normalized_index(sample_index, sample_count)
+                    - structural_uplift / sample_count as f32;
+                let layer_index = if vertical_ratio < layer_one {
+                    0
+                } else if vertical_ratio < layer_two {
+                    1
+                } else if vertical_ratio < layer_three {
+                    2
+                } else if vertical_ratio < layer_four {
+                    3
+                } else {
+                    4
+                };
+                let base_velocity_m_per_s =
+                    [1525.0_f32, 1810.0, 2225.0, 2735.0, 3320.0][layer_index];
+                let lateral_trend = f32::sin(inline_ratio * std::f32::consts::TAU * 1.3) * 130.0
+                    + f32::cos(xline_ratio * std::f32::consts::TAU * 1.1) * 95.0;
+                let local_variation = f32::sin(sample_index as f32 / 17.0 + inline_ratio * 4.8)
+                    * 36.0
+                    + f32::cos(sample_index as f32 / 23.0 + xline_ratio * 5.6) * 28.0;
+                let deepening_trend = normalized_index(sample_index, sample_count) * 260.0;
+                let interval_velocity_m_per_s =
+                    (base_velocity_m_per_s + lateral_trend + local_variation + deepening_trend)
+                        .clamp(1450.0, 3900.0);
+
+                cumulative_depth_m += interval_velocity_m_per_s * (dt_ms * 0.001) * 0.5;
+                depths_m[offset] = cumulative_depth_m;
+            }
+        }
+    }
+
+    let stored = store_survey_time_depth_transform(&store_path, descriptor, &depths_m, &validity)?;
+    Ok(stored.id)
+}
+
+pub fn load_velocity_models(
+    store_path: String,
+) -> Result<LoadVelocityModelsResponse, Box<dyn std::error::Error>> {
+    let models = load_survey_time_depth_transforms(&store_path)?
+        .into_iter()
+        .map(|transform| transform.descriptor)
+        .collect::<Vec<_>>();
+    Ok(LoadVelocityModelsResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        models,
+    })
+}
+
+pub fn build_velocity_model_transform(
+    request: BuildSurveyTimeDepthTransformRequest,
+) -> Result<SurveyTimeDepthTransform3D, Box<dyn std::error::Error>> {
+    let model = build_survey_time_depth_transform(&request)?;
+    Ok(model)
+}
+
+pub fn import_velocity_functions_model(
+    store_path: String,
+    input_path: String,
+    velocity_kind: VelocityQuantityKind,
+) -> Result<ImportVelocityFunctionsModelResponse, Box<dyn std::error::Error>> {
+    if matches!(velocity_kind, VelocityQuantityKind::Rms) {
+        return Err(
+            "Velocity_functions.txt import currently supports interval or average velocity, not RMS."
+                .into(),
+        );
+    }
+
+    let parsed = parse_velocity_functions_file(Path::new(&input_path))?;
+    if parsed.profiles.is_empty() {
+        return Err("Velocity functions file did not contain any control profiles.".into());
+    }
+
+    let handle = open_store(&store_path)?;
+    let coordinate_reference = handle
+        .manifest
+        .volume
+        .coordinate_reference_binding
+        .as_ref()
+        .and_then(|binding| binding.effective.clone());
+    let grid_transform = handle
+        .manifest
+        .volume
+        .spatial
+        .as_ref()
+        .and_then(|spatial| spatial.grid_transform.clone());
+    let source_stem = file_stem_from_path(&input_path);
+    let output_slug = slugify(&format!(
+        "{}-{}",
+        source_stem,
+        velocity_quantity_kind_slug(velocity_kind)
+    ));
+    let control_profile_set_id = format!("{output_slug}-control-profiles");
+    let model = LayeredVelocityModel {
+        id: format!("{output_slug}-layered-model"),
+        name: format!(
+            "{} {} Control Profiles",
+            display_name_from_stem(&source_stem),
+            velocity_quantity_kind_label(velocity_kind)
+        ),
+        derived_from: vec![handle.dataset_id().0.clone(), input_path.clone()],
+        coordinate_reference: coordinate_reference.clone(),
+        grid_transform: grid_transform.clone(),
+        vertical_domain: TimeDepthDomain::Time,
+        travel_time_reference: Some(TravelTimeReference::TwoWay),
+        depth_reference: Some(DepthReferenceKind::TrueVerticalDepth),
+        intervals: vec![LayeredVelocityInterval {
+            id: format!("{output_slug}-survey-interval"),
+            name: "Survey interval".to_string(),
+            top_boundary: StratigraphicBoundaryReference::SurveyTop,
+            base_boundary: StratigraphicBoundaryReference::SurveyBase,
+            trend: VelocityIntervalTrend::Constant {
+                velocity_m_per_s: 1500.0,
+            },
+            control_profile_set_id: Some(control_profile_set_id.clone()),
+            control_profile_velocity_kind: Some(velocity_kind),
+            lateral_interpolation: Some(LateralInterpolationMethod::Nearest),
+            vertical_interpolation: Some(VerticalInterpolationMethod::Linear),
+            control_blend_weight: Some(1.0),
+            notes: vec![
+                "Built from sparse velocity control profiles imported from text.".to_string(),
+            ],
+        }],
+        notes: vec![
+            "Single-interval authored model compiled from sparse control profiles.".to_string(),
+            "Current builder path uses nearest lateral interpolation and linear vertical interpolation."
+                .to_string(),
+        ],
+    };
+    let request = BuildSurveyTimeDepthTransformRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: store_path.clone(),
+        model,
+        control_profile_sets: vec![VelocityControlProfileSet {
+            id: control_profile_set_id,
+            name: format!(
+                "{} {} Profiles",
+                display_name_from_stem(&source_stem),
+                velocity_quantity_kind_label(velocity_kind)
+            ),
+            derived_from: vec![input_path.clone()],
+            coordinate_reference,
+            travel_time_reference: TravelTimeReference::TwoWay,
+            depth_reference: DepthReferenceKind::TrueVerticalDepth,
+            profiles: parsed.profiles.clone(),
+            notes: vec![
+                "Imported from Velocity_functions.txt style sparse profile file.".to_string(),
+            ],
+        }],
+        output_id: Some(format!("{output_slug}-survey-transform")),
+        output_name: Some(format!(
+            "{} {} Transform",
+            display_name_from_stem(&source_stem),
+            velocity_quantity_kind_label(velocity_kind)
+        )),
+        preferred_velocity_kind: Some(velocity_kind),
+        output_depth_unit: "m".to_string(),
+        notes: vec![
+            format!("Imported from {}", Path::new(&input_path).display()),
+            "Compiled from sparse control profiles through the authored-model builder.".to_string(),
+        ],
+    };
+    let model = build_survey_time_depth_transform(&request)?;
+
+    Ok(ImportVelocityFunctionsModelResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        input_path,
+        velocity_kind,
+        profile_count: parsed.profiles.len(),
+        sample_count: parsed.sample_count,
+        model,
+    })
+}
+
+fn normalized_index(index: usize, count: usize) -> f32 {
+    if count <= 1 {
+        0.0
+    } else {
+        index as f32 / (count - 1) as f32
+    }
+}
+
+fn inferred_sample_interval_ms(sample_axis_ms: &[f32]) -> f32 {
+    if sample_axis_ms.len() >= 2 {
+        sample_axis_ms[1] - sample_axis_ms[0]
+    } else {
+        0.0
+    }
+}
+
+fn distance_squared(x: f32, y: f32, center_x: f32, center_y: f32) -> f32 {
+    let dx = x - center_x;
+    let dy = y - center_y;
+    dx * dx + dy * dy
+}
+
+fn parse_velocity_functions_file(
+    input_path: &Path,
+) -> Result<ParsedVelocityFunctions, Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(input_path)?;
+    let mut rows_by_profile = HashMap::<(u64, u64), Vec<ParsedVelocityProfileRow>>::new();
+    let mut sample_count = 0_usize;
+
+    for (line_index, raw_line) in contents.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty()
+            || line.starts_with('#')
+            || line.starts_with("This data contains")
+            || line.starts_with("CDP-X")
+        {
+            continue;
+        }
+
+        let columns = line
+            .split(|character: char| character.is_whitespace() || character == ',')
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        if columns.len() < 7 {
+            return Err(format!(
+                "Velocity functions row {} is invalid: expected at least 7 columns, found {}.",
+                line_index + 1,
+                columns.len()
+            )
+            .into());
+        }
+
+        let x = columns[0].parse::<f64>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid X coordinate '{}': {error}",
+                line_index + 1,
+                columns[0]
+            )
+        })?;
+        let y = columns[1].parse::<f64>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid Y coordinate '{}': {error}",
+                line_index + 1,
+                columns[1]
+            )
+        })?;
+        let time_ms = columns[2].parse::<f32>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid time '{}': {error}",
+                line_index + 1,
+                columns[2]
+            )
+        })?;
+        let vrms_m_per_s = columns[3].parse::<f32>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid Vrms '{}': {error}",
+                line_index + 1,
+                columns[3]
+            )
+        })?;
+        let vint_m_per_s = columns[4].parse::<f32>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid Vint '{}': {error}",
+                line_index + 1,
+                columns[4]
+            )
+        })?;
+        let vavg_m_per_s = columns[5].parse::<f32>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid Vavg '{}': {error}",
+                line_index + 1,
+                columns[5]
+            )
+        })?;
+        let depth_m = columns[6].parse::<f32>().map_err(|error| {
+            format!(
+                "Velocity functions row {} has invalid depth '{}': {error}",
+                line_index + 1,
+                columns[6]
+            )
+        })?;
+
+        rows_by_profile
+            .entry((x.to_bits(), y.to_bits()))
+            .or_default()
+            .push(ParsedVelocityProfileRow {
+                x,
+                y,
+                sample: VelocityControlProfileSample {
+                    time_ms,
+                    depth_m: Some(depth_m),
+                    vrms_m_per_s: Some(vrms_m_per_s),
+                    vint_m_per_s: Some(vint_m_per_s),
+                    vavg_m_per_s: Some(vavg_m_per_s),
+                },
+            });
+        sample_count += 1;
+    }
+
+    let mut profiles = rows_by_profile
+        .into_values()
+        .enumerate()
+        .map(|(profile_index, mut rows)| {
+            rows.sort_by(|left, right| left.sample.time_ms.total_cmp(&right.sample.time_ms));
+            let first = rows
+                .first()
+                .ok_or_else(|| "Velocity profile group was unexpectedly empty.".to_string())?;
+            Ok::<VelocityControlProfile, Box<dyn std::error::Error>>(VelocityControlProfile {
+                id: format!("control-profile-{:05}", profile_index + 1),
+                location: ProjectedPoint2 {
+                    x: first.x,
+                    y: first.y,
+                },
+                wellbore_id: None,
+                samples: rows.into_iter().map(|row| row.sample).collect(),
+                notes: Vec::new(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    profiles.sort_by(|left, right| {
+        left.location
+            .x
+            .total_cmp(&right.location.x)
+            .then(left.location.y.total_cmp(&right.location.y))
+    });
+
+    Ok(ParsedVelocityFunctions {
+        profiles,
+        sample_count,
+    })
+}
+
+fn velocity_quantity_kind_label(kind: VelocityQuantityKind) -> &'static str {
+    match kind {
+        VelocityQuantityKind::Interval => "Interval",
+        VelocityQuantityKind::Rms => "RMS",
+        VelocityQuantityKind::Average => "Average",
+    }
+}
+
+fn velocity_quantity_kind_slug(kind: VelocityQuantityKind) -> &'static str {
+    match kind {
+        VelocityQuantityKind::Interval => "vint",
+        VelocityQuantityKind::Rms => "vrms",
+        VelocityQuantityKind::Average => "vavg",
+    }
+}
+
+fn file_stem_from_path(file_path: &str) -> String {
+    Path::new(file_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "velocity-functions".to_string())
+}
+
+fn display_name_from_stem(stem: &str) -> String {
+    stem.replace('_', " ").trim().to_string()
+}
+
+fn slugify(value: &str) -> String {
+    let normalized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let slug = normalized
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        "velocity-functions".to_string()
+    } else {
+        slug
+    }
 }
 
 pub fn load_gather(
@@ -429,6 +1017,17 @@ pub fn default_export_segy_path(input_store_path: impl AsRef<Path>) -> PathBuf {
     parent.join(format!("{stem}.export.sgy"))
 }
 
+pub fn default_export_zarr_path(input_store_path: impl AsRef<Path>) -> PathBuf {
+    let input_store_path = input_store_path.as_ref();
+    let parent = input_store_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = input_store_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("dataset");
+    parent.join(format!("{stem}.export.zarr"))
+}
+
 pub fn default_subvolume_output_store_path(
     input_store_path: impl AsRef<Path>,
     pipeline: &SubvolumeProcessingPipeline,
@@ -485,6 +1084,7 @@ fn prepare_export_output_path(
     input_store_path: &Path,
     output_path: &Path,
     overwrite_existing: bool,
+    output_label: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let input_store_path = input_store_path
         .canonicalize()
@@ -494,7 +1094,9 @@ fn prepare_export_output_path(
         .unwrap_or_else(|_| output_path.to_path_buf());
 
     if input_store_path == output_path {
-        return Err("Output SEG-Y path cannot overwrite the input tbvol store.".into());
+        return Err(
+            format!("Output {output_label} path cannot overwrite the input tbvol store.").into(),
+        );
     }
 
     if !overwrite_existing || !output_path.exists() {
@@ -503,7 +1105,8 @@ fn prepare_export_output_path(
 
     let metadata = fs::symlink_metadata(&output_path)?;
     if metadata.file_type().is_dir() {
-        return Err("Output SEG-Y path points to a directory.".into());
+        fs::remove_dir_all(&output_path)?;
+        return Ok(());
     }
 
     fs::remove_file(&output_path)?;
@@ -547,6 +1150,7 @@ fn preflight_response(
         input_path,
         trace_count: preflight.inspection.trace_count,
         samples_per_trace: preflight.inspection.samples_per_trace as usize,
+        sample_data_fidelity: preflight.sample_data_fidelity.clone(),
         classification: preflight.geometry.classification.clone(),
         stacking_state: preflight.geometry.stacking_state.clone(),
         organization: preflight.geometry.organization.clone(),
@@ -1056,4 +1660,112 @@ fn prepare_processing_output_store(
         fs::remove_file(output_path)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn legacy_tbvol_fixture_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-data/f3.tbvol")
+    }
+
+    fn zarr_fixture_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-data/survey.zarr")
+    }
+
+    #[test]
+    fn import_dataset_imports_zarr_fixture_to_tbvol_when_available() {
+        let fixture = zarr_fixture_path();
+        if !fixture.exists() {
+            return;
+        }
+
+        let temp = tempdir().expect("temp dir");
+        let output = temp.path().join("survey.tbvol");
+        let response = import_dataset(ImportDatasetRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            input_path: fixture.display().to_string(),
+            output_store_path: output.display().to_string(),
+            geometry_override: None,
+            overwrite_existing: false,
+        })
+        .expect("zarr fixture should import");
+
+        assert_eq!(response.dataset.descriptor.shape, [23, 18, 75]);
+        assert_eq!(response.dataset.descriptor.chunk_shape[2], 75);
+    }
+
+    #[test]
+    fn export_dataset_zarr_roundtrips_legacy_tbvol_fixture() {
+        let fixture = legacy_tbvol_fixture_path();
+        if !fixture.exists() {
+            return;
+        }
+
+        let temp = tempdir().expect("temp dir");
+        let exported = temp.path().join("f3-export.zarr");
+        let reimported = temp.path().join("f3-export-import.tbvol");
+
+        let export_response = export_dataset_zarr(
+            fixture.display().to_string(),
+            exported.display().to_string(),
+            false,
+        )
+        .expect("legacy tbvol fixture should export to zarr");
+        assert_eq!(PathBuf::from(&export_response.output_path), exported);
+
+        let import_response = import_dataset(ImportDatasetRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            input_path: exported.display().to_string(),
+            output_store_path: reimported.display().to_string(),
+            geometry_override: None,
+            overwrite_existing: false,
+        })
+        .expect("exported zarr should import");
+
+        let reopened = open_dataset_summary(OpenDatasetRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            store_path: reimported.display().to_string(),
+        })
+        .expect("reimported tbvol should open");
+
+        assert_eq!(import_response.dataset.descriptor.shape, [23, 18, 75]);
+        assert_eq!(
+            reopened.dataset.descriptor.geometry.fingerprint,
+            import_response.dataset.descriptor.geometry.fingerprint
+        );
+        assert_eq!(
+            reopened.dataset.descriptor.sample_interval_ms,
+            import_response.dataset.descriptor.sample_interval_ms
+        );
+    }
+
+    #[test]
+    fn parse_velocity_functions_file_groups_sparse_profiles() {
+        let temp = tempdir().expect("temp dir");
+        let input = temp.path().join("Velocity_functions.txt");
+        fs::write(
+            &input,
+            [
+                "This data contains example velocities, not measured velocities",
+                "CDP-X       CDP-Y   Time(ms)  Vrms    Vint    Vavg   Depth(m)",
+                " 605882.71  6073657.74   50.00 1500.00 1500.00 1500.00   37.50",
+                " 605882.71  6073657.74  858.86 1936.22 1960.00 1933.22  830.19",
+                " 606082.63  6073663.33   50.00 1500.00 1500.00 1500.00   37.50",
+                " 606082.63  6073663.33  859.57 1936.24 1960.00 1933.24  830.88",
+            ]
+            .join("\n"),
+        )
+        .expect("write sample velocity functions file");
+
+        let parsed = parse_velocity_functions_file(&input).expect("parse velocity functions");
+        assert_eq!(parsed.sample_count, 4);
+        assert_eq!(parsed.profiles.len(), 2);
+        assert_eq!(parsed.profiles[0].samples.len(), 2);
+        assert_eq!(parsed.profiles[1].samples.len(), 2);
+        assert_eq!(parsed.profiles[0].samples[0].vint_m_per_s, Some(1500.0));
+        assert_eq!(parsed.profiles[0].samples[1].depth_m, Some(830.19));
+    }
 }

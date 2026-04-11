@@ -35,6 +35,7 @@ namespace fs = std::filesystem;
 
 struct BenchResult {
   std::string dataset_name;
+  std::string compression_method;
   int ilines;
   int xlines;
   int samples;
@@ -89,6 +90,34 @@ static OpenVDS::VolumeDataLayoutDescriptor::BrickSize brick_size_enum(int brick_
     return OpenVDS::VolumeDataLayoutDescriptor::BrickSize_256;
   default:
     throw std::runtime_error("Unsupported brick size");
+  }
+}
+
+static OpenVDS::CompressionMethod parse_compression_method(const std::string &value) {
+  if (value == "none") {
+    return OpenVDS::CompressionMethod::None;
+  }
+  if (value == "wavelet_lossless") {
+    return OpenVDS::CompressionMethod::WaveletLossless;
+  }
+  if (value == "wavelet_normalize_block_lossless") {
+    return OpenVDS::CompressionMethod::WaveletNormalizeBlockLossless;
+  }
+  throw std::runtime_error(
+      "Unsupported compression method. Expected one of: none, wavelet_lossless, "
+      "wavelet_normalize_block_lossless");
+}
+
+static std::string compression_method_label(OpenVDS::CompressionMethod compression_method) {
+  switch (compression_method) {
+  case OpenVDS::CompressionMethod::None:
+    return "none";
+  case OpenVDS::CompressionMethod::WaveletLossless:
+    return "wavelet_lossless";
+  case OpenVDS::CompressionMethod::WaveletNormalizeBlockLossless:
+    return "wavelet_normalize_block_lossless";
+  default:
+    throw std::runtime_error("Unsupported compression method label");
   }
 }
 
@@ -238,15 +267,23 @@ static void write_chunk_page(OpenVDS::VolumeDataPage *page, const std::vector<fl
 }
 
 static BenchResult benchmark_openvds_dataset(const std::string &dataset_name, int ilines, int xlines,
-                                             int samples, int brick_size, float scalar_factor,
-                                             const fs::path &input_path, bool create_input) {
+                                             int samples, int brick_size,
+                                             OpenVDS::CompressionMethod compression_method,
+                                             float scalar_factor, const fs::path &input_path,
+                                             bool create_input) {
+  if (compression_method != OpenVDS::CompressionMethod::None &&
+      !OpenVDS::IsCompressionMethodSupported(compression_method)) {
+    throw std::runtime_error(
+        "Requested compression method is not supported by the current OpenVDS SDK build");
+  }
+
   if (fs::exists(input_path)) {
     fs::remove(input_path);
   }
 
   OpenVDS::VDS *input_vds = nullptr;
   if (create_input) {
-    input_vds = create_file_vds(input_path, ilines, xlines, samples, brick_size, OpenVDS::CompressionMethod::None);
+    input_vds = create_file_vds(input_path, ilines, xlines, samples, brick_size, compression_method);
     fill_synthetic_volume(input_vds, ilines, xlines, samples);
     OpenVDS::Close(input_vds);
     input_vds = nullptr;
@@ -282,12 +319,12 @@ static BenchResult benchmark_openvds_dataset(const std::string &dataset_name, in
   const auto preview_pipeline_ms =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - preview_started).count();
 
-  const fs::path output_path =
-      input_path.parent_path() / (input_path.stem().string() + ".pipeline.vds");
+  const std::string compression_label = compression_method_label(compression_method);
+  const fs::path output_path = input_path.parent_path() / (input_path.stem().string() + ".pipeline.vds");
   if (fs::exists(output_path)) {
     fs::remove(output_path);
   }
-  auto *output_vds = create_file_vds(output_path, ilines, xlines, samples, brick_size, OpenVDS::CompressionMethod::None);
+  auto *output_vds = create_file_vds(output_path, ilines, xlines, samples, brick_size, compression_method);
   auto output_access_manager = OpenVDS::GetAccessManager(output_vds);
   auto output_page_accessor =
       output_access_manager.CreateVolumeDataPageAccessor(OpenVDS::Dimensions_012, 0, 0, 64,
@@ -325,6 +362,7 @@ static BenchResult benchmark_openvds_dataset(const std::string &dataset_name, in
 
   return BenchResult{
       dataset_name,
+      compression_label,
       ilines,
       xlines,
       samples,
@@ -344,6 +382,7 @@ static void print_json(const BenchResult &result) {
   std::cout << std::fixed << std::setprecision(3);
   std::cout << "{\n"
             << "  \"dataset_name\": \"" << result.dataset_name << "\",\n"
+            << "  \"compression_method\": \"" << result.compression_method << "\",\n"
             << "  \"shape\": [" << result.ilines << ", " << result.xlines << ", " << result.samples << "],\n"
             << "  \"brick_size\": " << result.brick_size << ",\n"
             << "  \"input_store_bytes\": " << result.input_bytes << ",\n"
@@ -358,8 +397,11 @@ static void print_json(const BenchResult &result) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 7) {
-    std::cerr << "usage: openvds_storage_bench <dataset-name> <ilines> <xlines> <samples> <brick-size> <output-dir>\n";
+  if (argc != 7 && argc != 8) {
+    std::cerr
+        << "usage: openvds_storage_bench <dataset-name> <ilines> <xlines> <samples> <brick-size> <output-dir> "
+           "[compression-method]\n"
+        << "compression-method: none | wavelet_lossless | wavelet_normalize_block_lossless\n";
     return 1;
   }
 
@@ -369,11 +411,15 @@ int main(int argc, char **argv) {
   const int samples = std::stoi(argv[4]);
   const int brick_size = std::stoi(argv[5]);
   const fs::path output_dir = argv[6];
+  const std::string compression_arg = argc == 8 ? argv[7] : "none";
+  const auto compression_method = parse_compression_method(compression_arg);
   fs::create_directories(output_dir);
 
-  const fs::path input_path = output_dir / (dataset_name + ".vds");
+  const fs::path input_path =
+      output_dir / (dataset_name + "." + compression_method_label(compression_method) + ".vds");
   try {
-    const auto result = benchmark_openvds_dataset(dataset_name, ilines, xlines, samples, brick_size, 2.0f, input_path, true);
+    const auto result = benchmark_openvds_dataset(dataset_name, ilines, xlines, samples, brick_size,
+                                                  compression_method, 2.0f, input_path, true);
     print_json(result);
     return 0;
   } catch (const std::exception &error) {

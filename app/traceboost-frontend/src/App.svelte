@@ -35,6 +35,11 @@
     viewerModel.note("Volume selection did not produce a usable path.", "ui", "warn");
   }
 
+  function handleNativeVelocityModelMenu(): void {
+    showSidebarPanel();
+    viewerModel.openVelocityModelWorkbench();
+  }
+
   onMount(() => {
     let disposed = false;
     let disposeNativeMenu = () => {};
@@ -42,16 +47,23 @@
     if (viewerModel.tauriRuntime) {
       void (async () => {
         const { listen } = await import("@tauri-apps/api/event");
-        const unlisten = await listen("menu:file-open-volume", () => {
+        const unlistenOpenVolume = await listen("menu:file-open-volume", () => {
           void handleNativeOpenVolumeMenu();
+        });
+        const unlistenVelocityModel = await listen("menu:velocity-model", () => {
+          handleNativeVelocityModelMenu();
         });
 
         if (disposed) {
-          unlisten();
+          unlistenOpenVolume();
+          unlistenVelocityModel();
           return;
         }
 
-        disposeNativeMenu = unlisten;
+        disposeNativeMenu = () => {
+          unlistenOpenVolume();
+          unlistenVelocityModel();
+        };
       })();
     }
 

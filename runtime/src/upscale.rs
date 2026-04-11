@@ -4,10 +4,12 @@ use ndarray::Array3;
 use rayon::prelude::*;
 
 use crate::error::SeisRefineError;
-use crate::metadata::{DatasetKind, InterpMethod, ProcessingLineage, VolumeAxes, VolumeMetadata};
+use crate::metadata::{
+    DatasetKind, InterpMethod, ProcessingLineage, VolumeAxes, VolumeMetadata, generate_store_id,
+};
 use crate::store::{StoreHandle, create_tbvol_store, load_array, open_store};
 use crate::{
-    ProcessingPipelineSpec, TbvolManifest, TraceLocalProcessingPipeline,
+    ProcessingArtifactRole, ProcessingPipelineSpec, TbvolManifest, TraceLocalProcessingPipeline,
     recommended_default_tbvol_tile_target_mib, recommended_tbvol_tile_shape,
 };
 
@@ -50,6 +52,7 @@ pub fn upscale_store(
     let manifest = TbvolManifest::new(
         VolumeMetadata {
             kind: DatasetKind::Derived,
+            store_id: generate_store_id(),
             source: input.manifest.volume.source.clone(),
             shape,
             axes: VolumeAxes {
@@ -57,12 +60,21 @@ pub fn upscale_store(
                 xlines: densify_coords(&input.manifest.volume.axes.xlines),
                 sample_axis_ms: input.manifest.volume.axes.sample_axis_ms.clone(),
             },
+            segy_export: input.manifest.volume.segy_export.clone(),
+            coordinate_reference_binding: input
+                .manifest
+                .volume
+                .coordinate_reference_binding
+                .clone(),
+            spatial: input.manifest.volume.spatial.clone(),
             created_by: "seis-runtime-0.1.0".to_string(),
             processing_lineage: Some(ProcessingLineage {
                 parent_store: input.root.clone(),
+                parent_store_id: input.manifest.volume.store_id.clone(),
+                artifact_role: ProcessingArtifactRole::FinalOutput,
                 pipeline: ProcessingPipelineSpec::TraceLocal {
                     pipeline: TraceLocalProcessingPipeline {
-                        schema_version: 1,
+                        schema_version: 2,
                         revision: 1,
                         preset_id: None,
                         name: Some("upscale_2x".to_string()),
@@ -73,7 +85,7 @@ pub fn upscale_store(
                                 InterpMethod::Cubic => "cubic",
                             }
                         )),
-                        operations: Vec::new(),
+                        steps: Vec::new(),
                     },
                 },
                 runtime_version: format!(

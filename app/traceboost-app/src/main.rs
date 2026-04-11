@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use traceboost_app::{
-    export_dataset_segy, import_dataset, import_horizon_xyz, load_section_horizons,
-    open_dataset_summary, preflight_dataset,
+    export_dataset_segy, export_dataset_zarr, import_dataset, import_horizon_xyz,
+    load_section_horizons, open_dataset_summary, preflight_dataset,
 };
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -115,8 +115,20 @@ enum Command {
         #[arg(long, default_value_t = false)]
         overwrite_existing: bool,
     },
+    ExportZarr {
+        store: PathBuf,
+        output: PathBuf,
+        #[arg(long, default_value_t = false)]
+        overwrite_existing: bool,
+    },
     ImportHorizons {
         store: PathBuf,
+        #[arg(long)]
+        source_coordinate_reference_id: Option<String>,
+        #[arg(long)]
+        source_coordinate_reference_name: Option<String>,
+        #[arg(long, default_value_t = false)]
+        assume_same_as_survey: bool,
         inputs: Vec<PathBuf>,
     },
     ViewSection {
@@ -309,7 +321,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
-        Command::ImportHorizons { store, inputs } => {
+        Command::ExportZarr {
+            store,
+            output,
+            overwrite_existing,
+        } => {
+            let response = export_dataset_zarr(
+                store.to_string_lossy().into_owned(),
+                output.to_string_lossy().into_owned(),
+                overwrite_existing,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ImportHorizons {
+            store,
+            source_coordinate_reference_id,
+            source_coordinate_reference_name,
+            assume_same_as_survey,
+            inputs,
+        } => {
             let response = import_horizon_xyz(ImportHorizonXyzRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 store_path: store.to_string_lossy().into_owned(),
@@ -317,6 +347,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .into_iter()
                     .map(|path| path.to_string_lossy().into_owned())
                     .collect(),
+                source_coordinate_reference_id,
+                source_coordinate_reference_name,
+                assume_same_as_survey,
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }

@@ -11,3 +11,6 @@ seis_runtime = { package = "seis-runtime", path = "../../runtime" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 seis_io = { package = "seis-io", path = "../../io" }
+
+[dev-dependencies]
+tempfile = "3.15"

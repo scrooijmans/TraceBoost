@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use seis_contracts_interop::{
-    DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, IPC_SCHEMA_VERSION,
-    LoadWorkspaceStateResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SectionAxis,
-    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, UpsertDatasetEntryRequest,
-    UpsertDatasetEntryResponse, WorkspaceSession,
+    DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, LoadWorkspaceStateResponse,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, SaveWorkspaceSessionRequest,
+    SaveWorkspaceSessionResponse, SectionAxis, SetActiveDatasetEntryRequest,
+    SetActiveDatasetEntryResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+    WorkspaceSession, IPC_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,7 @@ impl WorkspaceState {
         }
 
         let (mut entries, reset_registry) = load_registry(&registry_path)?;
+        ensure_registry_has_unique_store_ids(&entries)?;
         entries.sort_by(|left, right| right.updated_at_unix_s.cmp(&left.updated_at_unix_s));
         let (session, reset_session) = load_session(&session_path)?;
         if reset_registry {
@@ -59,6 +60,7 @@ impl WorkspaceState {
 
     pub fn load_state(&self) -> Result<LoadWorkspaceStateResponse, String> {
         let entries = self.snapshot_entries()?;
+        ensure_registry_has_unique_store_ids(&entries)?;
         let session = self.snapshot_session()?;
         Ok(LoadWorkspaceStateResponse {
             schema_version: IPC_SCHEMA_VERSION,
@@ -86,6 +88,9 @@ impl WorkspaceState {
         } else {
             find_matching_entry(&entries, &request)
         };
+        let existing_entry_id =
+            match_index.and_then(|index| entries.get(index).map(|entry| entry.entry_id.as_str()));
+        ensure_unique_store_identity(&entries, &request, existing_entry_id)?;
         let entry_count = entries.len();
 
         let entry = if let Some(index) = match_index {
@@ -296,6 +301,25 @@ impl WorkspaceState {
             active_axis: request.active_axis,
             active_index: request.active_index,
             selected_preset_id: normalize_optional_string(request.selected_preset_id.as_deref()),
+            display_coordinate_reference_id: normalize_optional_string(
+                request.display_coordinate_reference_id.as_deref(),
+            ),
+            active_velocity_model_asset_id: normalize_optional_string(
+                request.active_velocity_model_asset_id.as_deref(),
+            ),
+            project_root: normalize_optional_path(request.project_root.as_deref()),
+            project_survey_asset_id: normalize_optional_string(
+                request.project_survey_asset_id.as_deref(),
+            ),
+            project_wellbore_id: normalize_optional_string(request.project_wellbore_id.as_deref()),
+            project_section_tolerance_m: request
+                .project_section_tolerance_m
+                .filter(|value| value.is_finite() && *value > 0.0),
+            selected_project_well_time_depth_model_asset_id: normalize_optional_string(
+                request
+                    .selected_project_well_time_depth_model_asset_id
+                    .as_deref(),
+            ),
         };
 
         if let Some(active_entry_id) = session.active_entry_id.as_ref() {
@@ -361,6 +385,95 @@ fn find_matching_entry(
     })
 }
 
+fn entry_identity_store_id(entry: &DatasetRegistryEntry) -> Option<&str> {
+    entry
+        .last_dataset
+        .as_ref()
+        .map(|dataset| dataset.descriptor.store_id.trim())
+        .filter(|store_id| !store_id.is_empty())
+}
+
+fn entry_identity_store_path(entry: &DatasetRegistryEntry) -> Option<String> {
+    normalize_optional_path(
+        entry
+            .last_dataset
+            .as_ref()
+            .map(|dataset| dataset.store_path.as_str())
+            .or(entry.imported_store_path.as_deref())
+            .or(entry.preferred_store_path.as_deref()),
+    )
+}
+
+fn ensure_unique_store_identity(
+    entries: &[DatasetRegistryEntry],
+    request: &UpsertDatasetEntryRequest,
+    existing_entry_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(dataset) = request.dataset.as_ref() else {
+        return Ok(());
+    };
+
+    let candidate_store_id = dataset.descriptor.store_id.trim();
+    if candidate_store_id.is_empty() {
+        return Err("Dataset is missing a required store_id".to_string());
+    }
+    let candidate_store_path = normalize_optional_path(Some(dataset.store_path.as_str()))
+        .unwrap_or_else(|| dataset.store_path.clone());
+
+    for entry in entries {
+        if existing_entry_id.is_some_and(|entry_id| entry.entry_id == entry_id) {
+            continue;
+        }
+        let Some(existing_store_id) = entry_identity_store_id(entry) else {
+            continue;
+        };
+        if existing_store_id != candidate_store_id {
+            continue;
+        }
+
+        let existing_store_path =
+            entry_identity_store_path(entry).unwrap_or_else(|| "<unknown store path>".to_string());
+        if existing_store_path == candidate_store_path {
+            continue;
+        }
+
+        return Err(format!(
+            "Refusing to register duplicate store identity '{}' for '{}' because it is already used by '{}' at '{}'. This usually means a store folder was copied outside TraceBoost.",
+            candidate_store_id, candidate_store_path, entry.display_name, existing_store_path
+        ));
+    }
+
+    Ok(())
+}
+
+fn ensure_registry_has_unique_store_ids(entries: &[DatasetRegistryEntry]) -> Result<(), String> {
+    for (index, entry) in entries.iter().enumerate() {
+        let Some(store_id) = entry_identity_store_id(entry) else {
+            continue;
+        };
+        let store_path =
+            entry_identity_store_path(entry).unwrap_or_else(|| "<unknown store path>".to_string());
+        for other in entries.iter().skip(index + 1) {
+            let Some(other_store_id) = entry_identity_store_id(other) else {
+                continue;
+            };
+            if other_store_id != store_id {
+                continue;
+            }
+            let other_store_path = entry_identity_store_path(other)
+                .unwrap_or_else(|| "<unknown store path>".to_string());
+            if other_store_path == store_path {
+                continue;
+            }
+            return Err(format!(
+                "Workspace contains duplicate store identity '{}' at '{}' and '{}'. This usually means a store folder was copied outside TraceBoost.",
+                store_id, store_path, other_store_path
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn load_registry(path: &Path) -> Result<(Vec<DatasetRegistryEntry>, bool), String> {
     if !path.exists() {
         return Ok((Vec::new(), false));
@@ -409,6 +522,13 @@ fn default_session() -> WorkspaceSession {
         active_axis: SectionAxis::Inline,
         active_index: 0,
         selected_preset_id: None,
+        display_coordinate_reference_id: None,
+        active_velocity_model_asset_id: None,
+        project_root: None,
+        project_survey_asset_id: None,
+        project_wellbore_id: None,
+        project_section_tolerance_m: None,
+        selected_project_well_time_depth_model_asset_id: None,
     }
 }
 
@@ -501,6 +621,37 @@ mod tests {
         base.join(name)
     }
 
+    fn sample_dataset_summary(store_path: &str, store_id: &str, label: &str) -> DatasetSummary {
+        serde_json::from_value(serde_json::json!({
+            "store_path": store_path,
+            "descriptor": {
+                "id": "dataset-id",
+                "store_id": store_id,
+                "label": label,
+                "shape": [4, 4, 4],
+                "chunk_shape": [4, 4, 4],
+                "sample_interval_ms": 2.0,
+                "geometry": {
+                    "compare_family": "seismic-grid:v1",
+                    "fingerprint": "geom:test",
+                    "summary": {
+                        "inline_axis": { "count": 4, "first": 100, "last": 103, "step": 1, "regular": true },
+                        "xline_axis": { "count": 4, "first": 200, "last": 203, "step": 1, "regular": true },
+                        "sample_axis": { "count": 4, "first": 0.0, "last": 6.0, "step": 2.0, "regular": true, "units": "ms" },
+                        "layout": null,
+                        "gather_axis_kind": null,
+                        "gather_axis": null,
+                        "provenance": "source"
+                    }
+                },
+                "coordinate_reference_binding": null,
+                "spatial": null,
+                "processing_lineage_summary": null
+            }
+        }))
+        .expect("deserialize test dataset summary")
+    }
+
     #[test]
     fn upsert_and_restore_workspace_state() {
         let registry = temp_file("registry.json");
@@ -532,6 +683,13 @@ mod tests {
                 active_axis: SectionAxis::Xline,
                 active_index: 17,
                 selected_preset_id: Some("demo-preset".to_string()),
+                display_coordinate_reference_id: Some("EPSG:23031".to_string()),
+                active_velocity_model_asset_id: Some("velocity-asset-1".to_string()),
+                project_root: Some("C:/data/project-root".to_string()),
+                project_survey_asset_id: Some("survey-asset-1".to_string()),
+                project_wellbore_id: Some("wellbore-1".to_string()),
+                project_section_tolerance_m: Some(18.5),
+                selected_project_well_time_depth_model_asset_id: Some("well-model-1".to_string()),
             })
             .expect("save session");
 
@@ -545,6 +703,34 @@ mod tests {
             Some(response.entry.entry_id)
         );
         assert_eq!(restored.session.active_index, 17);
+        assert_eq!(
+            restored.session.display_coordinate_reference_id.as_deref(),
+            Some("EPSG:23031")
+        );
+        assert_eq!(
+            restored.session.active_velocity_model_asset_id.as_deref(),
+            Some("velocity-asset-1")
+        );
+        assert_eq!(
+            restored.session.project_root.as_deref(),
+            Some("C:/data/project-root")
+        );
+        assert_eq!(
+            restored.session.project_survey_asset_id.as_deref(),
+            Some("survey-asset-1")
+        );
+        assert_eq!(
+            restored.session.project_wellbore_id.as_deref(),
+            Some("wellbore-1")
+        );
+        assert_eq!(restored.session.project_section_tolerance_m, Some(18.5));
+        assert_eq!(
+            restored
+                .session
+                .selected_project_well_time_depth_model_asset_id
+                .as_deref(),
+            Some("well-model-1")
+        );
     }
 
     #[test]
@@ -677,5 +863,54 @@ mod tests {
         assert!(restored.entries.is_empty());
         let persisted = fs::read_to_string(&registry).expect("read reset registry");
         assert!(persisted.contains("\"entries\": []"));
+    }
+
+    #[test]
+    fn rejects_duplicate_store_id_with_different_store_path() {
+        let registry = temp_file("registry.json");
+        let session = temp_file("session.json");
+        let state =
+            WorkspaceState::initialize(&registry, &session).expect("initialize workspace state");
+
+        state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: Some("dataset-a".to_string()),
+                display_name: Some("Original".to_string()),
+                source_path: None,
+                preferred_store_path: Some("C:/data/original.tbvol".to_string()),
+                imported_store_path: Some("C:/data/original.tbvol".to_string()),
+                dataset: Some(sample_dataset_summary(
+                    "C:/data/original.tbvol",
+                    "store-123",
+                    "Original",
+                )),
+                session_pipelines: None,
+                active_session_pipeline_id: None,
+                make_active: false,
+            })
+            .expect("insert original entry");
+
+        let error = state
+            .upsert_entry(UpsertDatasetEntryRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                entry_id: Some("dataset-b".to_string()),
+                display_name: Some("Copied".to_string()),
+                source_path: None,
+                preferred_store_path: Some("C:/data/copied.tbvol".to_string()),
+                imported_store_path: Some("C:/data/copied.tbvol".to_string()),
+                dataset: Some(sample_dataset_summary(
+                    "C:/data/copied.tbvol",
+                    "store-123",
+                    "Copied",
+                )),
+                session_pipelines: None,
+                active_session_pipeline_id: None,
+                make_active: false,
+            })
+            .expect_err("reject duplicate store id");
+
+        assert!(error.contains("duplicate store identity"));
+        assert!(error.contains("store-123"));
     }
 }

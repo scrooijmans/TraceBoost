@@ -47,6 +47,8 @@ The desktop shell now also persists a lightweight workspace layer:
   - product-facing Rust orchestration, frontend host, and Tauri shell
 - `test-data/`
   - shared fixtures used across `io`, `runtime`, and app tests
+- `articles/`
+  - long-form engineering writeups and benchmark notes grouped by topic
 - `docs/`
   - canonical architecture docs plus archived legacy material
 - `scripts/`
@@ -98,6 +100,18 @@ Regenerate the TypeScript contracts:
 .\scripts\generate-ts-contracts.ps1
 ```
 
+Create or reopen a stable release worktree without leaving your current checkout:
+
+```powershell
+.\scripts\open-release-worktree.ps1
+```
+
+Open a new PowerShell window directly in the release frontend checkout:
+
+```powershell
+.\scripts\open-release-worktree.ps1 -OpenFrontendShell
+```
+
 Work on the frontend host:
 
 ```powershell
@@ -115,8 +129,11 @@ Set-Location app\traceboost-frontend
 bun run tauri:dev
 ```
 
+The release worktree helper creates a sibling checkout such as `..\TraceBoost-release-desktop-v0.1.0` so the repo's local `file:` dependencies still resolve against sibling `geoviz` and `ophiolite` repos. Prefer `bun run tauri:build` there when you already have `tauri:dev` running in your main checkout because both shells default to the same dev port.
+
 ## Notes
 
+- root-level engineering articles were moved into `articles/` and grouped by category
 - `traceboost-frontend` consumes the sibling `../geoviz` repository through direct local `file:` dependencies. Keep that checkout present next to `TraceBoost`.
 - the longer-term shared-core direction is `TraceBoost app/product repo -> ophiolite shared subsurface core -> geoviz visualization SDK`
 - the repository pins Rust `1.91.0` in `rust-toolchain.toml` so `cargo` and Tauri pick a supported compiler automatically.

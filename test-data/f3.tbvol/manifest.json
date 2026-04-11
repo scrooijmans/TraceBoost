@@ -3,6 +3,7 @@
   "version": 1,
   "volume": {
     "kind": "Source",
+    "store_id": "d5ff03d2-d938-442f-bf1f-fa302b21d2e2",
     "source": {
       "source_path": "C:\\Users\\crooijmanss\\dev\\TraceBoost\\test-data\\f3.sgy",
       "file_size": 165060,
@@ -10,6 +11,19 @@
       "samples_per_trace": 75,
       "sample_interval_us": 4000,
       "sample_format_code": 3,
+      "sample_data_fidelity": {
+        "source_sample_type": "int16",
+        "working_sample_type": "f32",
+        "conversion": "cast",
+        "preservation": "exact",
+        "notes": [
+          "This source sample type is exactly representable in the working IEEE f32 store."
+        ]
+      },
+      "endianness": "big",
+      "revision_raw": 0,
+      "fixed_length_trace_flag_raw": 1,
+      "extended_textual_headers": 0,
       "geometry": {
         "inline_field": {
           "name": "INLINE_3D",

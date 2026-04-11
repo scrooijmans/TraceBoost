@@ -12,19 +12,23 @@ use seis_contracts_core::{
     GeometryDescriptor, GeometryProvenanceSummary, GeometrySummary, ImportedHorizonDescriptor,
     InterpretationPoint, ProcessingArtifactRole, ProcessingJobArtifact, ProcessingJobArtifactKind,
     ProcessingJobProgress, ProcessingJobState, ProcessingJobStatus, ProcessingLineageSummary,
-    ProcessingPipelineFamily, ProcessingPipelineSpec, SectionAxis, SectionRequest,
-    SectionSpectrumSelection, SectionTileRequest, SemblancePanel, TraceLocalProcessingOperation,
+    ProcessingPipelineFamily, ProcessingPipelineSpec, ResolvedSectionDisplayView,
+    SampleDataConversionKind, SampleDataFidelity, SampleValuePreservation, SectionAxis,
+    SectionRequest, SectionSpectrumSelection, SectionTileRequest, SectionTimeDepthDiagnostics,
+    SectionTimeDepthTransformMode, SemblancePanel, TraceLocalProcessingOperation,
     TraceLocalProcessingPipeline, TraceLocalProcessingPreset, TraceLocalProcessingStep,
-    TraceLocalVolumeArithmeticOperator, VelocityFunctionSource, VelocityScanRequest,
-    VelocityScanResponse, VolumeDescriptor,
+    TraceLocalVolumeArithmeticOperator, VelocityFunctionSource, VelocityQuantityKind,
+    VelocityScanRequest, VelocityScanResponse, VolumeDescriptor,
 };
 use seis_contracts_interop::{
-    CancelProcessingJobRequest, CancelProcessingJobResponse, DatasetRegistryEntry,
-    DatasetRegistryStatus, DatasetSummary, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, ExportSegyRequest, ExportSegyResponse, GetProcessingJobRequest,
-    GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportDatasetResponse,
-    ImportHorizonXyzRequest, ImportHorizonXyzResponse, ListPipelinePresetsResponse,
-    LoadSectionHorizonsRequest, LoadSectionHorizonsResponse, LoadWorkspaceStateResponse,
+    BuildSurveyTimeDepthTransformRequest, CancelProcessingJobRequest, CancelProcessingJobResponse,
+    DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, DeletePipelinePresetRequest,
+    DeletePipelinePresetResponse, DepthReferenceKind, ExportSegyRequest, ExportSegyResponse,
+    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
+    ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
+    LateralInterpolationMethod, LayeredVelocityInterval, LayeredVelocityModel,
+    ListPipelinePresetsResponse, LoadSectionHorizonsRequest, LoadSectionHorizonsResponse,
+    LoadVelocityModelsRequest, LoadVelocityModelsResponse, LoadWorkspaceStateResponse,
     OpenDatasetRequest, OpenDatasetResponse, PreviewCommand, PreviewGatherProcessingRequest,
     PreviewGatherProcessingResponse, PreviewResponse, PreviewSubvolumeProcessingRequest,
     PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
@@ -36,18 +40,20 @@ use seis_contracts_interop::{
     SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SegyGeometryCandidate,
     SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType, SetActiveDatasetEntryRequest,
     SetActiveDatasetEntryResponse, SetDatasetNativeCoordinateReferenceRequest,
-    SetDatasetNativeCoordinateReferenceResponse, SubvolumeCropOperation,
-    SubvolumeProcessingPipeline, SuggestedImportAction, SurveyPreflightRequest,
-    SurveyPreflightResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
-    WorkspacePipelineEntry, WorkspaceSession,
+    SetDatasetNativeCoordinateReferenceResponse, StratigraphicBoundaryReference,
+    SubvolumeCropOperation, SubvolumeProcessingPipeline, SuggestedImportAction,
+    SurveyPreflightRequest, SurveyPreflightResponse, SurveyTimeDepthTransform3D, TimeDepthDomain,
+    TravelTimeReference, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+    VelocityIntervalTrend, VerticalInterpolationMethod, WorkspacePipelineEntry, WorkspaceSession,
 };
 use seis_contracts_views::{
     GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
     GatherViewportChanged, PreviewView, SectionColorMap, SectionCoordinate, SectionDisplayDefaults,
     SectionHorizonLineStyle, SectionHorizonOverlayView, SectionHorizonSample, SectionHorizonStyle,
     SectionInteractionChanged, SectionMetadata, SectionPolarity, SectionPrimaryMode, SectionProbe,
-    SectionProbeChanged, SectionRenderMode, SectionUnits, SectionView, SectionViewport,
-    SectionViewportChanged,
+    SectionProbeChanged, SectionRenderMode, SectionScalarOverlayColorMap,
+    SectionScalarOverlayValueRange, SectionScalarOverlayView, SectionUnits, SectionView,
+    SectionViewport, SectionViewportChanged,
 };
 use ts_rs::TS;
 
@@ -85,6 +91,9 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "GeometrySummary.ts",
         "ProcessingArtifactRole.ts",
         "ProcessingLineageSummary.ts",
+        "SampleDataConversionKind.ts",
+        "SampleDataFidelity.ts",
+        "SampleValuePreservation.ts",
         "VolumeDescriptor.ts",
         "SectionAxis.ts",
         "SectionRequest.ts",
@@ -94,6 +103,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "FrequencyPhaseMode.ts",
         "FrequencyWindowShape.ts",
         "VelocityFunctionSource.ts",
+        "VelocityQuantityKind.ts",
         "GatherInterpolationMode.ts",
         "SectionSpectrumSelection.ts",
         "AmplitudeSpectrumCurve.ts",
@@ -128,10 +138,16 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "SectionMetadata.ts",
         "SectionDisplayDefaults.ts",
         "SectionView.ts",
+        "SectionTimeDepthTransformMode.ts",
+        "SectionTimeDepthDiagnostics.ts",
+        "SectionScalarOverlayColorMap.ts",
+        "SectionScalarOverlayValueRange.ts",
+        "SectionScalarOverlayView.ts",
         "SectionHorizonLineStyle.ts",
         "SectionHorizonStyle.ts",
         "SectionHorizonSample.ts",
         "SectionHorizonOverlayView.ts",
+        "ResolvedSectionDisplayView.ts",
         "GatherView.ts",
         "PreviewView.ts",
         "GatherPreviewView.ts",
@@ -207,6 +223,19 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
         "ResolvedSurveyMapSourceDto.ts",
         "ResolveSurveyMapRequest.ts",
         "ResolveSurveyMapResponse.ts",
+        "BuildSurveyTimeDepthTransformRequest.ts",
+        "LayeredVelocityModel.ts",
+        "LayeredVelocityInterval.ts",
+        "VelocityIntervalTrend.ts",
+        "StratigraphicBoundaryReference.ts",
+        "LateralInterpolationMethod.ts",
+        "VerticalInterpolationMethod.ts",
+        "TimeDepthDomain.ts",
+        "TravelTimeReference.ts",
+        "DepthReferenceKind.ts",
+        "SurveyTimeDepthTransform3D.ts",
+        "LoadVelocityModelsRequest.ts",
+        "LoadVelocityModelsResponse.ts",
         "ipc-schema-version.ts",
         "index.ts",
     ] {
@@ -223,6 +252,9 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     GeometrySummary::export_all_to(output_dir)?;
     ProcessingArtifactRole::export_all_to(output_dir)?;
     ProcessingLineageSummary::export_all_to(output_dir)?;
+    SampleDataConversionKind::export_all_to(output_dir)?;
+    SampleDataFidelity::export_all_to(output_dir)?;
+    SampleValuePreservation::export_all_to(output_dir)?;
     VolumeDescriptor::export_all_to(output_dir)?;
     GatherRequest::export_all_to(output_dir)?;
     GatherSelector::export_all_to(output_dir)?;
@@ -230,6 +262,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     FrequencyPhaseMode::export_all_to(output_dir)?;
     FrequencyWindowShape::export_all_to(output_dir)?;
     VelocityFunctionSource::export_all_to(output_dir)?;
+    VelocityQuantityKind::export_all_to(output_dir)?;
     GatherInterpolationMode::export_all_to(output_dir)?;
     SectionSpectrumSelection::export_all_to(output_dir)?;
     AmplitudeSpectrumCurve::export_all_to(output_dir)?;
@@ -261,10 +294,16 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     SectionMetadata::export_all_to(output_dir)?;
     SectionDisplayDefaults::export_all_to(output_dir)?;
     SectionView::export_all_to(output_dir)?;
+    SectionTimeDepthTransformMode::export_all_to(output_dir)?;
+    SectionTimeDepthDiagnostics::export_all_to(output_dir)?;
+    SectionScalarOverlayColorMap::export_all_to(output_dir)?;
+    SectionScalarOverlayValueRange::export_all_to(output_dir)?;
+    SectionScalarOverlayView::export_all_to(output_dir)?;
     SectionHorizonLineStyle::export_all_to(output_dir)?;
     SectionHorizonStyle::export_all_to(output_dir)?;
     SectionHorizonSample::export_all_to(output_dir)?;
     SectionHorizonOverlayView::export_all_to(output_dir)?;
+    ResolvedSectionDisplayView::export_all_to(output_dir)?;
     GatherView::export_all_to(output_dir)?;
     PreviewView::export_all_to(output_dir)?;
     GatherPreviewView::export_all_to(output_dir)?;
@@ -340,6 +379,19 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     ResolvedSurveyMapSourceDto::export_all_to(output_dir)?;
     ResolveSurveyMapRequest::export_all_to(output_dir)?;
     ResolveSurveyMapResponse::export_all_to(output_dir)?;
+    BuildSurveyTimeDepthTransformRequest::export_all_to(output_dir)?;
+    LayeredVelocityModel::export_all_to(output_dir)?;
+    LayeredVelocityInterval::export_all_to(output_dir)?;
+    VelocityIntervalTrend::export_all_to(output_dir)?;
+    StratigraphicBoundaryReference::export_all_to(output_dir)?;
+    LateralInterpolationMethod::export_all_to(output_dir)?;
+    VerticalInterpolationMethod::export_all_to(output_dir)?;
+    TimeDepthDomain::export_all_to(output_dir)?;
+    TravelTimeReference::export_all_to(output_dir)?;
+    DepthReferenceKind::export_all_to(output_dir)?;
+    SurveyTimeDepthTransform3D::export_all_to(output_dir)?;
+    LoadVelocityModelsRequest::export_all_to(output_dir)?;
+    LoadVelocityModelsResponse::export_all_to(output_dir)?;
 
     rewrite_generated_numeric_timestamps(&output_dir.join("TraceLocalProcessingPreset.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
@@ -373,6 +425,9 @@ export type { GeometryProvenanceSummary } from "./GeometryProvenanceSummary";
 export type { GeometrySummary } from "./GeometrySummary";
 export type { ProcessingArtifactRole } from "./ProcessingArtifactRole";
 export type { ProcessingLineageSummary } from "./ProcessingLineageSummary";
+export type { SampleDataConversionKind } from "./SampleDataConversionKind";
+export type { SampleDataFidelity } from "./SampleDataFidelity";
+export type { SampleValuePreservation } from "./SampleValuePreservation";
 export type { VolumeDescriptor } from "./VolumeDescriptor";
 export type { SectionAxis } from "./SectionAxis";
 export type { SectionRequest } from "./SectionRequest";
@@ -382,6 +437,7 @@ export type { SectionTileRequest } from "./SectionTileRequest";
 export type { FrequencyPhaseMode } from "./FrequencyPhaseMode";
 export type { FrequencyWindowShape } from "./FrequencyWindowShape";
 export type { VelocityFunctionSource } from "./VelocityFunctionSource";
+export type { VelocityQuantityKind } from "./VelocityQuantityKind";
 export type { GatherInterpolationMode } from "./GatherInterpolationMode";
 export type { SectionSpectrumSelection } from "./SectionSpectrumSelection";
 export type { AmplitudeSpectrumCurve } from "./AmplitudeSpectrumCurve";
@@ -413,10 +469,16 @@ export type { SectionUnits } from "./SectionUnits";
 export type { SectionMetadata } from "./SectionMetadata";
 export type { SectionDisplayDefaults } from "./SectionDisplayDefaults";
 export type { SectionView } from "./SectionView";
+export type { SectionTimeDepthTransformMode } from "./SectionTimeDepthTransformMode";
+export type { SectionTimeDepthDiagnostics } from "./SectionTimeDepthDiagnostics";
+export type { SectionScalarOverlayColorMap } from "./SectionScalarOverlayColorMap";
+export type { SectionScalarOverlayValueRange } from "./SectionScalarOverlayValueRange";
+export type { SectionScalarOverlayView } from "./SectionScalarOverlayView";
 export type { SectionHorizonLineStyle } from "./SectionHorizonLineStyle";
 export type { SectionHorizonStyle } from "./SectionHorizonStyle";
 export type { SectionHorizonSample } from "./SectionHorizonSample";
 export type { SectionHorizonOverlayView } from "./SectionHorizonOverlayView";
+export type { ResolvedSectionDisplayView } from "./ResolvedSectionDisplayView";
 export type { GatherView } from "./GatherView";
 export type { PreviewView } from "./PreviewView";
 export type { GatherPreviewView } from "./GatherPreviewView";
@@ -492,6 +554,19 @@ export type { SetDatasetNativeCoordinateReferenceResponse } from "./SetDatasetNa
 export type { ResolvedSurveyMapSourceDto } from "./ResolvedSurveyMapSourceDto";
 export type { ResolveSurveyMapRequest } from "./ResolveSurveyMapRequest";
 export type { ResolveSurveyMapResponse } from "./ResolveSurveyMapResponse";
+export type { BuildSurveyTimeDepthTransformRequest } from "./BuildSurveyTimeDepthTransformRequest";
+export type { LayeredVelocityModel } from "./LayeredVelocityModel";
+export type { LayeredVelocityInterval } from "./LayeredVelocityInterval";
+export type { VelocityIntervalTrend } from "./VelocityIntervalTrend";
+export type { StratigraphicBoundaryReference } from "./StratigraphicBoundaryReference";
+export type { LateralInterpolationMethod } from "./LateralInterpolationMethod";
+export type { VerticalInterpolationMethod } from "./VerticalInterpolationMethod";
+export type { TimeDepthDomain } from "./TimeDepthDomain";
+export type { TravelTimeReference } from "./TravelTimeReference";
+export type { DepthReferenceKind } from "./DepthReferenceKind";
+export type { SurveyTimeDepthTransform3D } from "./SurveyTimeDepthTransform3D";
+export type { LoadVelocityModelsRequest } from "./LoadVelocityModelsRequest";
+export type { LoadVelocityModelsResponse } from "./LoadVelocityModelsResponse";
 export { IPC_SCHEMA_VERSION } from "./ipc-schema-version";
 "#;
 
@@ -511,6 +586,9 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "GeometrySummary": schema_for!(GeometrySummary),
             "ProcessingArtifactRole": schema_for!(ProcessingArtifactRole),
             "ProcessingLineageSummary": schema_for!(ProcessingLineageSummary),
+            "SampleDataConversionKind": schema_for!(SampleDataConversionKind),
+            "SampleDataFidelity": schema_for!(SampleDataFidelity),
+            "SampleValuePreservation": schema_for!(SampleValuePreservation),
             "VolumeDescriptor": schema_for!(VolumeDescriptor),
             "SectionAxis": schema_for!(SectionAxis),
             "SectionRequest": schema_for!(SectionRequest),
@@ -520,6 +598,7 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "FrequencyPhaseMode": schema_for!(FrequencyPhaseMode),
             "FrequencyWindowShape": schema_for!(FrequencyWindowShape),
             "VelocityFunctionSource": schema_for!(VelocityFunctionSource),
+            "VelocityQuantityKind": schema_for!(VelocityQuantityKind),
             "GatherInterpolationMode": schema_for!(GatherInterpolationMode),
             "SectionSpectrumSelection": schema_for!(SectionSpectrumSelection),
             "AmplitudeSpectrumCurve": schema_for!(AmplitudeSpectrumCurve),
@@ -551,6 +630,12 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SectionMetadata": schema_for!(SectionMetadata),
             "SectionDisplayDefaults": schema_for!(SectionDisplayDefaults),
             "SectionView": schema_for!(SectionView),
+            "SectionTimeDepthTransformMode": schema_for!(SectionTimeDepthTransformMode),
+            "SectionTimeDepthDiagnostics": schema_for!(SectionTimeDepthDiagnostics),
+            "SectionScalarOverlayColorMap": schema_for!(SectionScalarOverlayColorMap),
+            "SectionScalarOverlayValueRange": schema_for!(SectionScalarOverlayValueRange),
+            "SectionScalarOverlayView": schema_for!(SectionScalarOverlayView),
+            "ResolvedSectionDisplayView": schema_for!(ResolvedSectionDisplayView),
             "GatherView": schema_for!(GatherView),
             "PreviewView": schema_for!(PreviewView),
             "GatherPreviewView": schema_for!(GatherPreviewView),
@@ -616,11 +701,24 @@ fn write_schema_bundle(output_dir: &Path) -> Result<(), Box<dyn Error>> {
             "SetActiveDatasetEntryResponse": schema_for!(SetActiveDatasetEntryResponse),
             "SaveWorkspaceSessionRequest": schema_for!(SaveWorkspaceSessionRequest),
             "SaveWorkspaceSessionResponse": schema_for!(SaveWorkspaceSessionResponse),
+            "LoadVelocityModelsRequest": schema_for!(LoadVelocityModelsRequest),
+            "LoadVelocityModelsResponse": schema_for!(LoadVelocityModelsResponse),
             "SetDatasetNativeCoordinateReferenceRequest": schema_for!(SetDatasetNativeCoordinateReferenceRequest),
             "SetDatasetNativeCoordinateReferenceResponse": schema_for!(SetDatasetNativeCoordinateReferenceResponse),
             "ResolvedSurveyMapSourceDto": schema_for!(ResolvedSurveyMapSourceDto),
             "ResolveSurveyMapRequest": schema_for!(ResolveSurveyMapRequest),
             "ResolveSurveyMapResponse": schema_for!(ResolveSurveyMapResponse),
+            "BuildSurveyTimeDepthTransformRequest": schema_for!(BuildSurveyTimeDepthTransformRequest),
+            "LayeredVelocityModel": schema_for!(LayeredVelocityModel),
+            "LayeredVelocityInterval": schema_for!(LayeredVelocityInterval),
+            "VelocityIntervalTrend": schema_for!(VelocityIntervalTrend),
+            "StratigraphicBoundaryReference": schema_for!(StratigraphicBoundaryReference),
+            "LateralInterpolationMethod": schema_for!(LateralInterpolationMethod),
+            "VerticalInterpolationMethod": schema_for!(VerticalInterpolationMethod),
+            "TimeDepthDomain": schema_for!(TimeDepthDomain),
+            "TravelTimeReference": schema_for!(TravelTimeReference),
+            "DepthReferenceKind": schema_for!(DepthReferenceKind),
+            "SurveyTimeDepthTransform3D": schema_for!(SurveyTimeDepthTransform3D),
         }
     });
 

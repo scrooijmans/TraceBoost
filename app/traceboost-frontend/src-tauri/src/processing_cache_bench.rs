@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use seis_runtime::{
-    InterpMethod, MaterializeOptions, ProcessingOperation, UpscaleOptions,
-    materialize_processing_volume, upscale_store,
+    materialize_processing_volume, upscale_store, InterpMethod, MaterializeOptions,
+    ProcessingOperation, TraceLocalProcessingStep, UpscaleOptions,
 };
 
 const BENCH_ITERATIONS: usize = 3;
@@ -71,6 +71,16 @@ where
     }
 }
 
+fn steps(operations: Vec<ProcessingOperation>) -> Vec<TraceLocalProcessingStep> {
+    operations
+        .into_iter()
+        .map(|operation| TraceLocalProcessingStep {
+            operation,
+            checkpoint: false,
+        })
+        .collect()
+}
+
 fn benchmark_case_with_setup<S, Setup, Run>(
     name: &str,
     mut setup: Setup,
@@ -100,12 +110,12 @@ where
 fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
     match variant {
         "five-step-a" => TraceLocalProcessingPipeline {
-            schema_version: 1,
+            schema_version: 2,
             revision: 1,
             preset_id: None,
             name: Some("Five Step A".to_string()),
             description: None,
-            operations: vec![
+            steps: steps(vec![
                 ProcessingOperation::HighpassFilter {
                     f1_hz: 4.0,
                     f2_hz: 8.0,
@@ -125,10 +135,10 @@ fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
                     window: seis_runtime::FrequencyWindowShape::CosineTaper,
                 },
                 ProcessingOperation::AmplitudeScalar { factor: 1.15 },
-            ],
+            ]),
         },
         "five-step-b" => TraceLocalProcessingPipeline {
-            operations: vec![
+            steps: steps(vec![
                 ProcessingOperation::HighpassFilter {
                     f1_hz: 4.0,
                     f2_hz: 8.0,
@@ -148,16 +158,16 @@ fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
                     window: seis_runtime::FrequencyWindowShape::CosineTaper,
                 },
                 ProcessingOperation::AmplitudeScalar { factor: 0.85 },
-            ],
+            ]),
             ..make_pipeline("five-step-a")
         },
         "eight-step-a" => TraceLocalProcessingPipeline {
-            schema_version: 1,
+            schema_version: 2,
             revision: 1,
             preset_id: None,
             name: Some("Eight Step A".to_string()),
             description: None,
-            operations: vec![
+            steps: steps(vec![
                 ProcessingOperation::AmplitudeScalar { factor: 1.05 },
                 ProcessingOperation::HighpassFilter {
                     f1_hz: 3.0,
@@ -187,10 +197,10 @@ fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
                     angle_degrees: -15.0,
                 },
                 ProcessingOperation::AmplitudeScalar { factor: 1.20 },
-            ],
+            ]),
         },
         "eight-step-b" => TraceLocalProcessingPipeline {
-            operations: vec![
+            steps: steps(vec![
                 ProcessingOperation::AmplitudeScalar { factor: 1.05 },
                 ProcessingOperation::HighpassFilter {
                     f1_hz: 3.0,
@@ -220,16 +230,16 @@ fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
                     angle_degrees: -15.0,
                 },
                 ProcessingOperation::AmplitudeScalar { factor: 0.70 },
-            ],
+            ]),
             ..make_pipeline("eight-step-a")
         },
         "ten-step-a" => TraceLocalProcessingPipeline {
-            schema_version: 1,
+            schema_version: 2,
             revision: 1,
             preset_id: None,
             name: Some("Ten Step A".to_string()),
             description: None,
-            operations: vec![
+            steps: steps(vec![
                 ProcessingOperation::AmplitudeScalar { factor: 1.05 },
                 ProcessingOperation::HighpassFilter {
                     f1_hz: 3.0,
@@ -266,10 +276,10 @@ fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
                     window: seis_runtime::FrequencyWindowShape::CosineTaper,
                 },
                 ProcessingOperation::AmplitudeScalar { factor: 1.20 },
-            ],
+            ]),
         },
         "ten-step-middle-edit" => TraceLocalProcessingPipeline {
-            operations: vec![
+            steps: steps(vec![
                 ProcessingOperation::AmplitudeScalar { factor: 1.05 },
                 ProcessingOperation::HighpassFilter {
                     f1_hz: 3.0,
@@ -306,7 +316,7 @@ fn make_pipeline(variant: &str) -> TraceLocalProcessingPipeline {
                     window: seis_runtime::FrequencyWindowShape::CosineTaper,
                 },
                 ProcessingOperation::AmplitudeScalar { factor: 1.20 },
-            ],
+            ]),
             ..make_pipeline("ten-step-a")
         },
         _ => panic!("unknown benchmark pipeline variant: {variant}"),
@@ -342,14 +352,14 @@ fn run_balanced_hidden_prefix(
     pipeline: &TraceLocalProcessingPipeline,
 ) -> Result<(), String> {
     let source_fingerprint = trace_local_source_fingerprint(input_store)?;
-    let prefix_index = pipeline.operations.len().checked_sub(2).ok_or_else(|| {
+    let prefix_index = pipeline.operation_count().checked_sub(2).ok_or_else(|| {
         "Balanced hidden-prefix benchmark requires at least two pipeline operations.".to_string()
     })?;
     let prefix_pipeline = pipeline_prefix(pipeline, prefix_index);
     let prefix_hash = trace_local_pipeline_hash(&prefix_pipeline)?;
     let prefix_len = prefix_index + 1;
 
-    let prefix_store = if let Some(hit) = processing_cache.lookup_prefix_artifact(
+    let prefix_store = if let Some(hit) = processing_cache.lookup_any_prefix_artifact(
         TRACE_LOCAL_CACHE_FAMILY,
         &source_fingerprint,
         &prefix_hash,
@@ -357,7 +367,7 @@ fn run_balanced_hidden_prefix(
     )? {
         hit.path
     } else {
-        let store = hidden_prefix_output_store_path(
+        let store = benchmark_hidden_prefix_output_store_path(
             processing_cache,
             &source_fingerprint,
             &prefix_hash,
@@ -381,9 +391,24 @@ fn run_balanced_hidden_prefix(
     run_full_pipeline(
         &prefix_store,
         output_store,
-        &pipeline_segment(pipeline, prefix_len, pipeline.operations.len() - 1),
+        &pipeline_segment(pipeline, prefix_len, pipeline.operation_count() - 1),
     )?;
     Ok(())
+}
+
+fn benchmark_hidden_prefix_output_store_path(
+    processing_cache: &ProcessingCacheState,
+    source_fingerprint: &str,
+    prefix_hash: &str,
+    prefix_len: usize,
+) -> String {
+    processing_cache
+        .volumes_dir()
+        .join(format!(
+            "trace-local-{source_fingerprint}-prefix-{prefix_len:02}-{prefix_hash}.tbvol"
+        ))
+        .display()
+        .to_string()
 }
 
 fn run_visible_checkpoint_pipeline(
@@ -430,7 +455,7 @@ fn run_visible_checkpoint_pipeline(
     run_full_pipeline(
         &checkpoint_store,
         output_store,
-        &pipeline_segment(pipeline, prefix_len, pipeline.operations.len() - 1),
+        &pipeline_segment(pipeline, prefix_len, pipeline.operation_count() - 1),
     )?;
     Ok(())
 }
@@ -520,8 +545,6 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
         let cache = ProcessingCacheState::initialize(
             &iteration_root.join("cache"),
             &iteration_root.join("cache").join("volumes"),
-            &iteration_root.join("cache").join("gathers"),
-            &iteration_root.join("cache").join("tmp"),
             &iteration_root.join("cache").join("index.sqlite"),
             &iteration_root.join("settings.json"),
         )?;
@@ -538,8 +561,6 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
             let cache = ProcessingCacheState::initialize(
                 &iteration_root.join("cache"),
                 &iteration_root.join("cache").join("volumes"),
-                &iteration_root.join("cache").join("gathers"),
-                &iteration_root.join("cache").join("tmp"),
                 &iteration_root.join("cache").join("index.sqlite"),
                 &iteration_root.join("settings.json"),
             )?;
@@ -571,8 +592,6 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
             let cache = ProcessingCacheState::initialize(
                 &iteration_root.join("cache"),
                 &iteration_root.join("cache").join("volumes"),
-                &iteration_root.join("cache").join("gathers"),
-                &iteration_root.join("cache").join("tmp"),
                 &iteration_root.join("cache").join("index.sqlite"),
                 &iteration_root.join("settings.json"),
             )?;
@@ -614,8 +633,6 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
             let cache = ProcessingCacheState::initialize(
                 &iteration_root.join("cache"),
                 &iteration_root.join("cache").join("volumes"),
-                &iteration_root.join("cache").join("gathers"),
-                &iteration_root.join("cache").join("tmp"),
                 &iteration_root.join("cache").join("index.sqlite"),
                 &iteration_root.join("settings.json"),
             )?;
@@ -653,8 +670,6 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
             let cache = ProcessingCacheState::initialize(
                 &iteration_root.join("cache"),
                 &iteration_root.join("cache").join("volumes"),
-                &iteration_root.join("cache").join("gathers"),
-                &iteration_root.join("cache").join("tmp"),
                 &iteration_root.join("cache").join("index.sqlite"),
                 &iteration_root.join("settings.json"),
             )?;
@@ -685,8 +700,6 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
             let cache = ProcessingCacheState::initialize(
                 &iteration_root.join("cache"),
                 &iteration_root.join("cache").join("volumes"),
-                &iteration_root.join("cache").join("gathers"),
-                &iteration_root.join("cache").join("tmp"),
                 &iteration_root.join("cache").join("index.sqlite"),
                 &iteration_root.join("settings.json"),
             )?;
@@ -700,7 +713,7 @@ fn benchmark_dataset(dataset: &BenchmarkDataset, workspace: &Path) -> Vec<Benchm
                 &source_fingerprint,
                 &pipeline_hash,
                 &pipeline_hash,
-                five_a.operations.len(),
+                five_a.operation_count(),
                 PROCESSING_CACHE_RUNTIME_VERSION,
                 TBVOL_STORE_FORMAT_VERSION,
             )?;
@@ -751,4 +764,19 @@ fn benchmark_processing_cache_f3() {
 
     print_results(&f3, &f3_results);
     print_results(&f3_upscaled, &upscaled_results);
+}
+
+#[test]
+#[ignore]
+fn benchmark_processing_cache_large_f3_smoke() {
+    let input_store = std::env::temp_dir().join("f3_dataset-smoke.tbvol");
+    assert!(
+        input_store.is_dir(),
+        "Expected %TEMP%/f3_dataset-smoke.tbvol to exist for processing-cache benchmark."
+    );
+
+    let dataset = describe_dataset(&input_store);
+    let results = benchmark_dataset(&dataset, &unique_temp_dir("f3-large-results"));
+
+    print_results(&dataset, &results);
 }

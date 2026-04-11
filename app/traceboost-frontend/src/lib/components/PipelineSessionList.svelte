@@ -67,12 +67,12 @@
         <button
           class:selected={selected}
           class="pipeline-row"
-          onclick={() => onSelect(entry.pipeline_id)}
+            onclick={() => onSelect(entry.pipeline_id)}
         >
           <span class="pipeline-index">{index + 1}</span>
           <span class="pipeline-copy">
             <strong>{label}</strong>
-            <small>{entry.pipeline.operations.length} step{entry.pipeline.operations.length === 1 ? "" : "s"}</small>
+            <small>{entry.pipeline.steps.length} step{entry.pipeline.steps.length === 1 ? "" : "s"}</small>
           </span>
         </button>
         <button

@@ -26,15 +26,16 @@ function normalizeDialogPaths(result: string[] | string | null): string[] {
  */
 export async function pickVolumeFile(): Promise<string | null> {
   if (!isTauriEnvironment()) {
-    return normalizeDialogPath(prompt("Enter volume path (.segy, .sgy, .tbvol):"));
+    return normalizeDialogPath(prompt("Enter volume path (.segy, .sgy, .zarr, .tbvol):"));
   }
 
   const { open } = await import("@tauri-apps/plugin-dialog");
   const result = await open({
     title: "Open Volume",
     filters: [
-      { name: "Supported Volumes", extensions: ["tbvol", "sgy", "segy"] },
+      { name: "Supported Volumes", extensions: ["tbvol", "zarr", "sgy", "segy"] },
       { name: "Runtime Stores", extensions: ["tbvol"] },
+      { name: "Zarr Stores", extensions: ["zarr"] },
       { name: "SEG-Y Files", extensions: ["sgy", "segy"] },
       { name: "All Files", extensions: ["*"] }
     ],
@@ -72,6 +73,59 @@ export async function pickHorizonFiles(): Promise<string[]> {
   return normalizeDialogPaths(result);
 }
 
+export async function pickVelocityFunctionsFile(): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return normalizeDialogPath(prompt("Enter velocity functions path (.txt, .csv):"));
+  }
+
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({
+    title: "Import Velocity Functions",
+    filters: [
+      { name: "Velocity Functions", extensions: ["txt", "csv"] },
+      { name: "All Files", extensions: ["*"] }
+    ],
+    multiple: false,
+    directory: false
+  });
+
+  return normalizeDialogPath(result);
+}
+
+export async function pickProjectFolder(): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return normalizeDialogPath(prompt("Enter Ophiolite project root:"));
+  }
+
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({
+    title: "Select Ophiolite Project Root",
+    multiple: false,
+    directory: true
+  });
+
+  return normalizeDialogPath(result);
+}
+
+export async function pickWellTimeDepthJsonFile(title = "Import Well Time-Depth JSON"): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return normalizeDialogPath(prompt("Enter well time-depth JSON path:"));
+  }
+
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({
+    title,
+    filters: [
+      { name: "JSON", extensions: ["json"] },
+      { name: "All Files", extensions: ["*"] }
+    ],
+    multiple: false,
+    directory: false
+  });
+
+  return normalizeDialogPath(result);
+}
+
 /**
  * Opens a native folder/save picker for the runtime store output.
  * Returns the selected path, or null if cancelled.
@@ -107,6 +161,24 @@ export async function pickSegyExportPath(defaultPath = "survey.export.sgy"): Pro
     defaultPath,
     filters: [
       { name: "SEG-Y", extensions: ["sgy", "segy"] },
+      { name: "All Files", extensions: ["*"] }
+    ]
+  });
+
+  return normalizeDialogPath(result);
+}
+
+export async function pickZarrExportPath(defaultPath = "survey.export.zarr"): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return normalizeDialogPath(prompt("Enter Zarr export path:"));
+  }
+
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const result = await save({
+    title: "Export Zarr",
+    defaultPath,
+    filters: [
+      { name: "Zarr Store", extensions: ["zarr"] },
       { name: "All Files", extensions: ["*"] }
     ]
   });
@@ -152,6 +224,28 @@ export async function confirmOverwriteSegy(outputPath: string): Promise<boolean>
   const { confirm } = await import("@tauri-apps/plugin-dialog");
   return confirm(message, {
     title: "Overwrite Existing SEG-Y File?",
+    kind: "warning",
+    okLabel: "Overwrite",
+    cancelLabel: "Cancel"
+  });
+}
+
+export async function confirmOverwriteZarr(outputPath: string): Promise<boolean> {
+  const message = [
+    "A Zarr store already exists at this location.",
+    "",
+    outputPath,
+    "",
+    "Overwrite it and replace the existing Zarr export?"
+  ].join("\n");
+
+  if (!isTauriEnvironment()) {
+    return window.confirm(message);
+  }
+
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  return confirm(message, {
+    title: "Overwrite Existing Zarr Store?",
     kind: "warning",
     okLabel: "Overwrite",
     cancelLabel: "Cancel"

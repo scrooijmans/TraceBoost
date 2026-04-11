@@ -1,8 +1,11 @@
 /target/
 /sandbox/
+/tmp/
 .DS_Store
 /app/traceboost-frontend/node_modules/
 /app/traceboost-frontend/dist/
 /app/traceboost-frontend/.cache/
 /app/traceboost-frontend/src-tauri/target/
 /.claude/
+**/__pycache__/
+*.py[cod]

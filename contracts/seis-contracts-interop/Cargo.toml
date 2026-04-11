@@ -9,6 +9,7 @@ name = "seis_contracts_interop"
 
 [dependencies]
 ophiolite-seismic = { path = "../../../ophiolite/crates/ophiolite-seismic" }
+ophiolite-project = { path = "../../../ophiolite/crates/ophiolite-project" }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

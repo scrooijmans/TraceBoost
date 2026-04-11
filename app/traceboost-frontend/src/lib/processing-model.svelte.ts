@@ -8,6 +8,7 @@ import type {
   SubvolumeProcessingPipeline,
   TraceLocalProcessingOperation as ProcessingOperation,
   TraceLocalProcessingPipeline as ProcessingPipeline,
+  TraceLocalProcessingStep as ProcessingStep,
   TraceLocalProcessingPreset as ProcessingPreset,
   RunTraceLocalProcessingRequest as RunProcessingRequest,
   RunSubvolumeProcessingRequest,
@@ -78,7 +79,6 @@ interface OperatorCatalogDefinition {
 interface CopiedSessionPipeline {
   pipeline: ProcessingPipeline;
   subvolumeCrop: SubvolumeCropOperation | null;
-  checkpointAfterOperationIndexes: number[];
 }
 
 const OPERATOR_CATALOG: readonly OperatorCatalogDefinition[] = [
@@ -200,12 +200,12 @@ export const operatorCatalogItems: readonly OperatorCatalogItem[] = OPERATOR_CAT
 
 function createEmptyPipeline(): ProcessingPipeline {
   return {
-    schema_version: 1,
+    schema_version: 2,
     revision: 1,
     preset_id: null,
     name: null,
     description: null,
-    operations: []
+    steps: []
   };
 }
 
@@ -238,7 +238,7 @@ function estimateSectionPayloadBytes(section: DisplaySectionView): number {
 }
 
 function previewOperationIds(pipeline: ProcessingPipeline): string[] {
-  return pipeline.operations.map((operation) => {
+  return pipeline.steps.map(({ operation }) => {
     if (typeof operation === "string") {
       return operation;
     }
@@ -275,7 +275,7 @@ function nextDuplicateName(sourceName: string, existingNames: string[]): string 
 }
 
 function sectionKey(viewerModel: ViewerModel): string {
-  return `${viewerModel.activeStorePath}:${viewerModel.axis}:${viewerModel.index}`;
+  return `${viewerModel.activeStorePath}:${viewerModel.axis}:${viewerModel.index}:${viewerModel.sectionDomain}:${viewerModel.depthVelocityKind}:${Math.round(viewerModel.depthVelocityMPerS)}`;
 }
 
 function clonePipeline(pipeline: ProcessingPipeline): ProcessingPipeline {
@@ -285,7 +285,21 @@ function clonePipeline(pipeline: ProcessingPipeline): ProcessingPipeline {
     preset_id: pipeline.preset_id,
     name: pipeline.name,
     description: pipeline.description,
-    operations: pipeline.operations.map((operation) => cloneOperation(operation))
+    steps: pipeline.steps.map((step) => cloneStep(step))
+  };
+}
+
+function cloneStep(step: ProcessingStep): ProcessingStep {
+  return {
+    operation: cloneOperation(step.operation),
+    checkpoint: step.checkpoint
+  };
+}
+
+function createStep(operation: ProcessingOperation, checkpoint = false): ProcessingStep {
+  return {
+    operation: cloneOperation(operation),
+    checkpoint
   };
 }
 
@@ -326,61 +340,19 @@ function cloneWorkspaceOperation(operation: WorkspaceOperation): WorkspaceOperat
   return isCropSubvolume(operation) ? { crop_subvolume: { ...operation.crop_subvolume } } : cloneOperation(operation);
 }
 
-function cloneCheckpointAfterOperationIndexes(indexes: readonly number[]): number[] {
-  return [...indexes];
+function canCheckpointStepIndex(
+  pipeline: ProcessingPipeline,
+  index: number,
+  subvolumeCrop: SubvolumeCropOperation | null
+): boolean {
+  return index >= 0 && index < pipeline.steps.length && (index < pipeline.steps.length - 1 || subvolumeCrop !== null);
 }
 
-function normalizeCheckpointAfterOperationIndexes(indexes: readonly number[], operationCount: number): number[] {
-  if (operationCount <= 1) {
-    return [];
-  }
-
-  const maxCheckpointIndex = operationCount - 2;
-  return [...new Set(indexes)]
-    .filter((value) => Number.isInteger(value) && value >= 0 && value <= maxCheckpointIndex)
-    .sort((left, right) => left - right);
-}
-
-function remapCheckpointIndexesForInsert(indexes: readonly number[], insertIndex: number, operationCount: number): number[] {
-  return normalizeCheckpointAfterOperationIndexes(
-    indexes.map((value) => (value >= insertIndex ? value + 1 : value)),
-    operationCount
-  );
-}
-
-function remapCheckpointIndexesForRemove(indexes: readonly number[], removeIndex: number, operationCount: number): number[] {
-  return normalizeCheckpointAfterOperationIndexes(
-    indexes.flatMap((value) => {
-      if (value === removeIndex) {
-        return [];
-      }
-      return [value > removeIndex ? value - 1 : value];
-    }),
-    operationCount
-  );
-}
-
-function remapCheckpointIndexesForMove(
-  indexes: readonly number[],
-  fromIndex: number,
-  toIndex: number,
-  operationCount: number
+function checkpointAfterOperationIndexes(
+  pipeline: ProcessingPipeline,
+  subvolumeCrop: SubvolumeCropOperation | null
 ): number[] {
-  return normalizeCheckpointAfterOperationIndexes(
-    indexes.map((value) => {
-      if (value === fromIndex) {
-        return toIndex;
-      }
-      if (fromIndex < toIndex && value > fromIndex && value <= toIndex) {
-        return value - 1;
-      }
-      if (fromIndex > toIndex && value >= toIndex && value < fromIndex) {
-        return value + 1;
-      }
-      return value;
-    }),
-    operationCount
-  );
+  return pipeline.steps.flatMap((step, index) => (step.checkpoint && canCheckpointStepIndex(pipeline, index, subvolumeCrop) ? [index] : []));
 }
 
 function normalizePresetId(value: string): string {
@@ -406,7 +378,7 @@ function pipelineTimestamp(): number {
 function pipelineRunOutputSignature(pipeline: ProcessingPipeline): string {
   return JSON.stringify({
     name: pipeline.name ?? null,
-    operations: pipeline.operations.map((operation) =>
+    operations: pipeline.steps.map(({ operation }) =>
       typeof operation === "string"
         ? operation
         : "amplitude_scalar" in operation
@@ -604,7 +576,7 @@ function buildSubvolumeProcessingPipeline(
     preset_id: pipeline.preset_id,
     name: pipeline.name,
     description: pipeline.description,
-    trace_local_pipeline: pipeline.operations.length ? clonePipeline(pipeline) : null,
+    trace_local_pipeline: pipeline.steps.length ? clonePipeline(pipeline) : null,
     crop: { ...crop }
   };
 }
@@ -613,7 +585,7 @@ function workspaceOperations(
   pipeline: ProcessingPipeline,
   subvolumeCrop: SubvolumeCropOperation | null
 ): WorkspaceOperation[] {
-  const operations: WorkspaceOperation[] = pipeline.operations.map((operation) => cloneOperation(operation));
+  const operations: WorkspaceOperation[] = pipeline.steps.map(({ operation }) => cloneOperation(operation));
   if (subvolumeCrop) {
     operations.push({ crop_subvolume: { ...subvolumeCrop } });
   }
@@ -625,10 +597,10 @@ function workspaceOperationAt(
   subvolumeCrop: SubvolumeCropOperation | null,
   index: number
 ): WorkspaceOperation | null {
-  if (index < pipeline.operations.length) {
-    return pipeline.operations[index] ?? null;
+  if (index < pipeline.steps.length) {
+    return pipeline.steps[index]?.operation ?? null;
   }
-  if (subvolumeCrop && index === pipeline.operations.length) {
+  if (subvolumeCrop && index === pipeline.steps.length) {
     return { crop_subvolume: { ...subvolumeCrop } };
   }
   return null;
@@ -733,10 +705,6 @@ export class ProcessingModel {
               pipeline_id: entry.pipeline_id,
               pipeline: clonePipeline(entry.pipeline),
               subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop),
-              checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-                entry.checkpoint_after_operation_indexes ?? [],
-                entry.pipeline.operations.length
-              ),
               updated_at_unix_s: entry.updated_at_unix_s
             }))
           : [this.createSessionPipelineEntry("Pipeline 1")];
@@ -814,7 +782,7 @@ export class ProcessingModel {
   }
 
   private traceOperationIndexForDisplayIndex(displayIndex: number): number | null {
-    if (displayIndex < 0 || displayIndex >= this.pipeline.operations.length) {
+    if (displayIndex < 0 || displayIndex >= this.pipeline.steps.length) {
       return null;
     }
     return displayIndex;
@@ -823,7 +791,7 @@ export class ProcessingModel {
   private nextTraceInsertIndexAfterSelection(): number {
     const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
     if (selectedTraceOperationIndex === null) {
-      return this.pipeline.operations.length;
+      return this.pipeline.steps.length;
     }
     return selectedTraceOperationIndex + 1;
   }
@@ -833,9 +801,7 @@ export class ProcessingModel {
   }
 
   get checkpointAfterOperationIndexes(): number[] {
-    return cloneCheckpointAfterOperationIndexes(
-      this.activeSessionPipeline?.checkpoint_after_operation_indexes ?? []
-    );
+    return checkpointAfterOperationIndexes(this.pipeline, this.subvolumeCrop);
   }
 
   get checkpointWarning(): string | null {
@@ -850,7 +816,7 @@ export class ProcessingModel {
   }
 
   get hasOperations(): boolean {
-    return this.pipeline.operations.length > 0 || this.subvolumeCrop !== null;
+    return this.pipeline.steps.length > 0 || this.subvolumeCrop !== null;
   }
 
   get selectedStepLabel(): string | null {
@@ -873,7 +839,7 @@ export class ProcessingModel {
   }
 
   get canPreview(): boolean {
-    return this.pipeline.operations.length > 0 && Boolean(this.viewerModel.section && this.viewerModel.activeStorePath);
+    return this.pipeline.steps.length > 0 && Boolean(this.viewerModel.section && this.viewerModel.activeStorePath);
   }
 
   get canRun(): boolean {
@@ -940,7 +906,7 @@ export class ProcessingModel {
 
   get canMoveSelectedDown(): boolean {
     const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
-    return selectedTraceOperationIndex !== null && selectedTraceOperationIndex < this.pipeline.operations.length - 1;
+    return selectedTraceOperationIndex !== null && selectedTraceOperationIndex < this.pipeline.steps.length - 1;
   }
 
   get canRemoveSessionPipeline(): boolean {
@@ -948,7 +914,15 @@ export class ProcessingModel {
   }
 
   get canToggleSelectedCheckpoint(): boolean {
-    return this.pipeline.operations.length > 1 && this.selectedStepIndex < this.pipeline.operations.length - 1;
+    const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
+    return selectedTraceOperationIndex !== null && canCheckpointStepIndex(this.pipeline, selectedTraceOperationIndex, this.subvolumeCrop);
+  }
+
+  get selectedStepCheckpoint(): boolean {
+    const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
+    return selectedTraceOperationIndex !== null
+      ? this.pipeline.steps[selectedTraceOperationIndex]?.checkpoint ?? false
+      : false;
   }
 
   get resolvedRunOutputPath(): string | null {
@@ -1034,8 +1008,7 @@ export class ProcessingModel {
     }
     const duplicate = this.createCopiedSessionPipelineEntry(
       source.pipeline,
-      source.subvolume_crop ?? null,
-      source.checkpoint_after_operation_indexes ?? []
+      source.subvolume_crop ?? null
     );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
@@ -1104,8 +1077,7 @@ export class ProcessingModel {
   private createSessionPipelineEntry(
     suggestedName: string,
     template: ProcessingPipeline = createEmptyPipeline(),
-    subvolumeCrop: SubvolumeCropOperation | null = null,
-    checkpointAfterOperationIndexes: number[] = []
+    subvolumeCrop: SubvolumeCropOperation | null = null
   ): WorkspacePipelineEntry {
     this.#sessionPipelineCounter += 1;
     const pipeline = clonePipeline(template);
@@ -1114,10 +1086,6 @@ export class ProcessingModel {
       pipeline_id: `session-pipeline-${Date.now()}-${this.#sessionPipelineCounter}`,
       pipeline,
       subvolume_crop: cloneSubvolumeCrop(subvolumeCrop),
-      checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-        checkpointAfterOperationIndexes,
-        pipeline.operations.length
-      ),
       updated_at_unix_s: pipelineTimestamp()
     };
   }
@@ -1137,8 +1105,7 @@ export class ProcessingModel {
 
   private createCopiedSessionPipelineEntry(
     source: ProcessingPipeline,
-    subvolumeCrop: SubvolumeCropOperation | null,
-    checkpointAfterOperationIndexes: number[]
+    subvolumeCrop: SubvolumeCropOperation | null
   ): WorkspacePipelineEntry {
     const pipeline = clonePipeline(source);
     pipeline.preset_id = null;
@@ -1149,8 +1116,7 @@ export class ProcessingModel {
     return this.createSessionPipelineEntry(
       pipeline.name,
       pipeline,
-      subvolumeCrop,
-      checkpointAfterOperationIndexes
+      subvolumeCrop
     );
   }
 
@@ -1161,10 +1127,7 @@ export class ProcessingModel {
     }
     this.#copiedSessionPipeline = {
       pipeline: clonePipeline(activePipeline.pipeline),
-      subvolumeCrop: cloneSubvolumeCrop(activePipeline.subvolume_crop),
-      checkpointAfterOperationIndexes: cloneCheckpointAfterOperationIndexes(
-        activePipeline.checkpoint_after_operation_indexes ?? []
-      )
+      subvolumeCrop: cloneSubvolumeCrop(activePipeline.subvolume_crop)
     };
     this.viewerModel.note("Copied active session pipeline.", "ui", "info", pipelineName(activePipeline.pipeline));
   };
@@ -1176,8 +1139,7 @@ export class ProcessingModel {
 
     const duplicate = this.createCopiedSessionPipelineEntry(
       this.#copiedSessionPipeline.pipeline,
-      this.#copiedSessionPipeline.subvolumeCrop,
-      this.#copiedSessionPipeline.checkpointAfterOperationIndexes
+      this.#copiedSessionPipeline.subvolumeCrop
     );
     this.sessionPipelines = [...this.sessionPipelines, duplicate];
     this.activeSessionPipelineId = duplicate.pipeline_id;
@@ -1209,18 +1171,33 @@ export class ProcessingModel {
   };
 
   toggleCheckpointAfterOperation = (index: number): void => {
-    if (index < 0 || index >= this.pipeline.operations.length - 1) {
+    if (!canCheckpointStepIndex(this.pipeline, index, this.subvolumeCrop)) {
       return;
     }
 
-    const nextCheckpointIndexes = this.checkpointAfterOperationIndexes.includes(index)
-      ? this.checkpointAfterOperationIndexes.filter((value) => value !== index)
-      : [...this.checkpointAfterOperationIndexes, index];
-    this.updateActiveSessionPipeline(
-      this.pipeline,
-      this.subvolumeCrop,
-      nextCheckpointIndexes
-    );
+    const next = clonePipeline(this.pipeline);
+    const step = next.steps[index];
+    if (!step) {
+      return;
+    }
+    step.checkpoint = !step.checkpoint;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next, this.subvolumeCrop);
+  };
+
+  setSelectedCheckpoint = (value: boolean): void => {
+    const selectedTraceOperationIndex = this.selectedTraceOperationIndex();
+    if (selectedTraceOperationIndex === null || !canCheckpointStepIndex(this.pipeline, selectedTraceOperationIndex, this.subvolumeCrop)) {
+      return;
+    }
+    const next = clonePipeline(this.pipeline);
+    const step = next.steps[selectedTraceOperationIndex];
+    if (!step || step.checkpoint === value) {
+      return;
+    }
+    step.checkpoint = value;
+    next.revision += 1;
+    this.updateActiveSessionPipeline(next, this.subvolumeCrop);
   };
 
   openProcessingArtifact = async (storePath: string): Promise<void> => {
@@ -1236,10 +1213,7 @@ export class ProcessingModel {
         pipeline_id: entry.pipeline_id,
         updated_at_unix_s: entry.updated_at_unix_s,
         pipeline: clonePipeline(entry.pipeline),
-        subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop),
-        checkpoint_after_operation_indexes: cloneCheckpointAfterOperationIndexes(
-          entry.checkpoint_after_operation_indexes ?? []
-        )
+        subvolume_crop: cloneSubvolumeCrop(entry.subvolume_crop)
       })),
       this.activeSessionPipelineId
     );
@@ -1263,8 +1237,7 @@ export class ProcessingModel {
 
   private updateActiveSessionPipeline(
     nextPipeline: ProcessingPipeline,
-    nextSubvolumeCrop: SubvolumeCropOperation | null = this.subvolumeCrop,
-    checkpointAfterOperationIndexes: number[] | null = null
+    nextSubvolumeCrop: SubvolumeCropOperation | null = this.subvolumeCrop
   ): void {
     const activePipelineId = this.activeSessionPipelineId;
     const snapshot = clonePipeline(nextPipeline);
@@ -1281,10 +1254,6 @@ export class ProcessingModel {
             pipeline_id: entry.pipeline_id,
             pipeline: clonePipeline(snapshot),
             subvolume_crop: cloneSubvolumeCrop(nextSubvolumeCrop),
-            checkpoint_after_operation_indexes: normalizeCheckpointAfterOperationIndexes(
-              checkpointAfterOperationIndexes ?? entry.checkpoint_after_operation_indexes ?? [],
-              snapshot.operations.length
-            ),
             updated_at_unix_s: pipelineTimestamp()
           }
         : entry
@@ -1392,13 +1361,9 @@ export class ProcessingModel {
     const next = clonePipeline(this.pipeline);
     const insertIndex = this.nextTraceInsertIndexAfterSelection();
     const insertDisplayIndex = insertIndex;
-    next.operations.splice(insertIndex, 0, cloneOperation(operation));
+    next.steps.splice(insertIndex, 0, createStep(operation));
     next.revision += 1;
-    this.updateActiveSessionPipeline(
-      next,
-      this.subvolumeCrop,
-      remapCheckpointIndexesForInsert(this.checkpointAfterOperationIndexes, insertIndex, next.operations.length)
-    );
+    this.updateActiveSessionPipeline(next, this.subvolumeCrop);
     this.selectedStepIndex = insertDisplayIndex;
     this.editingParams = true;
     this.invalidatePreview();
@@ -1406,16 +1371,12 @@ export class ProcessingModel {
 
   insertCropSubvolume = (crop: SubvolumeCropOperation = defaultSubvolumeCrop(this.viewerModel)): void => {
     if (this.subvolumeCrop) {
-      this.selectedStepIndex = this.pipeline.operations.length;
+      this.selectedStepIndex = this.pipeline.steps.length;
       this.editingParams = true;
       return;
     }
-    this.updateActiveSessionPipeline(
-      clonePipeline(this.pipeline),
-      crop,
-      []
-    );
-    this.selectedStepIndex = this.pipeline.operations.length;
+    this.updateActiveSessionPipeline(clonePipeline(this.pipeline), crop);
+    this.selectedStepIndex = this.pipeline.steps.length;
     this.editingParams = true;
     this.invalidatePreview();
   };
@@ -1425,45 +1386,33 @@ export class ProcessingModel {
   };
 
   removeOperationAt = (index: number): void => {
-    if (this.subvolumeCrop && index === this.pipeline.operations.length) {
-      this.updateActiveSessionPipeline(
-        clonePipeline(this.pipeline),
-        null,
-        this.checkpointAfterOperationIndexes
-      );
-      this.selectedStepIndex = Math.max(0, Math.min(index - 1, this.pipeline.operations.length - 1));
-      this.editingParams = this.pipeline.operations.length > 0;
+    if (this.subvolumeCrop && index === this.pipeline.steps.length) {
+      this.updateActiveSessionPipeline(clonePipeline(this.pipeline), null);
+      this.selectedStepIndex = Math.max(0, Math.min(index - 1, this.pipeline.steps.length - 1));
+      this.editingParams = this.pipeline.steps.length > 0;
       this.invalidatePreview();
       return;
     }
 
     const traceOperationIndex = this.traceOperationIndexForDisplayIndex(index);
-    if (traceOperationIndex === null || !this.pipeline.operations[traceOperationIndex]) {
+    if (traceOperationIndex === null || !this.pipeline.steps[traceOperationIndex]) {
       return;
     }
 
     const removedSelectedOperation = index === this.selectedStepIndex;
     const next = clonePipeline(this.pipeline);
-    next.operations.splice(traceOperationIndex, 1);
+    next.steps.splice(traceOperationIndex, 1);
     next.revision += 1;
-    this.updateActiveSessionPipeline(
-      next,
-      this.subvolumeCrop,
-      remapCheckpointIndexesForRemove(
-        this.checkpointAfterOperationIndexes,
-        traceOperationIndex,
-        next.operations.length
-      )
-    );
-    const nextWorkspaceOperationCount = next.operations.length + (this.subvolumeCrop ? 1 : 0);
-    if (next.operations.length === 0) {
+    this.updateActiveSessionPipeline(next, this.subvolumeCrop);
+    const nextWorkspaceOperationCount = next.steps.length + (this.subvolumeCrop ? 1 : 0);
+    if (next.steps.length === 0) {
       this.selectedStepIndex = this.subvolumeCrop ? 0 : 0;
     } else if (index < this.selectedStepIndex) {
       this.selectedStepIndex -= 1;
     } else if (index === this.selectedStepIndex) {
       this.selectedStepIndex = Math.min(index, nextWorkspaceOperationCount - 1);
     }
-    if (removedSelectedOperation || next.operations.length === 0) {
+    if (removedSelectedOperation || next.steps.length === 0) {
       this.editingParams = false;
     }
     this.invalidatePreview();
@@ -1479,19 +1428,10 @@ export class ProcessingModel {
     }
     const toIndex = fromIndex - 1;
     const next = clonePipeline(this.pipeline);
-    const [operation] = next.operations.splice(fromIndex, 1);
-    next.operations.splice(toIndex, 0, operation);
+    const [step] = next.steps.splice(fromIndex, 1);
+    next.steps.splice(toIndex, 0, step);
     next.revision += 1;
-    this.updateActiveSessionPipeline(
-      next,
-      this.subvolumeCrop,
-      remapCheckpointIndexesForMove(
-        this.checkpointAfterOperationIndexes,
-        fromIndex,
-        toIndex,
-        next.operations.length
-      )
-    );
+    this.updateActiveSessionPipeline(next, this.subvolumeCrop);
     this.selectedStepIndex -= 1;
     this.invalidatePreview();
   };
@@ -1506,19 +1446,10 @@ export class ProcessingModel {
     }
     const toIndex = fromIndex + 1;
     const next = clonePipeline(this.pipeline);
-    const [operation] = next.operations.splice(fromIndex, 1);
-    next.operations.splice(toIndex, 0, operation);
+    const [step] = next.steps.splice(fromIndex, 1);
+    next.steps.splice(toIndex, 0, step);
     next.revision += 1;
-    this.updateActiveSessionPipeline(
-      next,
-      this.subvolumeCrop,
-      remapCheckpointIndexesForMove(
-        this.checkpointAfterOperationIndexes,
-        fromIndex,
-        toIndex,
-        next.operations.length
-      )
-    );
+    this.updateActiveSessionPipeline(next, this.subvolumeCrop);
     this.selectedStepIndex += 1;
     this.invalidatePreview();
   };
@@ -1548,7 +1479,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isAmplitudeScalar(operation)) {
       return;
     }
@@ -1569,7 +1500,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isAgcRms(operation)) {
       return;
     }
@@ -1591,7 +1522,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isLowpassFilter(operation)) {
       return;
     }
@@ -1613,7 +1544,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isHighpassFilter(operation)) {
       return;
     }
@@ -1638,7 +1569,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isBandpassFilter(operation)) {
       return;
     }
@@ -1660,7 +1591,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isPhaseRotation(operation)) {
       return;
     }
@@ -1682,7 +1613,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isVolumeArithmetic(operation)) {
       return;
     }
@@ -1704,7 +1635,7 @@ export class ProcessingModel {
     if (selectedIndex === null) {
       return;
     }
-    const operation = next.operations[selectedIndex];
+    const operation = next.steps[selectedIndex]?.operation;
     if (!isVolumeArithmetic(operation)) {
       return;
     }
@@ -1734,16 +1665,12 @@ export class ProcessingModel {
       ...selected.crop_subvolume,
       [bound]: value
     };
-    this.updateActiveSessionPipeline(
-      clonePipeline(this.pipeline),
-      nextCrop,
-      []
-    );
+    this.updateActiveSessionPipeline(clonePipeline(this.pipeline), nextCrop);
     this.invalidatePreview();
   };
 
   replacePipeline = (pipeline: ProcessingPipeline): void => {
-    this.updateActiveSessionPipeline(clonePipeline(pipeline), null, []);
+    this.updateActiveSessionPipeline(clonePipeline(pipeline), null);
     this.selectedStepIndex = 0;
     this.editingParams = false;
     this.invalidatePreview();
@@ -1804,7 +1731,7 @@ export class ProcessingModel {
   previewCurrentSection = async (): Promise<void> => {
     if (!this.canPreview || !this.viewerModel.dataset || !this.viewerModel.activeStorePath) {
       this.error =
-        this.pipeline.operations.length === 0 && this.subvolumeCrop
+        this.pipeline.steps.length === 0 && this.subvolumeCrop
           ? "Crop Subvolume runs only on full-volume execution. Add a processing step to preview."
           : "Open a dataset and load a section before previewing.";
       return;
@@ -1911,7 +1838,7 @@ export class ProcessingModel {
       const rawResponse = await fetchAmplitudeSpectrum(baseRequest);
       this.rawSpectrum = rawResponse;
 
-      if (this.pipeline.operations.length > 0) {
+      if (this.pipeline.steps.length > 0) {
         this.processedSpectrum = await fetchAmplitudeSpectrum({
           ...baseRequest,
           pipeline: clonePipeline(this.pipeline)
@@ -2255,9 +2182,6 @@ export class ProcessingModel {
           store_path: this.viewerModel.activeStorePath,
           output_store_path: outputStorePath,
           overwrite_existing: overwriteExisting,
-          checkpoints: this.checkpointAfterOperationIndexes.map((after_operation_index) => ({
-            after_operation_index
-          })),
           pipeline: clonePipeline(this.pipeline)
         } satisfies RunProcessingRequest);
     this.activeJob = response.job;

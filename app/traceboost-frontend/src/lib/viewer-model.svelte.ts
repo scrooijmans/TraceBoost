@@ -1,7 +1,12 @@
 import { createContext, tick } from "svelte";
-import type { SectionHorizonOverlay as GeovizSectionHorizonOverlay } from "@geoviz/data-models";
+import type {
+  SectionHorizonOverlay as GeovizSectionHorizonOverlay,
+  SectionScalarOverlay as GeovizSectionScalarOverlay,
+  SectionWellOverlay as GeovizSectionWellOverlay
+} from "@geoviz/data-models";
 import type { SeismicChartInteractionState, SeismicChartTool } from "@geoviz/svelte";
 import type {
+  BuildSurveyTimeDepthTransformRequest,
   DatasetRegistryEntry,
   DatasetSummary,
   ExportSegyResponse,
@@ -15,38 +20,101 @@ import type {
   SectionAxis,
   SectionInteractionChanged,
   SectionHorizonOverlayView,
+  SectionTimeDepthDiagnostics,
   SectionProbeChanged,
   SectionView,
   SectionViewportChanged,
+  SurveyTimeDepthTransform3D,
   SurveyPreflightResponse,
+  VelocityFunctionSource,
+  VelocityQuantityKind,
   WorkspacePipelineEntry,
   WorkspaceSession
 } from "@traceboost/seis-contracts";
-import type { DiagnosticsEvent, DiagnosticsStatus, TransportSectionView } from "./bridge";
+import type {
+  ResolveSectionWellOverlaysResponse,
+  SectionWellOverlayRequestDto,
+  WellTimeDepthModel1D
+} from "@ophiolite/contracts";
+import type {
+  CompileProjectWellTimeDepthAuthoredModelRequest,
+  DatasetExportCapabilitiesResponse,
+  DiagnosticsEvent,
+  DiagnosticsStatus,
+  ExportZarrResponse,
+  HorizonImportCoordinateReferenceOptions,
+  ImportProjectWellTimeDepthAssetRequest,
+  ImportProjectWellTimeDepthModelRequest,
+  ImportProjectWellTimeDepthModelResponse,
+  ProjectSurveyAssetDescriptor,
+  ProjectWellTimeDepthAuthoredModelDescriptor,
+  ProjectWellboreInventoryItem,
+  ProjectWellOverlayInventoryResponse,
+  ProjectWellTimeDepthModelDescriptor,
+  ProjectWellTimeDepthObservationDescriptor,
+  TransportResolvedSectionDisplayView,
+  TransportSectionScalarOverlayView,
+  TransportSectionView
+} from "./bridge";
 import {
+  compileProjectWellTimeDepthAuthoredModel,
   exportDatasetSegy,
+  exportDatasetZarr,
   defaultImportStorePath,
+  buildVelocityModelTransform,
+  ensureDemoSurveyTimeDepthTransform,
   emitFrontendDiagnosticsEvent,
-  fetchSectionHorizons,
+  fetchDepthConvertedSectionView,
+  fetchResolvedSectionDisplay,
   fetchSectionView,
+  getDatasetExportCapabilities,
   getDiagnosticsStatus,
   importDataset,
   importHorizonXyz,
+  importProjectWellTimeDepthAsset,
+  importProjectWellTimeDepthModel,
+  importVelocityFunctionsModel,
+  listProjectWellOverlayInventory,
+  listProjectWellTimeDepthInventory,
+  loadVelocityModels,
   loadWorkspaceState,
   listenToDiagnosticsEvents,
   openDataset,
   preflightImport,
+  readProjectWellTimeDepthModel,
   removeDatasetEntry,
+  resolveProjectSectionWellOverlays,
   resolveSurveyMap,
   saveWorkspaceSession,
+  setProjectActiveWellTimeDepthModel,
   setActiveDatasetEntry,
   setDatasetNativeCoordinateReference,
   upsertDatasetEntry,
   setDiagnosticsVerbosity
 } from "./bridge";
-import { confirmOverwriteSegy, confirmOverwriteStore, pickSegyExportPath } from "./file-dialog";
+import {
+  confirmOverwriteSegy,
+  confirmOverwriteStore,
+  confirmOverwriteZarr,
+  pickSegyExportPath,
+  pickZarrExportPath
+} from "./file-dialog";
 
 type DisplaySectionView = SectionView | TransportSectionView;
+type SectionDisplayDomain = "time" | "depth";
+type SampleDataFidelity =
+  | DatasetSummary["descriptor"]["sample_data_fidelity"]
+  | SurveyPreflightResponse["sample_data_fidelity"];
+
+const DEMO_SURVEY_3D_TRANSFORM_ID = "demo-survey-3d-transform";
+const SECTION_WELL_OVERLAY_COLORS = [
+  "#f97316",
+  "#22c55e",
+  "#38bdf8",
+  "#facc15",
+  "#f472b6",
+  "#a78bfa"
+] as const;
 
 export interface ViewerActivity {
   id: number;
@@ -97,6 +165,27 @@ interface ImportGeometryRecoveryState {
   draft: GeometryOverrideDraft;
   working: boolean;
   error: string | null;
+}
+
+type DatasetExportFormat = "segy" | "zarr";
+
+interface DatasetExportFormatState {
+  selected: boolean;
+  available: boolean;
+  reason: string | null;
+  path: string;
+}
+
+interface DatasetExportDialogState {
+  entryId: string | null;
+  displayName: string;
+  storePath: string;
+  working: boolean;
+  error: string | null;
+  formats: {
+    segy: DatasetExportFormatState;
+    zarr: DatasetExportFormatState;
+  };
 }
 
 export type CompareCompatibilityReason =
@@ -181,7 +270,20 @@ function estimateSectionPayloadBytes(section: DisplaySectionView): number {
   );
 }
 
-function adaptSectionHorizonOverlays(overlays: SectionHorizonOverlayView[]): GeovizSectionHorizonOverlay[] {
+function decodeF32Le(bytes: Array<number> | Uint8Array | null | undefined): Float32Array {
+  if (!bytes) {
+    return new Float32Array(0);
+  }
+  const source = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+  if (source.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error(`Expected f32 little-endian bytes, found ${source.byteLength} bytes.`);
+  }
+  return new Float32Array(source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength));
+}
+
+function adaptSectionHorizonOverlays(
+  overlays: SectionHorizonOverlayView[]
+): GeovizSectionHorizonOverlay[] {
   return overlays.map((overlay) => ({
     id: overlay.id,
     name: overlay.name ?? undefined,
@@ -197,6 +299,50 @@ function adaptSectionHorizonOverlays(overlays: SectionHorizonOverlayView[]): Geo
   }));
 }
 
+function adaptSectionScalarOverlays(
+  overlays: TransportSectionScalarOverlayView[],
+  opacityOverride?: number
+): GeovizSectionScalarOverlay[] {
+  return overlays.map((overlay) => ({
+    id: overlay.id,
+    name: overlay.name ?? undefined,
+    width: overlay.width,
+    height: overlay.height,
+    values: decodeF32Le(overlay.values_f32le),
+    colorMap: overlay.color_map,
+    opacity: opacityOverride ?? overlay.opacity,
+    valueRange: overlay.value_range,
+    units: overlay.units ?? undefined
+  }));
+}
+
+function adaptSectionWellOverlays(
+  response: ResolveSectionWellOverlaysResponse
+): GeovizSectionWellOverlay[] {
+  return response.overlays.map((overlay, overlayIndex) => ({
+    id: overlay.wellbore_id,
+    name: overlay.name || overlay.wellbore_id,
+    color: SECTION_WELL_OVERLAY_COLORS[overlayIndex % SECTION_WELL_OVERLAY_COLORS.length]!,
+    lineWidth: 2.5,
+    lineStyle: overlay.display_domain === "time" ? "dashed" : "solid",
+    opacity: 0.95,
+    diagnostics: [...overlay.diagnostics],
+    segments: overlay.segments.map((segment) => ({
+      notes: [...segment.notes],
+      samples: segment.samples.map((sample) => ({
+        traceIndex: sample.trace_index,
+        traceCoordinate: sample.trace_coordinate,
+        sampleIndex: sample.sample_index ?? undefined,
+        sampleValue: sample.sample_value ?? undefined,
+        measuredDepthM: sample.measured_depth_m,
+        trueVerticalDepthM: sample.true_vertical_depth_m ?? undefined,
+        trueVerticalDepthSubseaM: sample.true_vertical_depth_subsea_m ?? undefined,
+        twtMs: sample.twt_ms ?? undefined
+      }))
+    }))
+  }));
+}
+
 function isExistingStoreError(message: string): boolean {
   return message.toLowerCase().includes("store root already exists:");
 }
@@ -205,9 +351,71 @@ function isExistingSegyExportError(message: string): boolean {
   return message.toLowerCase().includes("output seg-y path already exists:");
 }
 
+function isExistingZarrExportError(message: string): boolean {
+  return message.toLowerCase().includes("store root already exists:");
+}
+
 function describePreflight(preflight: SurveyPreflightResponse): string {
   const gather = preflight.gather_axis_kind ? `, gather axis ${preflight.gather_axis_kind}` : "";
   return `${preflight.classification} (${preflight.stacking_state}, ${preflight.layout}${gather})`;
+}
+
+function sampleTypeShort(sampleType: string | null | undefined): string {
+  const normalized = sampleType?.trim();
+  return normalized && normalized.length > 0 ? normalized : "unknown";
+}
+
+function sampleDataConversionLabel(
+  conversion: SampleDataFidelity["conversion"] | null | undefined
+): string {
+  switch (conversion) {
+    case "identity":
+      return "native storage";
+    case "format_transcode":
+      return "format transcode";
+    case "cast":
+    default:
+      return "numeric cast";
+  }
+}
+
+function sampleDataFidelityNeedsWarning(fidelity: SampleDataFidelity | null | undefined): boolean {
+  return fidelity?.preservation === "potentially_lossy";
+}
+
+function describeSampleDataFidelity(fidelity: SampleDataFidelity | null | undefined): string | null {
+  if (!fidelity) {
+    return null;
+  }
+
+  const source = sampleTypeShort(fidelity.source_sample_type);
+  const working = sampleTypeShort(fidelity.working_sample_type);
+  if (fidelity.conversion === "identity" && source === working) {
+    return `${working} native`;
+  }
+
+  return `${source} -> ${working}`;
+}
+
+function describeSampleDataFidelityDetail(fidelity: SampleDataFidelity | null | undefined): string | null {
+  if (!fidelity) {
+    return null;
+  }
+
+  const source = sampleTypeShort(fidelity.source_sample_type);
+  const working = sampleTypeShort(fidelity.working_sample_type);
+  const preservation = sampleDataFidelityNeedsWarning(fidelity) ? "Potentially lossy" : "Exact";
+  const notes = fidelity.notes.filter((note) => note.trim().length > 0);
+  const base =
+    fidelity.conversion === "identity" && source === working
+      ? `Source samples stay ${working} in the working store.`
+      : `Source samples import as ${working} from ${source} via ${sampleDataConversionLabel(fidelity.conversion)}.`;
+
+  if (notes.length > 0) {
+    return `${base} ${preservation} relative to the source values. ${notes.join(" ")}`;
+  }
+
+  return `${base} ${preservation} relative to the source values.`;
 }
 
 function canAutoImportPreflight(preflight: SurveyPreflightResponse): boolean {
@@ -350,6 +558,23 @@ function deriveSegyExportPathFromStore(storePath: string): string {
   return `${directory}${basename}.export.sgy`;
 }
 
+function deriveZarrExportPathFromStore(storePath: string): string {
+  const normalizedPath = trimPath(storePath);
+  if (!normalizedPath) {
+    return "";
+  }
+
+  const separatorIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+  const directory = separatorIndex >= 0 ? normalizedPath.slice(0, separatorIndex + 1) : "";
+  const filename = separatorIndex >= 0 ? normalizedPath.slice(separatorIndex + 1) : normalizedPath;
+  const basename = filename.replace(/\.[^.]+$/, "");
+  if (!basename) {
+    return "";
+  }
+
+  return `${directory}${basename}.export.zarr`;
+}
+
 function fileExtension(filePath: string): string {
   const normalized = trimPath(filePath);
   const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
@@ -456,7 +681,7 @@ function mergeWorkspaceEntry(
 }
 
 function entryStorePath(entry: DatasetRegistryEntry | null): string {
-  return entry?.imported_store_path ?? entry?.preferred_store_path ?? "";
+  return entry?.last_dataset?.store_path ?? entry?.imported_store_path ?? entry?.preferred_store_path ?? "";
 }
 
 function cloneSessionPipelines(
@@ -522,19 +747,35 @@ export class ViewerModel {
   dataset = $state<DatasetSummary | null>(null);
   preflight = $state<SurveyPreflightResponse | null>(null);
   importGeometryRecovery = $state.raw<ImportGeometryRecoveryState | null>(null);
+  datasetExportDialog = $state.raw<DatasetExportDialogState | null>(null);
   axis = $state<SectionAxis>("inline");
   index = $state(0);
+  sectionDomain = $state<SectionDisplayDomain>("time");
+  activeVelocityModelAssetId = $state<string | null>(null);
+  depthVelocityMPerS = $state(2200);
+  depthVelocityKind = $state<VelocityQuantityKind>("average");
+  availableVelocityModels = $state.raw<SurveyTimeDepthTransform3D[]>([]);
   section = $state.raw<DisplaySectionView | null>(null);
+  timeDepthDiagnostics = $state.raw<SectionTimeDepthDiagnostics | null>(null);
+  sectionScalarOverlays = $state.raw<GeovizSectionScalarOverlay[]>([]);
   sectionHorizons = $state.raw<GeovizSectionHorizonOverlay[]>([]);
+  sectionWellOverlays = $state.raw<GeovizSectionWellOverlay[]>([]);
   importedHorizons = $state.raw<ImportedHorizonDescriptor[]>([]);
   backgroundSection = $state.raw<DisplaySectionView | null>(null);
+  showVelocityOverlay = $state(false);
+  velocityOverlayOpacity = $state(0.52);
+  velocityModelWorkbenchOpen = $state(false);
+  velocityModelWorkbenchBuilding = $state(false);
+  velocityModelWorkbenchError = $state<string | null>(null);
+  velocityModelsLoading = $state(false);
   loading = $state(false);
   backgroundLoading = $state(false);
   horizonImporting = $state(false);
-  segyExporting = $state(false);
+  datasetExporting = $state(false);
   busyLabel = $state<string | null>(null);
   error = $state<string | null>(null);
   backgroundError = $state<string | null>(null);
+  velocityModelsError = $state<string | null>(null);
   resetToken = $state("inline:0");
   displayTransform = $state({
     renderMode: "heatmap" as "heatmap" | "wiggle",
@@ -561,6 +802,22 @@ export class ViewerModel {
   surveyMapSource = $state.raw<ResolvedSurveyMapSourceDto | null>(null);
   surveyMapLoading = $state(false);
   surveyMapError = $state<string | null>(null);
+  projectWellOverlayInventory = $state.raw<ProjectWellOverlayInventoryResponse | null>(null);
+  projectWellOverlayInventoryLoading = $state(false);
+  projectWellOverlayInventoryError = $state<string | null>(null);
+  projectWellTimeDepthObservationSets = $state.raw<ProjectWellTimeDepthObservationDescriptor[]>([]);
+  projectWellTimeDepthAuthoredModels = $state.raw<ProjectWellTimeDepthAuthoredModelDescriptor[]>([]);
+  projectWellTimeDepthModels = $state.raw<ProjectWellTimeDepthModelDescriptor[]>([]);
+  projectWellTimeDepthModelsLoading = $state(false);
+  projectWellTimeDepthModelsError = $state<string | null>(null);
+  projectSectionWellOverlays = $state.raw<ResolveSectionWellOverlaysResponse | null>(null);
+  projectSectionWellOverlaysLoading = $state(false);
+  projectSectionWellOverlaysError = $state<string | null>(null);
+  projectRoot = $state("");
+  projectSurveyAssetId = $state("");
+  projectWellboreId = $state("");
+  projectSectionToleranceM = $state(12.5);
+  selectedProjectWellTimeDepthModelAssetId = $state<string | null>(null);
   nativeCoordinateReferenceOverrideIdDraft = $state("");
   nativeCoordinateReferenceOverrideNameDraft = $state("");
   workspaceReady = $state(false);
@@ -575,6 +832,8 @@ export class ViewerModel {
   #backgroundLoadRequestId = 0;
   #backgroundSectionKey: string | null = null;
   #surveyMapRequestId = 0;
+  #projectWellOverlayInventoryRequestId = 0;
+  #projectWellTimeDepthModelsRequestId = 0;
   #copiedWorkspaceEntry: DatasetRegistryEntry | null = null;
   #workspaceEntryCounter = 0;
 
@@ -586,6 +845,10 @@ export class ViewerModel {
       const foregroundStorePath = this.comparePrimaryStorePath;
       const axis = this.axis;
       const index = this.index;
+      const sectionDomain = this.sectionDomain;
+      const activeVelocityModelAssetId = this.activeVelocityModelAssetId;
+      const depthVelocityMPerS = this.depthVelocityMPerS;
+      const depthVelocityKind = this.depthVelocityKind;
 
       if (!backgroundStorePath || !foregroundStorePath || backgroundStorePath === foregroundStorePath) {
         this.backgroundSection = null;
@@ -595,7 +858,7 @@ export class ViewerModel {
         return;
       }
 
-      const nextKey = `${backgroundStorePath}:${axis}:${index}`;
+      const nextKey = `${backgroundStorePath}:${axis}:${index}:${sectionDomain}:${activeVelocityModelAssetId ?? "global1d"}:${depthVelocityKind}:${depthVelocityMPerS}`;
       if (this.#backgroundSectionKey === nextKey) {
         return;
       }
@@ -640,6 +903,25 @@ export class ViewerModel {
     );
   };
 
+  #notePotentiallyLossySampleData(
+    fidelity: SampleDataFidelity | null | undefined,
+    context: "preflight" | "dataset"
+  ): void {
+    if (!sampleDataFidelityNeedsWarning(fidelity)) {
+      return;
+    }
+
+    const detail = describeSampleDataFidelityDetail(fidelity);
+    this.note(
+      context === "preflight"
+        ? "Preflight detected a potentially lossy sample conversion."
+        : "Dataset uses a potentially lossy source-to-working sample conversion.",
+      "backend",
+      "warn",
+      detail
+    );
+  }
+
   get activeDatasetEntry(): DatasetRegistryEntry | null {
     return this.workspaceEntries.find((entry) => entry.entry_id === this.activeEntryId) ?? null;
   }
@@ -654,8 +936,151 @@ export class ViewerModel {
     );
   }
 
-  get canExportSegy(): boolean {
-    return this.tauriRuntime && !!trimPath(this.activeStorePath) && !!this.dataset && !this.segyExporting;
+  get datasetSampleDataFidelity(): SampleDataFidelity | null {
+    return this.comparePrimaryDataset?.descriptor.sample_data_fidelity ?? null;
+  }
+
+  get datasetSampleDataFidelityLabel(): string | null {
+    return describeSampleDataFidelity(this.datasetSampleDataFidelity);
+  }
+
+  get datasetSampleDataFidelityDetail(): string | null {
+    return describeSampleDataFidelityDetail(this.datasetSampleDataFidelity);
+  }
+
+  get datasetSampleDataFidelityNeedsWarning(): boolean {
+    return sampleDataFidelityNeedsWarning(this.datasetSampleDataFidelity);
+  }
+
+  preflightSampleDataFidelityLabel(preflight: SurveyPreflightResponse | null | undefined): string | null {
+    return describeSampleDataFidelity(preflight?.sample_data_fidelity);
+  }
+
+  preflightSampleDataFidelityDetail(
+    preflight: SurveyPreflightResponse | null | undefined
+  ): string | null {
+    return describeSampleDataFidelityDetail(preflight?.sample_data_fidelity);
+  }
+
+  preflightSampleDataFidelityNeedsWarning(preflight: SurveyPreflightResponse | null | undefined): boolean {
+    return sampleDataFidelityNeedsWarning(preflight?.sample_data_fidelity);
+  }
+
+  get canOpenExportDialog(): boolean {
+    return this.tauriRuntime && !!trimPath(this.activeStorePath) && !!this.dataset && !this.datasetExporting;
+  }
+
+  get activeVelocityModel(): VelocityFunctionSource | null {
+    if (this.activeVelocityModelAssetId) {
+      return {
+        velocity_asset_reference: {
+          asset_id: this.activeVelocityModelAssetId
+        }
+      };
+    }
+
+    return {
+      constant_velocity: {
+        velocity_m_per_s: this.depthVelocityMPerS
+      }
+    };
+  }
+
+  get canDisplayDepthSection(): boolean {
+    if (!this.tauriRuntime || !trimPath(this.activeStorePath)) {
+      return false;
+    }
+
+    if (this.activeVelocityModelAssetId) {
+      return true;
+    }
+
+    return Number.isFinite(this.depthVelocityMPerS) && this.depthVelocityMPerS >= 1;
+  }
+
+  get activeVelocityModelDescriptor(): SurveyTimeDepthTransform3D | null {
+    if (!this.activeVelocityModelAssetId) {
+      return null;
+    }
+    return (
+      this.availableVelocityModels.find((model) => model.id === this.activeVelocityModelAssetId) ?? null
+    );
+  }
+
+  get canDisplayVelocityOverlay(): boolean {
+    return this.tauriRuntime && !!trimPath(this.activeStorePath);
+  }
+
+  get canResolveConfiguredProjectSectionWellOverlays(): boolean {
+    return (
+      this.tauriRuntime &&
+      !!trimPath(this.projectRoot) &&
+      !!trimPath(this.projectSurveyAssetId) &&
+      !!trimPath(this.projectWellboreId)
+    );
+  }
+
+  get projectSurveyAssets(): ProjectSurveyAssetDescriptor[] {
+    return this.projectWellOverlayInventory?.surveys ?? [];
+  }
+
+  get projectWellboreInventory(): ProjectWellboreInventoryItem[] {
+    return this.projectWellOverlayInventory?.wellbores ?? [];
+  }
+
+  get selectedProjectSurveyAsset(): ProjectSurveyAssetDescriptor | null {
+    const projectSurveyAssetId = trimPath(this.projectSurveyAssetId);
+    if (!projectSurveyAssetId) {
+      return null;
+    }
+    return this.projectSurveyAssets.find((survey) => survey.assetId === projectSurveyAssetId) ?? null;
+  }
+
+  get selectedProjectWellboreInventoryItem(): ProjectWellboreInventoryItem | null {
+    const projectWellboreId = trimPath(this.projectWellboreId);
+    if (!projectWellboreId) {
+      return null;
+    }
+    return (
+      this.projectWellboreInventory.find((wellbore) => wellbore.wellboreId === projectWellboreId) ??
+      null
+    );
+  }
+
+  get selectedProjectWellTimeDepthModel(): ProjectWellTimeDepthModelDescriptor | null {
+    if (!this.selectedProjectWellTimeDepthModelAssetId) {
+      return null;
+    }
+    return (
+      this.projectWellTimeDepthModels.find(
+        (model) => model.assetId === this.selectedProjectWellTimeDepthModelAssetId
+      ) ?? null
+    );
+  }
+
+  get timeDepthStatusLabel(): string | null {
+    const diagnostics = this.timeDepthDiagnostics;
+    if (!diagnostics) {
+      return null;
+    }
+    switch (diagnostics.transform_mode) {
+      case "none":
+        return diagnostics.display_domain === "time" ? "Native time" : "No transform";
+      case "global1d":
+        return "Global 1D";
+      case "survey3d":
+        return "Survey 3D";
+      default:
+        return null;
+    }
+  }
+
+  get timeDepthStatusDetail(): string | null {
+    const diagnostics = this.timeDepthDiagnostics;
+    if (!diagnostics) {
+      return null;
+    }
+    return diagnostics.notes[0] ?? null;
   }
 
   get comparePrimaryDataset(): DatasetSummary | null {
@@ -952,6 +1377,495 @@ export class ViewerModel {
     }
   };
 
+  refreshProjectWellOverlayInventory = async (
+    projectRoot: string
+  ): Promise<ProjectWellOverlayInventoryResponse | null> => {
+    const normalizedProjectRoot = trimPath(projectRoot);
+    if (!normalizedProjectRoot) {
+      this.projectWellOverlayInventory = null;
+      this.projectWellOverlayInventoryError = null;
+      this.projectWellOverlayInventoryLoading = false;
+      this.projectSurveyAssetId = "";
+      this.projectWellboreId = "";
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.projectWellTimeDepthModelsError = null;
+      this.selectedProjectWellTimeDepthModelAssetId = null;
+      return null;
+    }
+
+    if (!this.tauriRuntime) {
+      this.projectWellOverlayInventory = null;
+      this.projectWellOverlayInventoryError = null;
+      this.projectWellOverlayInventoryLoading = false;
+      return null;
+    }
+
+    this.projectWellOverlayInventoryLoading = true;
+    this.projectWellOverlayInventoryError = null;
+    const requestId = ++this.#projectWellOverlayInventoryRequestId;
+    const previousSurveyAssetId = this.projectSurveyAssetId;
+    const previousWellboreId = this.projectWellboreId;
+
+    try {
+      const inventory = await listProjectWellOverlayInventory(normalizedProjectRoot);
+      if (requestId !== this.#projectWellOverlayInventoryRequestId) {
+        return null;
+      }
+      this.projectWellOverlayInventory = inventory;
+
+      const nextSurveyAssetId =
+        inventory.surveys.find((survey) => survey.assetId === previousSurveyAssetId)?.assetId ??
+        inventory.surveys[0]?.assetId ??
+        "";
+      const surveyMatchedWellboreId =
+        inventory.surveys.find((survey) => survey.assetId === nextSurveyAssetId)?.wellboreId ?? "";
+      const nextWellboreId =
+        inventory.wellbores.find((wellbore) => wellbore.wellboreId === previousWellboreId)?.wellboreId ??
+        inventory.wellbores.find((wellbore) => wellbore.wellboreId === surveyMatchedWellboreId)?.wellboreId ??
+        inventory.wellbores[0]?.wellboreId ??
+        "";
+
+      this.projectSurveyAssetId = nextSurveyAssetId;
+      this.projectWellboreId = nextWellboreId;
+
+      if (previousSurveyAssetId !== nextSurveyAssetId || previousWellboreId !== nextWellboreId) {
+        this.clearProjectSectionWellOverlays();
+      }
+
+      if (nextWellboreId) {
+        await this.refreshProjectWellTimeDepthModels(normalizedProjectRoot, nextWellboreId);
+      } else {
+        this.projectWellTimeDepthObservationSets = [];
+        this.projectWellTimeDepthAuthoredModels = [];
+        this.projectWellTimeDepthModels = [];
+        this.projectWellTimeDepthModelsError = null;
+        this.selectedProjectWellTimeDepthModelAssetId = null;
+      }
+
+      if (
+        this.workspaceReady &&
+        (previousSurveyAssetId !== nextSurveyAssetId || previousWellboreId !== nextWellboreId)
+      ) {
+        void this.persistWorkspaceSession();
+      }
+
+      return inventory;
+    } catch (error) {
+      if (requestId !== this.#projectWellOverlayInventoryRequestId) {
+        return null;
+      }
+      this.projectWellOverlayInventory = null;
+      this.projectSurveyAssetId = "";
+      this.projectWellboreId = "";
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.projectWellTimeDepthModelsError = null;
+      this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.projectWellOverlayInventoryError = errorMessage(
+        error,
+        "Failed to load project well-overlay inventory."
+      );
+      this.note(
+        "Failed to load project well-overlay inventory.",
+        "backend",
+        "warn",
+        this.projectWellOverlayInventoryError
+      );
+      if (this.workspaceReady) {
+        void this.persistWorkspaceSession();
+      }
+      return null;
+    } finally {
+      if (requestId === this.#projectWellOverlayInventoryRequestId) {
+        this.projectWellOverlayInventoryLoading = false;
+      }
+    }
+  };
+
+  refreshProjectWellTimeDepthModels = async (
+    projectRoot: string,
+    wellboreId: string
+  ): Promise<ProjectWellTimeDepthModelDescriptor[]> => {
+    if (!this.tauriRuntime) {
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.projectWellTimeDepthModelsError = null;
+      this.projectWellTimeDepthModelsLoading = false;
+      return [];
+    }
+
+    this.projectWellTimeDepthModelsLoading = true;
+    this.projectWellTimeDepthModelsError = null;
+    const requestId = ++this.#projectWellTimeDepthModelsRequestId;
+    const previousSelectedAssetId = this.selectedProjectWellTimeDepthModelAssetId;
+
+    try {
+      const inventory = await listProjectWellTimeDepthInventory(projectRoot, wellboreId);
+      if (requestId !== this.#projectWellTimeDepthModelsRequestId) {
+        return [];
+      }
+      const models = inventory.compiledModels;
+      this.projectWellTimeDepthObservationSets = inventory.observationSets;
+      this.projectWellTimeDepthAuthoredModels = inventory.authoredModels;
+      this.projectWellTimeDepthModels = models;
+      if (
+        this.selectedProjectWellTimeDepthModelAssetId &&
+        !models.some((model) => model.assetId === this.selectedProjectWellTimeDepthModelAssetId)
+      ) {
+        this.selectedProjectWellTimeDepthModelAssetId = null;
+      }
+      if (!this.selectedProjectWellTimeDepthModelAssetId && models.length > 0) {
+        this.selectedProjectWellTimeDepthModelAssetId =
+          models.find((model) => model.isActiveProjectModel)?.assetId ?? models[0]!.assetId;
+      }
+      if (this.workspaceReady && previousSelectedAssetId !== this.selectedProjectWellTimeDepthModelAssetId) {
+        void this.persistWorkspaceSession();
+      }
+      return models;
+    } catch (error) {
+      if (requestId !== this.#projectWellTimeDepthModelsRequestId) {
+        return [];
+      }
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.projectWellTimeDepthModelsError = errorMessage(
+        error,
+        "Failed to load project well time-depth models."
+      );
+      if (this.workspaceReady && previousSelectedAssetId !== this.selectedProjectWellTimeDepthModelAssetId) {
+        void this.persistWorkspaceSession();
+      }
+      this.note(
+        "Failed to load project well time-depth models.",
+        "backend",
+        "warn",
+        this.projectWellTimeDepthModelsError
+      );
+      return [];
+    } finally {
+      if (requestId === this.#projectWellTimeDepthModelsRequestId) {
+        this.projectWellTimeDepthModelsLoading = false;
+      }
+    }
+  };
+
+  refreshConfiguredProjectWellTimeDepthModels = async (): Promise<ProjectWellTimeDepthModelDescriptor[]> => {
+    const projectRoot = trimPath(this.projectRoot);
+    const wellboreId = trimPath(this.projectWellboreId);
+    if (!projectRoot || !wellboreId) {
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.projectWellTimeDepthModelsError =
+        "Set both the project root and wellbore id before loading well models.";
+      if (this.workspaceReady) {
+        void this.persistWorkspaceSession();
+      }
+      return [];
+    }
+
+    return this.refreshProjectWellTimeDepthModels(projectRoot, wellboreId);
+  };
+
+  setProjectRoot = (projectRoot: string): void => {
+    this.projectRoot = projectRoot.trim();
+    this.clearProjectSectionWellOverlays();
+    if (!this.projectRoot) {
+      this.#projectWellOverlayInventoryRequestId += 1;
+      this.#projectWellTimeDepthModelsRequestId += 1;
+      this.projectWellOverlayInventory = null;
+      this.projectWellOverlayInventoryError = null;
+      this.projectWellOverlayInventoryLoading = false;
+      this.projectSurveyAssetId = "";
+      this.projectWellboreId = "";
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.projectWellTimeDepthModelsError = null;
+      this.projectWellTimeDepthModelsLoading = false;
+      this.selectedProjectWellTimeDepthModelAssetId = null;
+    } else if (this.tauriRuntime) {
+      void this.refreshProjectWellOverlayInventory(this.projectRoot);
+    }
+    if (this.workspaceReady) {
+      void this.persistWorkspaceSession();
+    }
+  };
+
+  setProjectSurveyAssetId = (surveyAssetId: string): void => {
+    this.projectSurveyAssetId = surveyAssetId.trim();
+    this.clearProjectSectionWellOverlays();
+    if (this.workspaceReady) {
+      void this.persistWorkspaceSession();
+    }
+  };
+
+  setProjectWellboreId = (wellboreId: string): void => {
+    this.projectWellboreId = wellboreId.trim();
+    this.clearProjectSectionWellOverlays();
+    if (this.projectWellboreId && trimPath(this.projectRoot)) {
+      void this.refreshProjectWellTimeDepthModels(trimPath(this.projectRoot), this.projectWellboreId);
+    } else {
+      this.#projectWellTimeDepthModelsRequestId += 1;
+      this.projectWellTimeDepthObservationSets = [];
+      this.projectWellTimeDepthAuthoredModels = [];
+      this.projectWellTimeDepthModels = [];
+      this.projectWellTimeDepthModelsError = null;
+      this.projectWellTimeDepthModelsLoading = false;
+      this.selectedProjectWellTimeDepthModelAssetId = null;
+    }
+    if (this.workspaceReady) {
+      void this.persistWorkspaceSession();
+    }
+  };
+
+  setProjectSectionToleranceM = (toleranceM: number): void => {
+    if (!Number.isFinite(toleranceM) || toleranceM <= 0) {
+      return;
+    }
+    this.projectSectionToleranceM = toleranceM;
+    this.clearProjectSectionWellOverlays();
+    if (this.workspaceReady) {
+      void this.persistWorkspaceSession();
+    }
+  };
+
+  setSelectedProjectWellTimeDepthModelAssetId = (assetId: string | null): void => {
+    const nextAssetId = assetId?.trim() || null;
+    this.selectedProjectWellTimeDepthModelAssetId = nextAssetId;
+
+    const projectRoot = trimPath(this.projectRoot);
+    const wellboreId = trimPath(this.projectWellboreId);
+    if (this.tauriRuntime && projectRoot && wellboreId) {
+      void (async () => {
+        try {
+          await setProjectActiveWellTimeDepthModel(projectRoot, wellboreId, nextAssetId);
+          this.projectWellTimeDepthModels = this.projectWellTimeDepthModels.map((model) => ({
+            ...model,
+            isActiveProjectModel: model.assetId === nextAssetId
+          }));
+          if (this.projectWellOverlayInventory) {
+            this.projectWellOverlayInventory = {
+              ...this.projectWellOverlayInventory,
+              wellbores: this.projectWellOverlayInventory.wellbores.map((wellbore) =>
+                wellbore.wellboreId === wellboreId
+                  ? {
+                      ...wellbore,
+                      activeWellTimeDepthModelAssetId: nextAssetId
+                    }
+                  : wellbore
+              )
+            };
+          }
+          if (this.workspaceReady) {
+            await this.persistWorkspaceSession();
+          }
+        } catch (error) {
+          const message = errorMessage(
+            error,
+            "Failed to update the active project well time-depth model."
+          );
+          this.projectWellTimeDepthModelsError = message;
+          this.note(
+            "Failed to update the active project well time-depth model.",
+            "backend",
+            "warn",
+            message
+          );
+        }
+      })();
+      return;
+    }
+
+    if (this.workspaceReady) {
+      void this.persistWorkspaceSession();
+    }
+  };
+
+  clearProjectSectionWellOverlays = (): void => {
+    this.projectSectionWellOverlays = null;
+    this.projectSectionWellOverlaysError = null;
+    this.sectionWellOverlays = [];
+  };
+
+  importProjectWellTimeDepthModel = async (
+    request: ImportProjectWellTimeDepthModelRequest
+  ): Promise<ImportProjectWellTimeDepthModelResponse> => {
+    const response = await importProjectWellTimeDepthModel(request);
+    this.note(
+      "Imported project well time-depth model.",
+      "backend",
+      "info",
+      response.assetId
+    );
+    return response;
+  };
+
+  importProjectWellTimeDepthAsset = async (
+    request: ImportProjectWellTimeDepthAssetRequest
+  ): Promise<ImportProjectWellTimeDepthModelResponse> => {
+    const response = await importProjectWellTimeDepthAsset(request);
+    this.note(
+      "Imported project well time-depth asset.",
+      "backend",
+      "info",
+      `${request.assetKind}:${response.assetId}`
+    );
+    return response;
+  };
+
+  compileProjectWellTimeDepthAuthoredModel = async (
+    request: CompileProjectWellTimeDepthAuthoredModelRequest
+  ): Promise<ImportProjectWellTimeDepthModelResponse> => {
+    const response = await compileProjectWellTimeDepthAuthoredModel(request);
+    this.note(
+      "Compiled project well time-depth authored model.",
+      "backend",
+      "info",
+      response.assetId
+    );
+    return response;
+  };
+
+  readProjectWellTimeDepthModel = async (
+    projectRoot: string,
+    assetId: string
+  ): Promise<WellTimeDepthModel1D> => {
+    return readProjectWellTimeDepthModel(projectRoot, assetId);
+  };
+
+  resolveProjectSectionWellOverlays = async (
+    request: SectionWellOverlayRequestDto
+  ): Promise<ResolveSectionWellOverlaysResponse> => {
+    if (!this.tauriRuntime) {
+      this.projectSectionWellOverlays = null;
+      this.sectionWellOverlays = [];
+      this.projectSectionWellOverlaysError = null;
+      this.projectSectionWellOverlaysLoading = false;
+      throw new Error("Project section-well overlays are only available in the desktop runtime.");
+    }
+
+    this.projectSectionWellOverlaysLoading = true;
+    this.projectSectionWellOverlaysError = null;
+
+    try {
+      const response = await resolveProjectSectionWellOverlays(request);
+      this.projectSectionWellOverlays = response;
+      this.sectionWellOverlays = adaptSectionWellOverlays(response);
+      this.note(
+        "Resolved project section well overlays.",
+        "backend",
+        "info",
+        `${response.overlays.length} overlay${response.overlays.length === 1 ? "" : "s"}`
+      );
+      return response;
+    } catch (error) {
+      this.projectSectionWellOverlays = null;
+      this.sectionWellOverlays = [];
+      this.projectSectionWellOverlaysError = errorMessage(
+        error,
+        "Failed to resolve project section-well overlays."
+      );
+      this.note(
+        "Failed to resolve project section-well overlays.",
+        "backend",
+        "warn",
+        this.projectSectionWellOverlaysError
+      );
+      throw error;
+    } finally {
+      this.projectSectionWellOverlaysLoading = false;
+    }
+  };
+
+  resolveConfiguredProjectSectionWellOverlays = async (): Promise<ResolveSectionWellOverlaysResponse> => {
+    const projectRoot = trimPath(this.projectRoot);
+    const surveyAssetId = trimPath(this.projectSurveyAssetId);
+    const wellboreId = trimPath(this.projectWellboreId);
+    if (!projectRoot || !surveyAssetId || !wellboreId) {
+      throw new Error(
+        "Set the project root, survey asset id, and wellbore id before resolving section well overlays."
+      );
+    }
+
+    const activeWellModelIds = this.selectedProjectWellTimeDepthModelAssetId
+      ? [this.selectedProjectWellTimeDepthModelAssetId]
+      : [];
+
+    return this.resolveProjectSectionWellOverlays({
+      schema_version: 1,
+      project_root: projectRoot,
+      survey_asset_id: surveyAssetId,
+      wellbore_ids: [wellboreId],
+      axis: this.axis,
+      index: this.index,
+      tolerance_m: this.projectSectionToleranceM,
+      display_domain: this.sectionDomain,
+      active_well_model_ids: activeWellModelIds
+    });
+  };
+
+  private async loadResolvedSection(
+    storePath: string,
+    axis: SectionAxis,
+    index: number
+  ): Promise<DisplaySectionView> {
+    await this.ensureActiveVelocityModelReady(storePath);
+    if (this.sectionDomain === "depth") {
+      if (!this.activeVelocityModel) {
+        throw new Error("Depth display requires an active velocity model.");
+      }
+      return fetchDepthConvertedSectionView(
+        storePath,
+        axis,
+        index,
+        this.activeVelocityModel,
+        this.depthVelocityKind
+      );
+    }
+    return fetchSectionView(storePath, axis, index);
+  }
+
+  private async loadResolvedSectionDisplay(
+    storePath: string,
+    axis: SectionAxis,
+    index: number
+  ): Promise<TransportResolvedSectionDisplayView> {
+    await this.ensureActiveVelocityModelReady(storePath);
+    return fetchResolvedSectionDisplay(
+      storePath,
+      axis,
+      index,
+      this.sectionDomain,
+      this.activeVelocityModel,
+      this.depthVelocityKind,
+      this.showVelocityOverlay
+    );
+  }
+
+  private async ensureActiveVelocityModelReady(storePath: string): Promise<void> {
+    if (!trimPath(storePath) || this.activeVelocityModelAssetId !== DEMO_SURVEY_3D_TRANSFORM_ID) {
+      return;
+    }
+
+    const assetId = await ensureDemoSurveyTimeDepthTransform(storePath);
+    if (assetId !== DEMO_SURVEY_3D_TRANSFORM_ID) {
+      this.note(
+        "The runtime returned an unexpected synthetic survey 3D transform id.",
+        "backend",
+        "warn",
+        assetId
+      );
+    }
+  }
+
   private async loadBackgroundSection(
     storePath: string,
     axis: SectionAxis,
@@ -963,7 +1877,7 @@ export class ViewerModel {
     this.backgroundError = null;
 
     try {
-      const section = await fetchSectionView(storePath, axis, index);
+      const section = await this.loadResolvedSection(storePath, axis, index);
       if (requestId !== this.#backgroundLoadRequestId) {
         return;
       }
@@ -987,6 +1901,222 @@ export class ViewerModel {
     }
   }
 
+  setSectionDomain = async (domain: SectionDisplayDomain): Promise<void> => {
+    if (domain === this.sectionDomain) {
+      return;
+    }
+    if (domain === "depth" && !this.canDisplayDepthSection) {
+      this.note(
+        "Depth display currently requires the desktop runtime, an active store, and a valid velocity model.",
+        "ui",
+        "warn"
+      );
+      return;
+    }
+
+    this.sectionDomain = domain;
+    this.note(
+      domain === "depth" ? "Switched section display to depth." : "Switched section display to time.",
+      "ui",
+      "info",
+      domain === "depth"
+        ? this.activeVelocityModelDescriptor
+          ? this.activeVelocityModelDescriptor.name
+          : `Constant Vavg ${Math.round(this.depthVelocityMPerS)} m/s`
+        : null
+    );
+
+    if (trimPath(this.activeStorePath)) {
+      await this.load(this.axis, this.index);
+    }
+  };
+
+  refreshVelocityModels = async (storePathOverride?: string): Promise<void> => {
+    const storePath = trimPath(storePathOverride ?? this.activeStorePath);
+    if (!this.tauriRuntime || !storePath) {
+      this.availableVelocityModels = [];
+      this.velocityModelsLoading = false;
+      this.velocityModelsError = null;
+      return;
+    }
+
+    this.velocityModelsLoading = true;
+    this.velocityModelsError = null;
+    try {
+      const models = await loadVelocityModels(storePath);
+      this.availableVelocityModels = models;
+      if (
+        this.activeVelocityModelAssetId &&
+        !models.some((model) => model.id === this.activeVelocityModelAssetId)
+      ) {
+        this.activeVelocityModelAssetId = null;
+      }
+    } catch (error) {
+      this.availableVelocityModels = [];
+      this.velocityModelsError = errorMessage(error, "Failed to load velocity models.");
+    } finally {
+      this.velocityModelsLoading = false;
+    }
+  };
+
+  activateVelocityModel = async (assetId: string | null): Promise<void> => {
+    if (assetId === this.activeVelocityModelAssetId) {
+      return;
+    }
+
+    this.activeVelocityModelAssetId = assetId;
+    this.note(
+      assetId
+        ? "Activated velocity model for time-depth conversion."
+        : "Cleared the active velocity model and fell back to the global 1D velocity.",
+      "ui",
+      "info",
+      assetId ?? `Constant Vavg ${Math.round(this.depthVelocityMPerS)} m/s`
+    );
+    await this.persistWorkspaceSession();
+
+    if (trimPath(this.activeStorePath)) {
+      await this.load(this.axis, this.index);
+    }
+  };
+
+  createDemoVelocityModel = async (): Promise<void> => {
+    const storePath = trimPath(this.activeStorePath);
+    if (!storePath) {
+      this.note("Open a seismic volume before creating a demo velocity model.", "ui", "warn");
+      return;
+    }
+
+    try {
+      const assetId = await ensureDemoSurveyTimeDepthTransform(storePath);
+      await this.refreshVelocityModels(storePath);
+      await this.activateVelocityModel(assetId);
+    } catch (error) {
+      this.note(
+        "Failed to create the synthetic survey 3D velocity model.",
+        "backend",
+        "error",
+        errorMessage(error, "Unknown velocity model error")
+      );
+    }
+  };
+
+  openVelocityModelWorkbench = (): void => {
+    this.velocityModelWorkbenchError = null;
+    this.velocityModelWorkbenchOpen = true;
+    this.note("Opened the experimental velocity-model workbench.", "ui", "info");
+  };
+
+  closeVelocityModelWorkbench = (): void => {
+    this.velocityModelWorkbenchError = null;
+    this.velocityModelWorkbenchOpen = false;
+  };
+
+  buildAuthoredVelocityModel = async (
+    request: BuildSurveyTimeDepthTransformRequest,
+    activate = true
+  ): Promise<SurveyTimeDepthTransform3D> => {
+    const storePath = trimPath(this.activeStorePath);
+    if (!storePath) {
+      throw new Error("Open a seismic volume before building a velocity model.");
+    }
+    if (!this.tauriRuntime) {
+      throw new Error("Velocity-model building is only available in the desktop runtime right now.");
+    }
+
+    this.velocityModelWorkbenchBuilding = true;
+    this.velocityModelWorkbenchError = null;
+    try {
+      const builtModel = await buildVelocityModelTransform({
+        ...request,
+        store_path: storePath
+      });
+      await this.refreshVelocityModels(storePath);
+      if (activate) {
+        await this.activateVelocityModel(builtModel.id);
+      }
+      this.note(
+        activate
+          ? "Built and activated authored velocity model."
+          : "Built authored velocity model.",
+        "backend",
+        "info",
+        builtModel.name
+      );
+      return builtModel;
+    } catch (error) {
+      const message = errorMessage(error, "Failed to build the velocity model.");
+      this.velocityModelWorkbenchError = message;
+      this.note("Velocity-model build failed.", "backend", "error", message);
+      throw error;
+    } finally {
+      this.velocityModelWorkbenchBuilding = false;
+    }
+  };
+
+  importVelocityFunctionsFile = async (
+    inputPath: string,
+    velocityKind: VelocityQuantityKind = "interval"
+  ): Promise<void> => {
+    const storePath = trimPath(this.activeStorePath);
+    const normalizedInputPath = trimPath(inputPath);
+    if (!storePath) {
+      this.note("Open a seismic volume before importing velocity functions.", "ui", "warn");
+      return;
+    }
+    if (!normalizedInputPath) {
+      return;
+    }
+
+    this.velocityModelsLoading = true;
+    this.velocityModelsError = null;
+    try {
+      const response = await importVelocityFunctionsModel(storePath, normalizedInputPath, velocityKind);
+      await this.refreshVelocityModels(storePath);
+      await this.activateVelocityModel(response.model.id);
+      this.note(
+        "Imported sparse velocity functions and compiled a survey transform.",
+        "backend",
+        "info",
+        `${response.profile_count} profiles, ${response.sample_count} samples`
+      );
+    } catch (error) {
+      const message = errorMessage(error, "Failed to import velocity functions.");
+      this.velocityModelsError = message;
+      this.note("Velocity-functions import failed.", "backend", "error", message);
+    } finally {
+      this.velocityModelsLoading = false;
+    }
+  };
+
+  setDepthVelocityMPerS = async (velocityMPerS: number): Promise<void> => {
+    if (!Number.isFinite(velocityMPerS) || velocityMPerS < 1) {
+      this.note("Depth conversion velocity must be a finite value >= 1 m/s.", "ui", "warn");
+      return;
+    }
+
+    this.depthVelocityMPerS = velocityMPerS;
+    if (!this.activeVelocityModelAssetId && this.sectionDomain === "depth" && trimPath(this.activeStorePath)) {
+      await this.load(this.axis, this.index);
+    }
+  };
+
+  setShowVelocityOverlay = async (enabled: boolean): Promise<void> => {
+    this.showVelocityOverlay = enabled;
+    if (trimPath(this.activeStorePath)) {
+      await this.load(this.axis, this.index);
+    }
+  };
+
+  setVelocityOverlayOpacity = (opacity: number): void => {
+    const clamped = Math.min(Math.max(opacity, 0), 1);
+    this.velocityOverlayOpacity = clamped;
+    this.sectionScalarOverlays = this.sectionScalarOverlays.map((overlay) => ({
+      ...overlay,
+      opacity: clamped
+    }));
+  };
+
   setSelectedPresetId = (presetId: string | null): void => {
     this.selectedPresetId = presetId?.trim() || null;
     if (!this.workspaceReady) {
@@ -1009,12 +2139,25 @@ export class ViewerModel {
     this.activeEntryId = session.active_entry_id;
     this.selectedPresetId = session.selected_preset_id;
     this.displayCoordinateReferenceId = session.display_coordinate_reference_id;
+    this.activeVelocityModelAssetId = session.active_velocity_model_asset_id;
     this.axis = session.active_axis;
     this.index = session.active_index;
+    this.projectRoot = session.project_root ?? "";
+    this.projectSurveyAssetId = session.project_survey_asset_id ?? "";
+    this.projectWellboreId = session.project_wellbore_id ?? "";
+    this.projectSectionToleranceM =
+      session.project_section_tolerance_m && session.project_section_tolerance_m > 0
+        ? session.project_section_tolerance_m
+        : 12.5;
+    this.selectedProjectWellTimeDepthModelAssetId =
+      session.selected_project_well_time_depth_model_asset_id ?? null;
   };
 
   #applyWorkspaceEntry = (entry: DatasetRegistryEntry | null): void => {
     if (!entry) {
+      this.availableVelocityModels = [];
+      this.velocityModelsError = null;
+      this.velocityModelsLoading = false;
       this.nativeCoordinateReferenceOverrideIdDraft = "";
       this.nativeCoordinateReferenceOverrideNameDraft = "";
       return;
@@ -1032,6 +2175,7 @@ export class ViewerModel {
       entry.last_dataset?.descriptor.coordinate_reference_binding?.effective?.id ?? "";
     this.nativeCoordinateReferenceOverrideNameDraft =
       entry.last_dataset?.descriptor.coordinate_reference_binding?.effective?.name ?? "";
+    void this.refreshVelocityModels(storePath);
   };
 
   #clearLoadedDataset = (): void => {
@@ -1041,6 +2185,10 @@ export class ViewerModel {
     this.surveyMapError = null;
     this.surveyMapLoading = false;
     this.section = null;
+    this.timeDepthDiagnostics = null;
+    this.sectionScalarOverlays = [];
+    this.sectionHorizons = [];
+    this.sectionWellOverlays = [];
     this.backgroundSection = null;
     this.lastProbe = null;
     this.lastViewport = null;
@@ -1052,6 +2200,10 @@ export class ViewerModel {
     this.backgroundError = null;
     this.backgroundLoading = false;
     this.#backgroundSectionKey = null;
+    this.availableVelocityModels = [];
+    this.velocityModelsError = null;
+    this.velocityModelsLoading = false;
+    this.activeVelocityModelAssetId = null;
     this.nativeCoordinateReferenceOverrideIdDraft = "";
     this.nativeCoordinateReferenceOverrideNameDraft = "";
   };
@@ -1065,6 +2217,9 @@ export class ViewerModel {
     this.refreshCompareSelection();
     this.workspaceReady = true;
     void this.refreshSurveyMap();
+    if (this.tauriRuntime && trimPath(this.projectRoot)) {
+      void this.refreshProjectWellOverlayInventory(trimPath(this.projectRoot));
+    }
   };
 
   updateActiveEntryPipelines = async (
@@ -1119,7 +2274,17 @@ export class ViewerModel {
         active_axis: this.axis,
         active_index: this.index,
         selected_preset_id: this.selectedPresetId,
-        display_coordinate_reference_id: this.displayCoordinateReferenceId
+        display_coordinate_reference_id: this.displayCoordinateReferenceId,
+        active_velocity_model_asset_id: this.activeVelocityModelAssetId,
+        project_root: trimPath(this.projectRoot) || null,
+        project_survey_asset_id: trimPath(this.projectSurveyAssetId) || null,
+        project_wellbore_id: trimPath(this.projectWellboreId) || null,
+        project_section_tolerance_m:
+          Number.isFinite(this.projectSectionToleranceM) && this.projectSectionToleranceM > 0
+            ? this.projectSectionToleranceM
+            : null,
+        selected_project_well_time_depth_model_asset_id:
+          this.selectedProjectWellTimeDepthModelAssetId
       });
       this.#applyWorkspaceSession(response.session);
     } catch (error) {
@@ -1247,8 +2412,8 @@ export class ViewerModel {
       return;
     }
 
-    if (extension !== ".sgy" && extension !== ".segy") {
-      this.error = "TraceBoost currently supports opening .tbvol, .sgy, and .segy volumes.";
+    if (extension !== ".sgy" && extension !== ".segy" && extension !== ".zarr") {
+      this.error = "TraceBoost currently supports opening .tbvol, .zarr, .sgy, and .segy volumes.";
       this.note("Open-volume blocked because the selected file type is unsupported.", "ui", "error", normalizedPath);
       return;
     }
@@ -1257,7 +2422,7 @@ export class ViewerModel {
       this.workspaceEntries.find((entry) => trimPath(entry.source_path ?? "") === normalizedPath) ?? null;
     const existingImportedStore = trimPath(matchingEntry?.imported_store_path ?? "");
     if (existingImportedStore) {
-      this.note("Reusing existing imported runtime store for the selected SEG-Y volume.", "ui", "info", existingImportedStore);
+      this.note("Reusing existing imported runtime store for the selected source volume.", "ui", "info", existingImportedStore);
       await this.openDatasetAt(existingImportedStore, "inline", 0, {
         entryId: matchingEntry?.entry_id ?? null,
         sourcePath: normalizedPath,
@@ -1269,12 +2434,31 @@ export class ViewerModel {
       return;
     }
 
+    if (extension === ".zarr") {
+      const outputStorePath =
+        trimPath(matchingEntry?.imported_store_path ?? matchingEntry?.preferred_store_path ?? "") ||
+        (await defaultImportStorePath(normalizedPath));
+      this.note("Started one-shot Zarr import.", "ui", "info", normalizedPath);
+      await this.importDataset({
+        inputPath: normalizedPath,
+        outputStorePath,
+        entryId: matchingEntry?.entry_id ?? null,
+        sourcePath: normalizedPath,
+        sessionPipelines: cloneSessionPipelines(matchingEntry?.session_pipelines),
+        activeSessionPipelineId: matchingEntry?.active_session_pipeline_id ?? null,
+        makeActive: shouldActivateOpenedVolume,
+        loadSection: shouldActivateOpenedVolume,
+        reuseExistingStore: true
+      });
+      return;
+    }
+
     this.loading = true;
     this.busyLabel = "Inspecting volume";
     this.error = null;
     this.preflight = null;
     this.importGeometryRecovery = null;
-    this.note("Started one-shot volume import.", "ui", "info", normalizedPath);
+    this.note("Started one-shot SEG-Y import.", "ui", "info", normalizedPath);
 
     try {
       const preflight = await preflightImport(normalizedPath);
@@ -1732,9 +2916,10 @@ export class ViewerModel {
       this.refreshCompareSelection();
       this.note("Activated dataset entry from the workspace list.", "ui", "info", response.entry.display_name);
 
-      if (response.entry.imported_store_path) {
+      const storePath = trimPath(entryStorePath(response.entry));
+      if (storePath) {
         await this.openDatasetAt(
-          response.entry.imported_store_path,
+          storePath,
           this.axis,
           this.index
         );
@@ -1897,17 +3082,19 @@ export class ViewerModel {
         this.error = null;
         this.activeEntryId = workspaceResponse.entry.entry_id;
         this.#applyWorkspaceSession(workspaceResponse.session);
+        await this.refreshVelocityModels(response.dataset.store_path);
         void this.refreshSurveyMap();
 
-        this.note(
-          "Runtime store opened.",
-          "backend",
-          "info",
-          `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
-        );
-        if (loadSection) {
-          await this.load(axis, index, response.dataset.store_path);
-        } else {
+      this.note(
+        "Runtime store opened.",
+        "backend",
+        "info",
+        `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
+      );
+      this.#notePotentiallyLossySampleData(response.dataset.descriptor.sample_data_fidelity, "dataset");
+      if (loadSection) {
+        await this.load(axis, index, response.dataset.store_path);
+      } else {
           this.loading = false;
           this.busyLabel = null;
         }
@@ -1977,6 +3164,7 @@ export class ViewerModel {
         preflight.suggested_action === "direct_dense_ingest" ? "info" : "warn",
         `Suggested action: ${preflight.suggested_action}`
       );
+      this.#notePotentiallyLossySampleData(preflight.sample_data_fidelity, "preflight");
     } catch (error) {
       this.loading = false;
       this.busyLabel = null;
@@ -2127,6 +3315,7 @@ export class ViewerModel {
           "info",
           `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
         );
+        this.#notePotentiallyLossySampleData(response.dataset.descriptor.sample_data_fidelity, "dataset");
         if (loadSection) {
           await this.load("inline", 0, response.dataset.store_path);
         }
@@ -2138,6 +3327,7 @@ export class ViewerModel {
           "info",
           `${response.dataset.descriptor.label} @ ${response.dataset.store_path}`
         );
+        this.#notePotentiallyLossySampleData(response.dataset.descriptor.sample_data_fidelity, "dataset");
       }
     } catch (error) {
       this.loading = false;
@@ -2167,7 +3357,10 @@ export class ViewerModel {
     }
   };
 
-  importHorizonFiles = async (inputPaths: string[]): Promise<void> => {
+  importHorizonFiles = async (
+    inputPaths: string[],
+    options: HorizonImportCoordinateReferenceOptions = {}
+  ): Promise<void> => {
     const activeStorePath = this.activeStorePath.trim();
     const normalizedPaths = inputPaths.map(trimPath).filter((value) => value.length > 0);
     if (!activeStorePath) {
@@ -2189,11 +3382,16 @@ export class ViewerModel {
     );
 
     try {
-      const response = await importHorizonXyz(activeStorePath, normalizedPaths);
+      const response = await importHorizonXyz(activeStorePath, normalizedPaths, options);
       this.importedHorizons = response.imported;
-      this.sectionHorizons = adaptSectionHorizonOverlays(
-        await fetchSectionHorizons(activeStorePath, this.axis, this.index)
+      const display = await this.loadResolvedSectionDisplay(activeStorePath, this.axis, this.index);
+      this.section = display.section;
+      this.timeDepthDiagnostics = display.time_depth_diagnostics;
+      this.sectionScalarOverlays = adaptSectionScalarOverlays(
+        display.scalar_overlays,
+        this.velocityOverlayOpacity
       );
+      this.sectionHorizons = adaptSectionHorizonOverlays(display.horizon_overlays);
       this.note(
         "Imported horizon xyz files into the active runtime store.",
         "backend",
@@ -2208,64 +3406,258 @@ export class ViewerModel {
     }
   };
 
-  exportActiveDatasetSegy = async (): Promise<void> => {
-    const activeStorePath = trimPath(this.activeStorePath);
+  openActiveDatasetExportDialog = async (): Promise<void> => {
+    await this.openDatasetExportDialog(this.activeEntryId);
+  };
+
+  openDatasetExportDialog = async (entryId: string | null): Promise<void> => {
     if (!this.tauriRuntime) {
-      this.note("SEG-Y export is only available in the desktop app.", "ui", "warn");
-      return;
-    }
-    if (!activeStorePath) {
-      this.error = "Open a runtime store before exporting SEG-Y.";
-      this.note("SEG-Y export blocked because no active runtime store is open.", "ui", "error");
+      this.note("Dataset export is only available in the desktop app.", "ui", "warn");
       return;
     }
 
-    const selectedOutputPath = await pickSegyExportPath(
-      deriveSegyExportPathFromStore(activeStorePath) || "survey.export.sgy"
-    );
-    const outputPath = trimPath(selectedOutputPath ?? "");
-    if (!outputPath) {
-      this.note("SEG-Y export was cancelled before an output path was chosen.", "ui", "warn");
+    const entry =
+      (entryId ? this.workspaceEntries.find((candidate) => candidate.entry_id === entryId) : null) ??
+      this.activeDatasetEntry;
+    const storePath = trimPath(entryStorePath(entry) || this.activeStorePath);
+    if (!storePath) {
+      this.error = "Open or import a runtime store before exporting.";
+      this.note("Dataset export blocked because no runtime store path is available.", "ui", "error");
       return;
     }
-
-    this.segyExporting = true;
-    this.error = null;
-    this.note("Started SEG-Y export.", "ui", "info", `${activeStorePath} -> ${outputPath}`);
 
     try {
-      let response: ExportSegyResponse;
+      const capabilities: DatasetExportCapabilitiesResponse = await getDatasetExportCapabilities(storePath);
+      const displayName = userVisibleDatasetName(
+        entry?.display_name ?? this.dataset?.descriptor.label ?? null,
+        entry?.source_path ?? null,
+        storePath,
+        entry?.entry_id ?? this.dataset?.descriptor.id ?? "dataset"
+      );
+      this.datasetExportDialog = {
+        entryId: entry?.entry_id ?? null,
+        displayName,
+        storePath,
+        working: false,
+        error: null,
+        formats: {
+          segy: {
+            selected: capabilities.segy.available,
+            available: capabilities.segy.available,
+            reason: capabilities.segy.reason,
+            path: capabilities.segy.defaultOutputPath || deriveSegyExportPathFromStore(storePath)
+          },
+          zarr: {
+            selected: !capabilities.segy.available && capabilities.zarr.available,
+            available: capabilities.zarr.available,
+            reason: capabilities.zarr.reason,
+            path: capabilities.zarr.defaultOutputPath || deriveZarrExportPathFromStore(storePath)
+          }
+        }
+      };
+    } catch (error) {
+      this.error = errorMessage(error, "Failed to inspect dataset export capabilities.");
+      this.note("Dataset export dialog failed to initialize.", "backend", "error", this.error);
+    }
+  };
 
-      try {
-        response = await exportDatasetSegy(activeStorePath, outputPath, false);
-      } catch (error) {
-        const message = errorMessage(error, "Unknown SEG-Y export error");
-        if (!isExistingSegyExportError(message)) {
-          throw error;
+  closeDatasetExportDialog = (): void => {
+    if (this.datasetExportDialog?.working) {
+      return;
+    }
+    this.datasetExportDialog = null;
+  };
+
+  setDatasetExportFormatSelected = (format: DatasetExportFormat, selected: boolean): void => {
+    const dialog = this.datasetExportDialog;
+    if (!dialog || !dialog.formats[format].available || dialog.working) {
+      return;
+    }
+    this.datasetExportDialog = {
+      ...dialog,
+      error: null,
+      formats: {
+        ...dialog.formats,
+        [format]: {
+          ...dialog.formats[format],
+          selected
+        }
+      }
+    };
+  };
+
+  setDatasetExportPath = (format: DatasetExportFormat, path: string): void => {
+    const dialog = this.datasetExportDialog;
+    if (!dialog || dialog.working) {
+      return;
+    }
+    this.datasetExportDialog = {
+      ...dialog,
+      error: null,
+      formats: {
+        ...dialog.formats,
+        [format]: {
+          ...dialog.formats[format],
+          path
+        }
+      }
+    };
+  };
+
+  browseDatasetExportPath = async (format: DatasetExportFormat): Promise<void> => {
+    const dialog = this.datasetExportDialog;
+    if (!dialog || dialog.working || !dialog.formats[format].available) {
+      return;
+    }
+
+    const picker =
+      format === "segy"
+        ? pickSegyExportPath(dialog.formats.segy.path || "survey.export.sgy")
+        : pickZarrExportPath(dialog.formats.zarr.path || "survey.export.zarr");
+    const selectedPath = trimPath((await picker) ?? "");
+    if (!selectedPath) {
+      return;
+    }
+    this.setDatasetExportPath(format, selectedPath);
+  };
+
+  confirmDatasetExportDialog = async (): Promise<void> => {
+    const dialog = this.datasetExportDialog;
+    if (!dialog || dialog.working) {
+      return;
+    }
+
+    const selectedFormats = (["segy", "zarr"] as const).filter(
+      (format) => dialog.formats[format].available && dialog.formats[format].selected
+    );
+    if (selectedFormats.length === 0) {
+      this.datasetExportDialog = {
+        ...dialog,
+        error: "Select at least one export format before continuing."
+      };
+      return;
+    }
+
+    for (const format of selectedFormats) {
+      const outputPath = trimPath(dialog.formats[format].path);
+      if (!outputPath) {
+        this.datasetExportDialog = {
+          ...dialog,
+          error: `Choose an output path for ${format.toUpperCase()} export before continuing.`
+        };
+        return;
+      }
+    }
+
+    this.datasetExportDialog = {
+      ...dialog,
+      working: true,
+      error: null
+    };
+    this.datasetExporting = true;
+    this.error = null;
+
+    try {
+      const exportedPaths: string[] = [];
+      for (const format of selectedFormats) {
+        const outputPath = trimPath(dialog.formats[format].path);
+
+        if (format === "segy") {
+          this.note("Started SEG-Y export.", "ui", "info", `${dialog.storePath} -> ${outputPath}`);
+          let response: ExportSegyResponse;
+          try {
+            response = await exportDatasetSegy(dialog.storePath, outputPath, false);
+          } catch (error) {
+            const message = errorMessage(error, "Unknown SEG-Y export error");
+            if (!isExistingSegyExportError(message)) {
+              throw error;
+            }
+
+            this.note(
+              "SEG-Y export target already exists; waiting for overwrite confirmation.",
+              "backend",
+              "warn",
+              outputPath
+            );
+            const confirmed = await confirmOverwriteSegy(outputPath);
+            if (!confirmed) {
+              this.datasetExportDialog = {
+                ...dialog,
+                working: false,
+                error: "SEG-Y export cancelled because overwrite was declined."
+              };
+              this.note("SEG-Y export overwrite was cancelled.", "ui", "warn", outputPath);
+              return;
+            }
+
+            this.note("Confirmed overwrite of the existing SEG-Y export target.", "ui", "warn", outputPath);
+            response = await exportDatasetSegy(dialog.storePath, outputPath, true);
+          }
+
+          exportedPaths.push(response.output_path);
+          this.note("Exported dataset to SEG-Y.", "backend", "info", response.output_path);
+          continue;
         }
 
-        this.note(
-          "SEG-Y export target already exists; waiting for overwrite confirmation.",
-          "backend",
-          "warn",
-          outputPath
-        );
-        const confirmed = await confirmOverwriteSegy(outputPath);
-        if (!confirmed) {
-          this.note("SEG-Y export overwrite was cancelled.", "ui", "warn", outputPath);
-          return;
+        this.note("Started Zarr export.", "ui", "info", `${dialog.storePath} -> ${outputPath}`);
+        let response: ExportZarrResponse;
+        try {
+          response = await exportDatasetZarr(dialog.storePath, outputPath, false);
+        } catch (error) {
+          const message = errorMessage(error, "Unknown Zarr export error");
+          if (!isExistingZarrExportError(message)) {
+            throw error;
+          }
+
+          this.note(
+            "Zarr export target already exists; waiting for overwrite confirmation.",
+            "backend",
+            "warn",
+            outputPath
+          );
+          const confirmed = await confirmOverwriteZarr(outputPath);
+          if (!confirmed) {
+            this.datasetExportDialog = {
+              ...dialog,
+              working: false,
+              error: "Zarr export cancelled because overwrite was declined."
+            };
+            this.note("Zarr export overwrite was cancelled.", "ui", "warn", outputPath);
+            return;
+          }
+
+          this.note("Confirmed overwrite of the existing Zarr export target.", "ui", "warn", outputPath);
+          response = await exportDatasetZarr(dialog.storePath, outputPath, true);
         }
 
-        this.note("Confirmed overwrite of the existing SEG-Y export target.", "ui", "warn", outputPath);
-        response = await exportDatasetSegy(activeStorePath, outputPath, true);
+        exportedPaths.push(response.output_path);
+        this.note("Exported dataset to Zarr.", "backend", "info", response.output_path);
       }
 
-      this.note("Exported active runtime store to SEG-Y.", "backend", "info", response.output_path);
+      this.datasetExportDialog = null;
+      this.note(
+        "Dataset export completed.",
+        "backend",
+        "info",
+        exportedPaths.join(", ")
+      );
     } catch (error) {
-      this.error = errorMessage(error, "Failed to export SEG-Y from the active runtime store.");
-      this.note("SEG-Y export failed.", "backend", "error", this.error);
+      const message = errorMessage(error, "Dataset export failed.");
+      this.error = message;
+      this.datasetExportDialog = {
+        ...dialog,
+        working: false,
+        error: message
+      };
+      this.note("Dataset export failed.", "backend", "error", message);
     } finally {
-      this.segyExporting = false;
+      this.datasetExporting = false;
+      if (this.datasetExportDialog) {
+        this.datasetExportDialog = {
+          ...this.datasetExportDialog,
+          working: false
+        };
+      }
     }
   };
 
@@ -2275,35 +3667,46 @@ export class ViewerModel {
     this.axis = axis;
     this.index = index;
     this.loading = true;
-    this.busyLabel = "Loading section";
+    this.busyLabel = this.sectionDomain === "depth" ? "Converting section to depth" : "Loading section";
     this.error = null;
-    this.note("Requested section load.", "ui", "info", `${axis}:${index}`);
+    this.note(
+      "Requested section load.",
+      "ui",
+      "info",
+      `${axis}:${index} (${this.sectionDomain === "depth" ? "depth" : "time"})`
+    );
 
     if (!activeStorePath) {
       this.loading = false;
       this.busyLabel = null;
       this.error = "Open or import a dataset before loading sections.";
+      this.timeDepthDiagnostics = null;
+      this.sectionScalarOverlays = [];
       this.sectionHorizons = [];
+      this.sectionWellOverlays = [];
       this.note("Section load blocked because no active store is open.", "ui", "error");
       return;
     }
 
     try {
       const loadStartedMs = nowMs();
-      const [section, sectionHorizons] = await Promise.all([
-        fetchSectionView(activeStorePath, axis, index),
-        fetchSectionHorizons(activeStorePath, axis, index)
-      ]);
+      const display = await this.loadResolvedSectionDisplay(activeStorePath, axis, index);
       const loadResolvedMs = nowMs();
       this.axis = axis;
       this.index = index;
-      this.section = section;
-      this.sectionHorizons = adaptSectionHorizonOverlays(sectionHorizons);
+      this.section = display.section;
+      this.timeDepthDiagnostics = display.time_depth_diagnostics;
+      this.sectionScalarOverlays = adaptSectionScalarOverlays(
+        display.scalar_overlays,
+        this.velocityOverlayOpacity
+      );
+      this.sectionHorizons = adaptSectionHorizonOverlays(display.horizon_overlays);
+      this.sectionWellOverlays = [];
       const stateAssignedMs = nowMs();
       this.loading = false;
       this.busyLabel = null;
       this.error = null;
-      this.resetToken = `${axis}:${index}`;
+      this.resetToken = `${axis}:${index}:${this.sectionDomain}:${this.activeVelocityModelAssetId ?? "global1d"}:${this.depthVelocityKind}:${Math.round(this.depthVelocityMPerS)}:${this.showVelocityOverlay ? "overlay-on" : "overlay-off"}`;
       await this.persistWorkspaceSession();
       const afterPersistMs = nowMs();
       await tick();
@@ -2318,12 +3721,14 @@ export class ViewerModel {
         message: "Frontend section load timings recorded",
         fields: {
           storePath: activeStorePath,
-          datasetId: section.dataset_id,
+          datasetId: display.section.dataset_id,
           axis,
           index,
-          traces: section.traces,
-          samples: section.samples,
-          payloadBytes: estimateSectionPayloadBytes(section),
+          traces: display.section.traces,
+          samples: display.section.samples,
+          payloadBytes: estimateSectionPayloadBytes(display.section),
+          scalarOverlayCount: display.scalar_overlays.length,
+          horizonOverlayCount: display.horizon_overlays.length,
           frontendAwaitMs: loadResolvedMs - loadStartedMs,
           frontendStateAssignMs: stateAssignedMs - loadResolvedMs,
           frontendPersistWorkspaceMs: afterPersistMs - stateAssignedMs,
@@ -2346,13 +3751,14 @@ export class ViewerModel {
         "Section payload loaded.",
         "backend",
         "info",
-        `${axis}:${index} | traces=${section.traces} samples=${section.samples} coordinate=${section.coordinate.value}`
+        `${axis}:${index} | traces=${display.section.traces} samples=${display.section.samples} coordinate=${display.section.coordinate.value} | domain=${this.sectionDomain}`
       );
     } catch (error) {
       this.axis = axis;
       this.index = index;
       this.loading = false;
       this.busyLabel = null;
+      this.timeDepthDiagnostics = null;
       this.error = error instanceof Error ? error.message : "Unknown section load error";
       this.note(
         "Section load failed.",

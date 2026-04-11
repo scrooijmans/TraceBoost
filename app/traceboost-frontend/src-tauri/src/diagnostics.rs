@@ -4,18 +4,18 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     sync::{
-        Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
+        Mutex,
     },
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::{DateTime, Local, Utc};
-use log::{Level, debug, error, info, warn};
+use log::{debug, error, info, warn, Level};
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use tauri::{AppHandle, Emitter};
-use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
 pub const DIAGNOSTICS_EVENT_NAME: &str = "diagnostics:event";
 const MAX_RECENT_EVENTS: usize = 512;

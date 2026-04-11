@@ -43,6 +43,10 @@ Implemented backend pieces:
   - `runtime/benches/compute_storage.rs`
 - OpenVDS comparison runner:
   - [`scripts/openvds_storage_bench.cpp`](/Users/sc/dev/TraceBoost/scripts/openvds_storage_bench.cpp)
+  - now accepts an explicit compression mode argument for `none`, `wavelet_lossless`, and `wavelet_normalize_block_lossless`
+  - on the current local open-source OpenVDS SDK build, only `none` is actually supported for create/write benchmarking
+  - the OSS implementation exposes wavelet enums in the API, but `VolumeDataStore::IsCompressionMethodSupported()` rejects wavelet methods and `Create()` fails with `Unsupported compression method`
+  - practical implication: benchmarking OpenVDS wavelet lossless requires an OpenVDS+ binary/SDK, not just the public source build
 
 Planned external comparison candidate:
 

@@ -26,6 +26,8 @@
     primaryVolumeLabel,
     sourceSubvolumeBounds,
     secondaryVolumeOptions,
+    selectedStepCanCheckpoint = false,
+    selectedStepCheckpoint = false,
     onSetAmplitudeScalarFactor,
     onSetAgcWindow = () => {},
     onSetPhaseRotationAngle = () => {},
@@ -35,6 +37,7 @@
     onSetVolumeArithmeticOperator = () => {},
     onSetVolumeArithmeticSecondaryStorePath = () => {},
     onSetSubvolumeCropBound = () => {},
+    onSetSelectedCheckpoint = () => {},
     canMoveUp = true,
     canMoveDown = true,
     onMoveUp,
@@ -49,6 +52,8 @@
     primaryVolumeLabel: string;
     sourceSubvolumeBounds: SourceSubvolumeBounds | null;
     secondaryVolumeOptions: { storePath: string; label: string }[];
+    selectedStepCanCheckpoint?: boolean;
+    selectedStepCheckpoint?: boolean;
     onSetAmplitudeScalarFactor: (value: number) => void;
     onSetAgcWindow?: (value: number) => void;
     onSetPhaseRotationAngle?: (value: number) => void;
@@ -61,6 +66,7 @@
       bound: keyof SubvolumeCropOperation,
       value: number
     ) => void;
+    onSetSelectedCheckpoint?: (value: boolean) => void;
     canMoveUp?: boolean;
     canMoveDown?: boolean;
     onMoveUp: () => void;
@@ -88,6 +94,21 @@
         <button class="chip" onclick={onMoveDown} disabled={!canMoveDown}>Move Down</button>
         <button class="chip danger" onclick={onRemove}>Delete Step</button>
       </div>
+
+      {#if !isCropSubvolume(selectedOperation)}
+        <label class="checkpoint-toggle">
+          <input
+            type="checkbox"
+            checked={selectedStepCheckpoint}
+            disabled={!selectedStepCanCheckpoint}
+            onchange={(event) => onSetSelectedCheckpoint((event.currentTarget as HTMLInputElement).checked)}
+          />
+          <span>Save Output After This Step</span>
+        </label>
+        {#if !selectedStepCanCheckpoint}
+          <small class="checkpoint-note">Final trace-local output is emitted automatically unless a crop tail follows it.</small>
+        {/if}
+      {/if}
 
       {#if isCropSubvolume(selectedOperation)}
         <div class="field-grid">
@@ -454,6 +475,26 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .checkpoint-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 2px;
+    color: #b7b7b7;
+    font-size: 11px;
+  }
+
+  .checkpoint-toggle input {
+    margin: 0;
+  }
+
+  .checkpoint-note {
+    display: block;
+    margin: 0 0 10px;
+    color: #666;
+    font-size: 11px;
   }
 
   .field-grid {

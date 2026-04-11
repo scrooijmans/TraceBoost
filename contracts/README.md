@@ -19,6 +19,22 @@ The contracts layer defines the typed payloads that cross:
 - app/backend <-> Tauri frontend
 - monorepo <-> external frontend consumers such as `geoviz` integrations
 
+Current architectural direction:
+
+- the existing `seis-contracts-core`, `seis-contracts-views`, and `seis-contracts-interop` split remains a compatibility surface rather than the final package naming
+- Ophiolite contract ownership is now split by concern under `ophiolite-seismic/src/contracts/`:
+  - `domain.rs`
+  - `processing.rs`
+  - `models.rs`
+  - `views.rs`
+  - `operations.rs`
+- TraceBoost crates now expose matching compatibility namespaces:
+  - `seis-contracts-core::{domain, processing, models, operations, views}`
+  - `seis-contracts-views::{section, gather}`
+  - `seis-contracts-interop::{datasets, import_ops, processing_ops, workspace, resolve}`
+- packed frontend section transport is now explicit in `app/traceboost-frontend/src/lib/transport/packed-sections.ts` instead of living only as bridge-local helpers
+- see `../articles/architecture/CONTRACT_ARCHITECTURE_AND_MIGRATION.md` for the target layout and migration plan
+
 ## Implemented
 
 - dataset and volume descriptors
@@ -45,9 +61,10 @@ The generated output currently lives under:
 ## Roadmap
 
 1. Keep this layer as the only source of truth for app/runtime/frontend payloads.
-2. Add only the next app-facing contracts that the desktop workflow actually needs:
+2. Incrementally separate semantic contracts from transport-specialized payloads instead of growing bridge-local wire shapes ad hoc.
+3. Add only the next app-facing contracts that the desktop workflow actually needs:
    error envelopes, progress events, and richer workspace/session payloads.
-3. Avoid premature job-system or processing-batch schema growth until those features are implemented in the app.
+4. Avoid premature job-system or processing-batch schema growth until those features are implemented in the app.
 
 ## Non-Goals
 

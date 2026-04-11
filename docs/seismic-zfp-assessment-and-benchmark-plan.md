@@ -215,6 +215,12 @@ Status:
 - compare `tbvol`, Zarr, OpenVDS, and SGZ results
 - decide whether SGZ has merit only as cold storage or whether any direct-read path deserves more work
 
+OpenVDS note:
+
+- the local open-source OpenVDS SDK build can still be used for `CompressionMethod::None` benchmarking
+- lossless wavelet create/write benchmarking is not available in that OSS build even though the API exposes wavelet lossless enums
+- practical consequence: a serious `WaveletLossless` benchmark pass requires OpenVDS+ or another binary distribution that includes the Bluware compression implementation
+
 ### Phase 4: Optional Product Follow-Up
 
 Only if the numbers justify it:

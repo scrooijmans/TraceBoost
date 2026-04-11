@@ -7,6 +7,7 @@ Current source-of-truth document:
 - `architecture.md`
 - `crs-display-workspace-phase1.md` for the phase-1 workspace/display-CRS contract over canonical Ophiolite seismic CRS metadata
 - `compute-storage-benchmark.md` for the runtime compute/storage benchmark and format decision plan
+- `multi-format-io-runtime-strategy.md` for the runtime-store evolution, format-adapter priorities, licensing read, and next benchmark matrix
 - `seismic-zfp-assessment-and-benchmark-plan.md` for the SGZ / `seismic-zfp` assessment and benchmark scope
 - `spectral-processing-implementation.md` for the shared Ophiolite + TraceBoost frequency-domain operator and spectrum-analysis implementation plan
 

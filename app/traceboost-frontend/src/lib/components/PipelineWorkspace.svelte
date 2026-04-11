@@ -78,7 +78,7 @@
       <div class="detail-grid">
         <PipelineSequenceList
           operations={processingModel.workspaceOperations}
-          traceLocalOperationCount={processingModel.pipeline.operations.length}
+          traceLocalOperationCount={processingModel.pipeline.steps.length}
           hasSubvolumeCrop={processingModel.hasSubvolumeCrop}
           selectedIndex={processingModel.selectedStepIndex}
           checkpointAfterOperationIndexes={processingModel.checkpointAfterOperationIndexes}
@@ -98,6 +98,8 @@
           primaryVolumeLabel={processingModel.activePrimaryVolumeLabel}
           sourceSubvolumeBounds={processingModel.sourceSubvolumeBounds}
           secondaryVolumeOptions={processingModel.volumeArithmeticSecondaryOptions}
+          selectedStepCanCheckpoint={processingModel.canToggleSelectedCheckpoint}
+          selectedStepCheckpoint={processingModel.selectedStepCheckpoint}
           onSetAmplitudeScalarFactor={processingModel.setSelectedAmplitudeScalarFactor}
           onSetAgcWindow={processingModel.setSelectedAgcWindow}
           onSetPhaseRotationAngle={processingModel.setSelectedPhaseRotationAngle}
@@ -107,6 +109,7 @@
           onSetVolumeArithmeticOperator={processingModel.setSelectedVolumeArithmeticOperator}
           onSetVolumeArithmeticSecondaryStorePath={processingModel.setSelectedVolumeArithmeticSecondaryStorePath}
           onSetSubvolumeCropBound={processingModel.setSelectedSubvolumeCropBound}
+          onSetSelectedCheckpoint={processingModel.setSelectedCheckpoint}
           canMoveUp={processingModel.canMoveSelectedUp}
           canMoveDown={processingModel.canMoveSelectedDown}
           onMoveUp={processingModel.moveSelectedUp}

@@ -78,6 +78,37 @@ Current TraceBoost still only owns the trace-local post-stack UI. The prestack b
 
 The detailed implementation plan for that work lives in `docs/spectral-processing-implementation.md`.
 
+## Modeling, Analysis, and Display Separation
+
+As TraceBoost expands beyond trace-local seismic processing, it should preserve the shared taxonomy owned by Ophiolite instead of collapsing everything into "operators" or frontend-only view models.
+
+The working separation is:
+
+- `Source Assets`
+  - imported seismic volumes, horizons, sparse velocity functions, wells/logs, velocity cubes
+- `Authored Models`
+  - layered velocity models and future horizon-guided property models
+- `Compiled Runtime Assets`
+  - build outputs such as `SurveyTimeDepthTransform3D` and future property fields
+- `Analysis APIs`
+  - diagnostic or estimation workflows such as velocity scans and model QC
+- `Display DTOs`
+  - chart/map-facing resolved sections, overlays, and previews
+
+Design rules for TraceBoost:
+
+- TraceBoost owns workflow, activation, orchestration, and user-facing diagnostics for those families
+- Ophiolite owns canonical model contracts, CRS/geometry/coverage checks, and model-build/runtime logic
+- geoviz remains a rendering consumer of resolved DTOs and must not become the source of authored-model semantics
+- not every future computation belongs in the shared operator family; authored-model and model-build workflows stay separate from processing operators
+
+This matters directly for future velocity/property modeling:
+
+- a velocity cube or sparse velocity functions are source assets
+- a layered velocity model is an authored model
+- the derived time-depth transform is a compiled runtime asset
+- section/map overlays are display DTOs
+
 ## Workspace Persistence
 
 The current desktop persistence split is:
@@ -96,6 +127,18 @@ The current desktop persistence split is:
   - rendering only; it does not know about recent datasets or session persistence
 
 This keeps “remember what I was working on” as a desktop/workspace concern rather than forcing it into canonical seismic storage or chart models.
+
+## CRS And Map Workspace
+
+For seismic map display and future survey/well overlays:
+
+- Ophiolite owns native/effective CRS truth and any future reprojection
+- TraceBoost owns the workspace display-CRS preference and related warnings
+- geoviz consumes resolved geometry and does not assign or transform CRS metadata
+
+The phase-1 contract for that split is documented in:
+
+- `docs/crs-display-workspace-phase1.md`
 
 ## Compatibility Notes
 

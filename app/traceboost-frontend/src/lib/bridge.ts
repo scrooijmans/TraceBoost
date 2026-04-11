@@ -1,14 +1,15 @@
 import type {
   AmplitudeSpectrumRequest,
   AmplitudeSpectrumResponse,
+  BuildSurveyTimeDepthTransformRequest,
   ExportSegyResponse,
-  DatasetId,
   CancelProcessingJobResponse,
   DatasetRegistryEntry,
   DatasetRegistryStatus,
   GetProcessingJobResponse,
   ImportDatasetResponse,
   ImportHorizonXyzResponse,
+  LoadVelocityModelsResponse,
   LoadWorkspaceStateResponse,
   ListPipelinePresetsResponse,
   OpenDatasetResponse,
@@ -23,17 +24,16 @@ import type {
   SaveWorkspaceSessionRequest,
   SaveWorkspaceSessionResponse,
   SavePipelinePresetResponse,
+  SectionAxis,
   SectionHorizonOverlayView,
   SegyGeometryOverride,
   SetDatasetNativeCoordinateReferenceRequest,
   SetDatasetNativeCoordinateReferenceResponse,
   SetActiveDatasetEntryResponse,
-  SectionCoordinate,
-  SectionAxis,
-  SectionDisplayDefaults,
-  SectionMetadata,
+  VelocityFunctionSource,
+  VelocityQuantityKind,
+  SurveyTimeDepthTransform3D,
   SectionView,
-  SectionUnits,
   SurveyPreflightResponse,
   PreviewTraceLocalProcessingRequest as PreviewProcessingRequest,
   ResolveSurveyMapRequest,
@@ -45,6 +45,32 @@ import type {
   WorkspaceSession
 } from "@traceboost/seis-contracts";
 import { IPC_SCHEMA_VERSION as SCHEMA_VERSION } from "@traceboost/seis-contracts";
+import type {
+  CheckshotVspObservationSet1D,
+  ManualTimeDepthPickSet1D,
+  ResolveSectionWellOverlaysResponse,
+  SectionWellOverlayRequestDto,
+  WellTimeDepthAuthoredModel1D,
+  WellTimeDepthModel1D
+} from "@ophiolite/contracts";
+import {
+  parsePackedPreviewProcessingResponse,
+  parsePackedSectionDisplayResponse,
+  parsePackedSectionViewResponse
+} from "./transport/packed-sections";
+import type {
+  TransportPreviewProcessingResponse,
+  TransportResolvedSectionDisplayView,
+  TransportSectionView
+} from "./transport/packed-sections";
+export type {
+  SectionBytePayload,
+  TransportPreviewProcessingResponse,
+  TransportPreviewView,
+  TransportResolvedSectionDisplayView,
+  TransportSectionScalarOverlayView,
+  TransportSectionView
+} from "./transport/packed-sections";
 
 export interface DiagnosticsStatus {
   sessionId: string;
@@ -72,54 +98,148 @@ export interface FrontendDiagnosticsEventRequest {
   fields?: Record<string, unknown> | null;
 }
 
-export type SectionBytePayload = Array<number> | Uint8Array;
-
-export interface TransportSectionView
-  extends Omit<
-    SectionView,
-    "horizontal_axis_f64le" | "inline_axis_f64le" | "xline_axis_f64le" | "sample_axis_f32le" | "amplitudes_f32le"
-  > {
-  horizontal_axis_f64le: SectionBytePayload;
-  inline_axis_f64le: SectionBytePayload | null;
-  xline_axis_f64le: SectionBytePayload | null;
-  sample_axis_f32le: SectionBytePayload;
-  amplitudes_f32le: SectionBytePayload;
+export interface HorizonImportCoordinateReferenceOptions {
+  sourceCoordinateReferenceId?: string | null;
+  sourceCoordinateReferenceName?: string | null;
+  assumeSameAsSurvey?: boolean;
 }
 
-export interface TransportPreviewView {
-  section: TransportSectionView;
-  processing_label: string;
-  preview_ready: boolean;
+export interface ExportZarrResponse {
+  store_path: string;
+  output_path: string;
 }
 
-export interface TransportPreviewProcessingResponse {
-  preview: TransportPreviewView;
+export interface ImportVelocityFunctionsModelResponse {
+  schema_version: number;
+  input_path: string;
+  velocity_kind: VelocityQuantityKind;
+  profile_count: number;
+  sample_count: number;
+  model: SurveyTimeDepthTransform3D;
 }
 
-interface PackedPreviewSectionHeader {
-  datasetId: DatasetId;
-  axis: SectionAxis;
-  coordinate: SectionCoordinate;
-  traces: number;
-  samples: number;
-  horizontalAxisBytes: number;
-  inlineAxisBytes: number | null;
-  xlineAxisBytes: number | null;
-  sampleAxisBytes: number;
-  amplitudesBytes: number;
-  units: SectionUnits | null;
-  metadata: SectionMetadata | null;
-  displayDefaults: SectionDisplayDefaults | null;
+export interface DatasetExportFormatCapability {
+  available: boolean;
+  reason: string | null;
+  defaultOutputPath: string;
 }
 
-interface PackedSectionResponseHeader {
-  section: PackedPreviewSectionHeader;
+export interface DatasetExportCapabilitiesResponse {
+  storePath: string;
+  segy: DatasetExportFormatCapability;
+  zarr: DatasetExportFormatCapability;
 }
 
-interface PackedPreviewResponseHeader {
-  previewReady: boolean;
-  processingLabel: string;
-  section: PackedPreviewSectionHeader;
+export interface ProjectAssetBindingInput {
+  well_name: string;
+  wellbore_name: string;
+  uwi?: string | null;
+  api?: string | null;
+  operator_aliases: string[];
+}
+
+export interface ProjectWellTimeDepthModelDescriptor {
+  assetId: string;
+  wellId: string;
+  wellboreId: string;
+  status: string;
+  name: string;
+  sourceKind: WellTimeDepthModel1D["source_kind"];
+  depthReference: WellTimeDepthModel1D["depth_reference"];
+  travelTimeReference: WellTimeDepthModel1D["travel_time_reference"];
+  sampleCount: number;
+  isActiveProjectModel: boolean;
+}
+
+export interface ProjectWellTimeDepthObservationDescriptor {
+  assetId: string;
+  assetKind: "checkshot_vsp_observation_set" | "manual_time_depth_pick_set";
+  wellId: string;
+  wellboreId: string;
+  status: string;
+  name: string;
+  depthReference: CheckshotVspObservationSet1D["depth_reference"] | ManualTimeDepthPickSet1D["depth_reference"];
+  travelTimeReference:
+    | CheckshotVspObservationSet1D["travel_time_reference"]
+    | ManualTimeDepthPickSet1D["travel_time_reference"];
+  sampleCount: number;
+}
+
+export interface ProjectWellTimeDepthAuthoredModelDescriptor {
+  assetId: string;
+  wellId: string;
+  wellboreId: string;
+  status: string;
+  name: string;
+  sourceBindingCount: number;
+  assumptionIntervalCount: number;
+  samplingStepM?: number | null;
+  resolvedTrajectoryFingerprint: WellTimeDepthAuthoredModel1D["resolved_trajectory_fingerprint"];
+}
+
+export interface ProjectWellTimeDepthInventoryResponse {
+  observationSets: ProjectWellTimeDepthObservationDescriptor[];
+  authoredModels: ProjectWellTimeDepthAuthoredModelDescriptor[];
+  compiledModels: ProjectWellTimeDepthModelDescriptor[];
+}
+
+export interface ProjectSurveyAssetDescriptor {
+  assetId: string;
+  name: string;
+  status: string;
+  wellId: string;
+  wellName: string;
+  wellboreId: string;
+  wellboreName: string;
+}
+
+export interface ProjectWellboreInventoryItem {
+  wellId: string;
+  wellName: string;
+  wellboreId: string;
+  wellboreName: string;
+  trajectoryAssetCount: number;
+  wellTimeDepthModelCount: number;
+  activeWellTimeDepthModelAssetId?: string | null;
+}
+
+export interface ProjectWellOverlayInventoryResponse {
+  surveys: ProjectSurveyAssetDescriptor[];
+  wellbores: ProjectWellboreInventoryItem[];
+}
+
+export interface ImportProjectWellTimeDepthModelRequest {
+  projectRoot: string;
+  jsonPath: string;
+  binding: ProjectAssetBindingInput;
+  collectionName?: string | null;
+}
+
+export interface ImportProjectWellTimeDepthModelResponse {
+  assetId: string;
+  wellId: string;
+  wellboreId: string;
+  createdWell: boolean;
+  createdWellbore: boolean;
+}
+
+export interface ImportProjectWellTimeDepthAssetRequest {
+  projectRoot: string;
+  jsonPath: string;
+  binding: ProjectAssetBindingInput;
+  collectionName?: string | null;
+  assetKind:
+    | "checkshot_vsp_observation_set"
+    | "manual_time_depth_pick_set"
+    | "well_time_depth_authored_model"
+    | "well_time_depth_model";
+}
+
+export interface CompileProjectWellTimeDepthAuthoredModelRequest {
+  projectRoot: string;
+  assetId: string;
+  outputCollectionName?: string | null;
+  setActive: boolean;
 }
 
 export function isTauriEnvironment(): boolean {
@@ -211,7 +331,13 @@ function defaultWorkspaceSession(): WorkspaceSession {
     active_axis: "inline",
     active_index: 0,
     selected_preset_id: null,
-    display_coordinate_reference_id: null
+    display_coordinate_reference_id: null,
+    active_velocity_model_asset_id: null,
+    project_root: null,
+    project_survey_asset_id: null,
+    project_wellbore_id: null,
+    project_section_tolerance_m: null,
+    selected_project_well_time_depth_model_asset_id: null
   };
 }
 
@@ -429,20 +555,59 @@ export async function exportDatasetSegy(
   });
 }
 
+export async function exportDatasetZarr(
+  storePath: string,
+  outputPath: string,
+  overwriteExisting = false
+): Promise<ExportZarrResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ExportZarrResponse>("export_dataset_zarr_command", {
+      storePath,
+      outputPath,
+      overwriteExisting
+    });
+  }
+
+  return postJson<ExportZarrResponse>("/api/export/zarr", {
+    storePath,
+    outputPath,
+    overwriteExisting
+  });
+}
+
+export async function getDatasetExportCapabilities(
+  storePath: string
+): Promise<DatasetExportCapabilitiesResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<DatasetExportCapabilitiesResponse>("get_dataset_export_capabilities_command", {
+      storePath
+    });
+  }
+
+  throw new Error("Dataset export capability lookup is only available in the desktop runtime.");
+}
+
 export async function importHorizonXyz(
   storePath: string,
-  inputPaths: string[]
+  inputPaths: string[],
+  options: HorizonImportCoordinateReferenceOptions = {}
 ): Promise<ImportHorizonXyzResponse> {
   if (isTauriEnvironment()) {
     return invokeTauri<ImportHorizonXyzResponse>("import_horizon_xyz_command", {
       storePath,
-      inputPaths
+      inputPaths,
+      sourceCoordinateReferenceId: options.sourceCoordinateReferenceId ?? null,
+      sourceCoordinateReferenceName: options.sourceCoordinateReferenceName ?? null,
+      assumeSameAsSurvey: options.assumeSameAsSurvey === true
     });
   }
 
   return postJson<ImportHorizonXyzResponse>("/api/horizons/import", {
     storePath,
-    inputPaths
+    inputPaths,
+    sourceCoordinateReferenceId: options.sourceCoordinateReferenceId ?? null,
+    sourceCoordinateReferenceName: options.sourceCoordinateReferenceName ?? null,
+    assumeSameAsSurvey: options.assumeSameAsSurvey === true
   });
 }
 
@@ -490,6 +655,99 @@ export async function fetchSectionView(
   return readJson<SectionView>(response);
 }
 
+export async function fetchDepthConvertedSectionView(
+  storePath: string,
+  axis: SectionAxis,
+  index: number,
+  velocityModel: VelocityFunctionSource,
+  velocityKind: VelocityQuantityKind
+): Promise<TransportSectionView | SectionView> {
+  if (isTauriEnvironment()) {
+    const payload = await invokeTauriRaw("load_depth_converted_section_binary_command", {
+      storePath,
+      axis,
+      index,
+      velocityModel,
+      velocityKind
+    });
+    return parsePackedSectionViewResponse(payload);
+  }
+
+  throw new Error("Depth-converted section loading is only available in the desktop runtime right now.");
+}
+
+export async function fetchResolvedSectionDisplay(
+  storePath: string,
+  axis: SectionAxis,
+  index: number,
+  domain: "time" | "depth",
+  velocityModel: VelocityFunctionSource | null,
+  velocityKind: VelocityQuantityKind | null,
+  includeVelocityOverlay: boolean
+): Promise<TransportResolvedSectionDisplayView> {
+  if (isTauriEnvironment()) {
+    const payload = await invokeTauriRaw("load_resolved_section_display_binary_command", {
+      storePath,
+      axis,
+      index,
+      domain,
+      velocityModel,
+      velocityKind,
+      includeVelocityOverlay
+    });
+    return parsePackedSectionDisplayResponse(payload);
+  }
+
+  throw new Error("Resolved section display loading is only available in the desktop runtime right now.");
+}
+
+export async function ensureDemoSurveyTimeDepthTransform(storePath: string): Promise<string> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<string>("ensure_demo_survey_time_depth_transform_command", { storePath });
+  }
+
+  throw new Error("Synthetic survey 3D time-depth transforms are only available in the desktop runtime right now.");
+}
+
+export async function loadVelocityModels(storePath: string): Promise<SurveyTimeDepthTransform3D[]> {
+  if (isTauriEnvironment()) {
+    const response = await invokeTauri<LoadVelocityModelsResponse>("load_velocity_models_command", {
+      storePath
+    });
+    return response.models;
+  }
+
+  return [];
+}
+
+export async function importVelocityFunctionsModel(
+  storePath: string,
+  inputPath: string,
+  velocityKind: VelocityQuantityKind
+): Promise<ImportVelocityFunctionsModelResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportVelocityFunctionsModelResponse>("import_velocity_functions_model_command", {
+      storePath,
+      inputPath,
+      velocityKind
+    });
+  }
+
+  throw new Error("Velocity-functions import is only available in the desktop runtime right now.");
+}
+
+export async function buildVelocityModelTransform(
+  request: BuildSurveyTimeDepthTransformRequest
+): Promise<SurveyTimeDepthTransform3D> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<SurveyTimeDepthTransform3D>("build_velocity_model_transform_command", {
+      request
+    });
+  }
+
+  throw new Error("Authored velocity-model building is only available in the desktop runtime right now.");
+}
+
 export async function previewProcessing(
   request: PreviewProcessingRequest
 ): Promise<TransportPreviewProcessingResponse> {
@@ -510,114 +768,6 @@ export async function previewSubvolumeProcessing(
   }
 
   return postJson<PreviewSubvolumeProcessingResponse>("/api/processing/subvolume/preview", request as Record<string, unknown>);
-}
-
-function parsePackedPreviewProcessingResponse(bytes: Uint8Array): TransportPreviewProcessingResponse {
-  const MAGIC = "TBPRV001";
-  if (bytes.byteLength < 16) {
-    throw new Error("Packed preview response is too small.");
-  }
-
-  const magic = new TextDecoder().decode(bytes.subarray(0, 8));
-  if (magic !== MAGIC) {
-    throw new Error(`Unexpected packed preview response magic: ${magic}`);
-  }
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const headerLength = view.getUint32(8, true);
-  const dataOffset = view.getUint32(12, true);
-  const headerStart = 16;
-  const headerEnd = headerStart + headerLength;
-  if (headerEnd > bytes.byteLength || dataOffset > bytes.byteLength || dataOffset < headerEnd) {
-    throw new Error("Packed preview response header is invalid.");
-  }
-
-  const header = JSON.parse(
-    new TextDecoder().decode(bytes.subarray(headerStart, headerEnd))
-  ) as PackedPreviewResponseHeader;
-
-  let cursor = dataOffset;
-  const nextBytes = (length: number | null): Uint8Array | null => {
-    if (length === null) {
-      return null;
-    }
-    const next = bytes.subarray(cursor, cursor + length);
-    cursor += length;
-    return next;
-  };
-
-  return {
-    preview: {
-      preview_ready: header.previewReady,
-      processing_label: header.processingLabel,
-      section: {
-        dataset_id: header.section.datasetId,
-        axis: header.section.axis,
-        coordinate: header.section.coordinate,
-        traces: header.section.traces,
-        samples: header.section.samples,
-        horizontal_axis_f64le: nextBytes(header.section.horizontalAxisBytes) ?? new Uint8Array(0),
-        inline_axis_f64le: nextBytes(header.section.inlineAxisBytes),
-        xline_axis_f64le: nextBytes(header.section.xlineAxisBytes),
-        sample_axis_f32le: nextBytes(header.section.sampleAxisBytes) ?? new Uint8Array(0),
-        amplitudes_f32le: nextBytes(header.section.amplitudesBytes) ?? new Uint8Array(0),
-        units: header.section.units,
-        metadata: header.section.metadata,
-        display_defaults: header.section.displayDefaults
-      }
-    }
-  };
-}
-
-function parsePackedSectionViewResponse(bytes: Uint8Array): TransportSectionView {
-  const MAGIC = "TBSEC001";
-  if (bytes.byteLength < 16) {
-    throw new Error("Packed section response is too small.");
-  }
-
-  const magic = new TextDecoder().decode(bytes.subarray(0, 8));
-  if (magic !== MAGIC) {
-    throw new Error(`Unexpected packed section response magic: ${magic}`);
-  }
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const headerLength = view.getUint32(8, true);
-  const dataOffset = view.getUint32(12, true);
-  const headerStart = 16;
-  const headerEnd = headerStart + headerLength;
-  if (headerEnd > bytes.byteLength || dataOffset > bytes.byteLength || dataOffset < headerEnd) {
-    throw new Error("Packed section response header is invalid.");
-  }
-
-  const header = JSON.parse(
-    new TextDecoder().decode(bytes.subarray(headerStart, headerEnd))
-  ) as PackedSectionResponseHeader;
-
-  let cursor = dataOffset;
-  const nextBytes = (length: number | null): Uint8Array | null => {
-    if (length === null) {
-      return null;
-    }
-    const next = bytes.subarray(cursor, cursor + length);
-    cursor += length;
-    return next;
-  };
-
-  return {
-    dataset_id: header.section.datasetId,
-    axis: header.section.axis,
-    coordinate: header.section.coordinate,
-    traces: header.section.traces,
-    samples: header.section.samples,
-    horizontal_axis_f64le: nextBytes(header.section.horizontalAxisBytes) ?? new Uint8Array(0),
-    inline_axis_f64le: nextBytes(header.section.inlineAxisBytes),
-    xline_axis_f64le: nextBytes(header.section.xlineAxisBytes),
-    sample_axis_f32le: nextBytes(header.section.sampleAxisBytes) ?? new Uint8Array(0),
-    amplitudes_f32le: nextBytes(header.section.amplitudesBytes) ?? new Uint8Array(0),
-    units: header.section.units,
-    metadata: header.section.metadata,
-    display_defaults: header.section.displayDefaults
-  };
 }
 
 export async function emitFrontendDiagnosticsEvent(request: FrontendDiagnosticsEventRequest): Promise<void> {
@@ -951,7 +1101,14 @@ export async function saveWorkspaceSession(
     active_axis: request.active_axis,
     active_index: request.active_index,
     selected_preset_id: request.selected_preset_id ?? null,
-    display_coordinate_reference_id: request.display_coordinate_reference_id ?? null
+    display_coordinate_reference_id: request.display_coordinate_reference_id ?? null,
+    active_velocity_model_asset_id: request.active_velocity_model_asset_id ?? null,
+    project_root: request.project_root ?? null,
+    project_survey_asset_id: request.project_survey_asset_id ?? null,
+    project_wellbore_id: request.project_wellbore_id ?? null,
+    project_section_tolerance_m: request.project_section_tolerance_m ?? null,
+    selected_project_well_time_depth_model_asset_id:
+      request.selected_project_well_time_depth_model_asset_id ?? null
   };
   saveLocalSession(session);
   return {
@@ -1050,6 +1207,148 @@ export async function resolveSurveyMap(
   }
 
   throw new Error("Survey map resolution is only available in the desktop runtime.");
+}
+
+export async function listProjectWellTimeDepthModels(
+  projectRoot: string,
+  wellboreId: string
+): Promise<ProjectWellTimeDepthModelDescriptor[]> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ProjectWellTimeDepthModelDescriptor[]>(
+      "list_project_well_time_depth_models_command",
+      {
+        request: {
+          projectRoot,
+          wellboreId
+        }
+      }
+    );
+  }
+
+  throw new Error("Project well-model listing is only available in the desktop runtime.");
+}
+
+export async function listProjectWellTimeDepthInventory(
+  projectRoot: string,
+  wellboreId: string
+): Promise<ProjectWellTimeDepthInventoryResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ProjectWellTimeDepthInventoryResponse>(
+      "list_project_well_time_depth_inventory_command",
+      {
+        request: {
+          projectRoot,
+          wellboreId
+        }
+      }
+    );
+  }
+
+  throw new Error("Project well-model inventory is only available in the desktop runtime.");
+}
+
+export async function setProjectActiveWellTimeDepthModel(
+  projectRoot: string,
+  wellboreId: string,
+  assetId: string | null
+): Promise<void> {
+  if (isTauriEnvironment()) {
+    await invokeTauri<void>("set_project_active_well_time_depth_model_command", {
+      request: {
+        projectRoot,
+        wellboreId,
+        assetId
+      }
+    });
+    return;
+  }
+
+  throw new Error("Project well-model updates are only available in the desktop runtime.");
+}
+
+export async function listProjectWellOverlayInventory(
+  projectRoot: string
+): Promise<ProjectWellOverlayInventoryResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ProjectWellOverlayInventoryResponse>(
+      "list_project_well_overlay_inventory_command",
+      {
+        request: {
+          projectRoot
+        }
+      }
+    );
+  }
+
+  throw new Error("Project well-overlay inventory is only available in the desktop runtime.");
+}
+
+export async function importProjectWellTimeDepthAsset(
+  request: ImportProjectWellTimeDepthAssetRequest
+): Promise<ImportProjectWellTimeDepthModelResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportProjectWellTimeDepthModelResponse>(
+      "import_project_well_time_depth_asset_command",
+      { request }
+    );
+  }
+
+  throw new Error("Project well-model import is only available in the desktop runtime.");
+}
+
+export async function importProjectWellTimeDepthModel(
+  request: ImportProjectWellTimeDepthModelRequest
+): Promise<ImportProjectWellTimeDepthModelResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportProjectWellTimeDepthModelResponse>(
+      "import_project_well_time_depth_model_command",
+      { request }
+    );
+  }
+
+  throw new Error("Project well-model import is only available in the desktop runtime.");
+}
+
+export async function readProjectWellTimeDepthModel(
+  projectRoot: string,
+  assetId: string
+): Promise<WellTimeDepthModel1D> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<WellTimeDepthModel1D>("read_project_well_time_depth_model_command", {
+      request: {
+        projectRoot,
+        assetId
+      }
+    });
+  }
+
+  throw new Error("Project well-model reading is only available in the desktop runtime.");
+}
+
+export async function compileProjectWellTimeDepthAuthoredModel(
+  request: CompileProjectWellTimeDepthAuthoredModelRequest
+): Promise<ImportProjectWellTimeDepthModelResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportProjectWellTimeDepthModelResponse>(
+      "compile_project_well_time_depth_authored_model_command",
+      { request }
+    );
+  }
+
+  throw new Error("Project well-model compilation is only available in the desktop runtime.");
+}
+
+export async function resolveProjectSectionWellOverlays(
+  request: SectionWellOverlayRequestDto
+): Promise<ResolveSectionWellOverlaysResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ResolveSectionWellOverlaysResponse>(
+      "resolve_project_section_well_overlays_command",
+      { request }
+    );
+  }
+
+  throw new Error("Project section-well overlay resolution is only available in the desktop runtime.");
 }
 
 export async function getDiagnosticsStatus(): Promise<DiagnosticsStatus | null> {

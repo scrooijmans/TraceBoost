@@ -10,6 +10,7 @@
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
   import PipelineSessionList from "./PipelineSessionList.svelte";
   import SpectrumInspector from "./SpectrumInspector.svelte";
+  import VelocityModelWorkbench from "./VelocityModelWorkbench.svelte";
   import { pickHorizonFiles } from "../file-dialog";
   import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
@@ -34,9 +35,16 @@
   let draftColormap = $state<"grayscale" | "red-white-blue">("grayscale");
   let draftPolarity = $state<"normal" | "reversed">("normal");
   let sectionIndexDraft = $state<number | undefined>(undefined);
+  let depthVelocityDraft = $state(String(viewerModel.depthVelocityMPerS));
+  let horizonImportDialogOpen = $state(false);
+  let pendingHorizonImportPaths = $state<string[]>([]);
+  let horizonImportSourceMode = $state<"survey" | "custom">("survey");
+  let horizonSourceCoordinateReferenceIdDraft = $state("");
+  let horizonSourceCoordinateReferenceNameDraft = $state("");
 
   const compareViewport = $derived(viewerModel.lastViewport?.viewport ?? null);
   const geometryRecovery = $derived(viewerModel.importGeometryRecovery);
+  const datasetExportDialog = $derived(viewerModel.datasetExportDialog);
   const splitReady = $derived(
     viewerModel.compareSplitEnabled &&
       !!processingModel.displaySection &&
@@ -151,13 +159,96 @@
     );
   }
 
+  function commitDepthVelocityModel(): void {
+    const velocityMPerS = Number(depthVelocityDraft);
+    if (!Number.isFinite(velocityMPerS) || velocityMPerS < 1) {
+      depthVelocityDraft = String(viewerModel.depthVelocityMPerS);
+      viewerModel.note("Depth conversion velocity must be a finite value >= 1 m/s.", "ui", "warn");
+      return;
+    }
+
+    depthVelocityDraft = String(velocityMPerS);
+    void viewerModel.setDepthVelocityMPerS(velocityMPerS);
+  }
+
+  function switchSectionDomain(domain: "time" | "depth"): void {
+    if (domain === "depth" && !viewerModel.canDisplayDepthSection) {
+      viewerModel.note(
+        "Depth display currently requires the desktop runtime, an active volume, and a valid velocity model.",
+        "ui",
+        "warn"
+      );
+      return;
+    }
+
+    void viewerModel.setSectionDomain(domain);
+  }
+
   async function handleImportHorizons(): Promise<void> {
     const inputPaths = await pickHorizonFiles();
     if (inputPaths.length === 0) {
       viewerModel.note("Horizon import selection did not produce usable files.", "ui", "warn");
       return;
     }
-    await viewerModel.importHorizonFiles(inputPaths);
+    if (!viewerModel.activeEffectiveNativeCoordinateReferenceId) {
+      viewerModel.note(
+        "Horizon import requires the active survey to have an effective native CRS before imported horizons can be aligned.",
+        "ui",
+        "warn"
+      );
+      return;
+    }
+    pendingHorizonImportPaths = inputPaths;
+    horizonImportSourceMode = "survey";
+    horizonSourceCoordinateReferenceIdDraft = "";
+    horizonSourceCoordinateReferenceNameDraft = "";
+    horizonImportDialogOpen = true;
+  }
+
+  function closeHorizonImportDialog(): void {
+    if (viewerModel.horizonImporting) {
+      return;
+    }
+    horizonImportDialogOpen = false;
+    pendingHorizonImportPaths = [];
+    horizonImportSourceMode = "survey";
+    horizonSourceCoordinateReferenceIdDraft = "";
+    horizonSourceCoordinateReferenceNameDraft = "";
+  }
+
+  async function confirmHorizonImport(): Promise<void> {
+    if (pendingHorizonImportPaths.length === 0) {
+      closeHorizonImportDialog();
+      return;
+    }
+
+    if (
+      horizonImportSourceMode === "custom" &&
+      horizonSourceCoordinateReferenceIdDraft.trim().length === 0
+    ) {
+      viewerModel.note(
+        "Enter a source CRS identifier before importing horizons with a custom CRS.",
+        "ui",
+        "warn"
+      );
+      return;
+    }
+
+    await viewerModel.importHorizonFiles(pendingHorizonImportPaths, {
+      assumeSameAsSurvey: horizonImportSourceMode === "survey",
+      sourceCoordinateReferenceId:
+        horizonImportSourceMode === "custom"
+          ? horizonSourceCoordinateReferenceIdDraft.trim()
+          : null,
+      sourceCoordinateReferenceName:
+        horizonImportSourceMode === "custom"
+          ? horizonSourceCoordinateReferenceNameDraft.trim() || null
+          : null
+    });
+
+    if (!viewerModel.error) {
+      closeHorizonImportDialog();
+    }
   }
 
   function openDisplaySettings(): void {
@@ -208,6 +299,16 @@
   }
 
   function handleWindowKeyDown(event: KeyboardEvent): void {
+    if (horizonImportDialogOpen && event.key === "Escape") {
+      closeHorizonImportDialog();
+      return;
+    }
+
+    if (datasetExportDialog && event.key === "Escape") {
+      viewerModel.closeDatasetExportDialog();
+      return;
+    }
+
     if (displaySettingsOpen && event.key === "Escape") {
       closeDisplaySettings();
       return;
@@ -264,6 +365,19 @@
           }}
         />
       </label>
+
+      {#if viewerModel.datasetSampleDataFidelityLabel}
+        <div
+          class={[
+            "display-chip field sample-fidelity-chip",
+            viewerModel.datasetSampleDataFidelityNeedsWarning && "warn"
+          ]}
+          title={viewerModel.datasetSampleDataFidelityDetail ?? undefined}
+        >
+          <span>Samples</span>
+          <strong>{viewerModel.datasetSampleDataFidelityLabel}</strong>
+        </div>
+      {/if}
     </div>
 
     <div class="display-chip-row">
@@ -275,13 +389,90 @@
       >
         {viewerModel.horizonImporting ? "Importing…" : `Horizons ${viewerModel.sectionHorizons.length}`}
       </button>
+      {#if viewerModel.sectionWellOverlays.length > 0}
+        <div class="display-chip field time-depth-status">
+          <span>Wells</span>
+          <strong>{viewerModel.sectionWellOverlays.length}</strong>
+        </div>
+      {/if}
       <button
         class="display-chip action"
-        onclick={() => void viewerModel.exportActiveDatasetSegy()}
-        disabled={!viewerModel.canExportSegy}
+        onclick={() => void viewerModel.openActiveDatasetExportDialog()}
+        disabled={!viewerModel.canOpenExportDialog}
       >
-        {viewerModel.segyExporting ? "Exporting…" : "Export SEG-Y"}
+        {viewerModel.datasetExporting ? "Exporting..." : "Export..."}
       </button>
+      <button
+        class:active={viewerModel.sectionDomain === "time"}
+        class="display-chip action"
+        onclick={() => switchSectionDomain("time")}
+        disabled={!viewerModel.activeStorePath || viewerModel.loading}
+      >
+        TWT
+      </button>
+      <button
+        class:active={viewerModel.sectionDomain === "depth"}
+        class="display-chip action"
+        onclick={() => switchSectionDomain("depth")}
+        disabled={(!viewerModel.canDisplayDepthSection && viewerModel.sectionDomain !== "depth") || viewerModel.loading}
+      >
+        Depth
+      </button>
+      {#if viewerModel.timeDepthStatusLabel}
+        <div
+          class="display-chip field time-depth-status"
+          title={viewerModel.timeDepthStatusDetail ?? undefined}
+        >
+          <span>Transform</span>
+          <strong>{viewerModel.timeDepthStatusLabel}</strong>
+        </div>
+      {/if}
+      {#if viewerModel.activeVelocityModelDescriptor}
+        <div class="display-chip field time-depth-status" title={viewerModel.activeVelocityModelDescriptor.name}>
+          <span>Velocity Model</span>
+          <strong>{viewerModel.activeVelocityModelDescriptor.name}</strong>
+        </div>
+      {/if}
+      <label class="display-chip field velocity-field">
+        <span>{viewerModel.activeVelocityModelDescriptor ? "Fallback Vavg" : "Vavg"}</span>
+        <input
+          bind:value={depthVelocityDraft}
+          type="number"
+          min="1"
+          step="50"
+          disabled={!viewerModel.tauriRuntime || viewerModel.loading || !!viewerModel.activeVelocityModelDescriptor}
+          onblur={commitDepthVelocityModel}
+          onkeydown={(event) => {
+            if (event.key === "Enter") {
+              commitDepthVelocityModel();
+            }
+          }}
+        />
+        <small>m/s</small>
+      </label>
+      <button
+        class:active={viewerModel.showVelocityOverlay}
+        class="display-chip action"
+        onclick={() => void viewerModel.setShowVelocityOverlay(!viewerModel.showVelocityOverlay)}
+        disabled={!viewerModel.canDisplayVelocityOverlay || viewerModel.loading}
+      >
+        Velocity
+      </button>
+      <label class="display-chip field velocity-overlay-alpha">
+        <span>Alpha</span>
+        <input
+          value={Math.round(viewerModel.velocityOverlayOpacity * 100)}
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          disabled={!viewerModel.showVelocityOverlay || viewerModel.loading}
+          oninput={(event) => {
+            viewerModel.setVelocityOverlayOpacity(Number((event.currentTarget as HTMLInputElement).value) / 100);
+          }}
+        />
+        <small>{Math.round(viewerModel.velocityOverlayOpacity * 100)}%</small>
+      </label>
       <button
         class:active={viewerModel.displayTransform.renderMode === "heatmap"}
         class="display-chip action"
@@ -518,9 +709,11 @@
           <SeismicSectionChart
             bind:this={chartRef}
             chartId="traceboost-main"
-            viewId={`${viewerModel.axis}:${viewerModel.index}:${processingModel.displaySectionMode}`}
+            viewId={`${viewerModel.axis}:${viewerModel.index}:${viewerModel.sectionDomain}:${processingModel.displaySectionMode}`}
             section={processingModel.displaySection}
+            sectionScalarOverlays={viewerModel.sectionScalarOverlays}
             sectionHorizons={viewerModel.sectionHorizons}
+            sectionWellOverlays={viewerModel.sectionWellOverlays}
             secondarySection={splitReady ? viewerModel.backgroundSection : null}
             compareMode={splitReady ? "split" : "single"}
             splitPosition={viewerModel.compareSplitPosition}
@@ -660,6 +853,282 @@
   </div>
 {/if}
 
+{#if horizonImportDialogOpen}
+  <div class="display-settings-backdrop" role="presentation" onclick={closeHorizonImportDialog}>
+    <div
+      class="display-settings-dialog horizon-import-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Import horizons with coordinate reference settings"
+      tabindex="0"
+      onclick={(event) => event.stopPropagation()}
+      onkeydown={(event) => event.stopPropagation()}
+    >
+      <div class="display-settings-header">
+        <h3>Import Horizons</h3>
+        <p class="horizon-import-copy">
+          Align the selected horizon XYZ files into the active survey CRS before section slicing.
+        </p>
+      </div>
+
+      <div class="horizon-import-summary">
+        <div class="import-geometry-summary-row">
+          <span>Files</span>
+          <strong>{pendingHorizonImportPaths.length}</strong>
+        </div>
+        <div class="import-geometry-summary-row">
+          <span>Survey CRS</span>
+          <strong>
+            {viewerModel.activeEffectiveNativeCoordinateReferenceId ?? "Unknown"}
+            {#if viewerModel.activeEffectiveNativeCoordinateReferenceName}
+              • {viewerModel.activeEffectiveNativeCoordinateReferenceName}
+            {/if}
+          </strong>
+        </div>
+      </div>
+
+      <div class="import-geometry-mode">
+        <label class="import-geometry-mode-option">
+          <input
+            type="radio"
+            name="horizon-source-mode"
+            checked={horizonImportSourceMode === "survey"}
+            disabled={viewerModel.horizonImporting}
+            onchange={() => {
+              horizonImportSourceMode = "survey";
+            }}
+          />
+          <span>Assume horizon XY already uses the survey CRS</span>
+        </label>
+        <label class="import-geometry-mode-option">
+          <input
+            type="radio"
+            name="horizon-source-mode"
+            checked={horizonImportSourceMode === "custom"}
+            disabled={viewerModel.horizonImporting}
+            onchange={() => {
+              horizonImportSourceMode = "custom";
+            }}
+          />
+          <span>Transform from another source CRS first</span>
+        </label>
+      </div>
+
+      <div class="import-geometry-manual">
+        <div class="import-geometry-manual-header">
+          <span>Source CRS</span>
+          <small>Enter the raw horizon file CRS when it differs from the survey CRS.</small>
+        </div>
+
+        <div class="display-settings-grid horizon-import-grid">
+          <label class="settings-field">
+            <span>CRS Identifier</span>
+            <input
+              type="text"
+              placeholder="EPSG:4326"
+              bind:value={horizonSourceCoordinateReferenceIdDraft}
+              disabled={horizonImportSourceMode !== "custom" || viewerModel.horizonImporting}
+            />
+          </label>
+
+          <label class="settings-field">
+            <span>CRS Name</span>
+            <input
+              type="text"
+              placeholder="WGS 84"
+              bind:value={horizonSourceCoordinateReferenceNameDraft}
+              disabled={horizonImportSourceMode !== "custom" || viewerModel.horizonImporting}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div class="display-settings-actions">
+        <button
+          class="settings-btn secondary"
+          onclick={closeHorizonImportDialog}
+          disabled={viewerModel.horizonImporting}
+        >
+          Cancel
+        </button>
+        <button class="settings-btn primary" onclick={() => void confirmHorizonImport()}>
+          {viewerModel.horizonImporting ? "Importing..." : "Import Horizons"}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if datasetExportDialog}
+  <div
+    class="import-geometry-backdrop"
+    role="presentation"
+    onclick={() => viewerModel.closeDatasetExportDialog()}
+  >
+    <div
+      class="import-geometry-dialog export-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Export dataset"
+      tabindex="0"
+      onclick={(event) => event.stopPropagation()}
+      onkeydown={(event) => event.stopPropagation()}
+    >
+      <div class="import-geometry-header">
+        <h3>Export Dataset</h3>
+        <p>
+          Choose one or more export formats, confirm the output path for each selection, then run the
+          export for {datasetExportDialog.displayName}.
+        </p>
+      </div>
+
+      <div class="import-geometry-summary">
+        <div class="import-geometry-summary-row">
+          <span>Selected dataset</span>
+          <strong>{datasetExportDialog.displayName}</strong>
+        </div>
+        <div class="import-geometry-summary-row">
+          <span>Runtime store</span>
+          <strong>{datasetExportDialog.storePath}</strong>
+        </div>
+      </div>
+
+      <div class="export-format-list">
+        <label
+          class:selected={datasetExportDialog.formats.segy.selected}
+          class:disabled={!datasetExportDialog.formats.segy.available}
+          class="import-geometry-candidate export-format-card"
+        >
+          <input
+            type="checkbox"
+            checked={datasetExportDialog.formats.segy.selected}
+            disabled={!datasetExportDialog.formats.segy.available || datasetExportDialog.working}
+            onchange={(event) =>
+              viewerModel.setDatasetExportFormatSelected(
+                "segy",
+                (event.currentTarget as HTMLInputElement).checked
+              )}
+          />
+          <div class="import-geometry-candidate-copy">
+            <strong>SEG-Y</strong>
+            <span>
+              {#if datasetExportDialog.formats.segy.available}
+                Export to SEG-Y using the captured survey provenance.
+              {:else}
+                {datasetExportDialog.formats.segy.reason ?? "SEG-Y export is unavailable for this dataset."}
+              {/if}
+            </span>
+          </div>
+        </label>
+
+        <div class="import-geometry-manual export-path-card">
+          <div class="import-geometry-manual-header">
+            <span>SEG-Y Output Path</span>
+            <small>Choose the `.sgy` or `.segy` file to write.</small>
+          </div>
+          <div class="export-path-row">
+            <input
+              type="text"
+              value={datasetExportDialog.formats.segy.path}
+              disabled={!datasetExportDialog.formats.segy.available || !datasetExportDialog.formats.segy.selected || datasetExportDialog.working}
+              oninput={(event) =>
+                viewerModel.setDatasetExportPath(
+                  "segy",
+                  (event.currentTarget as HTMLInputElement).value
+                )}
+            />
+            <button
+              class="settings-btn secondary"
+              type="button"
+              disabled={!datasetExportDialog.formats.segy.available || !datasetExportDialog.formats.segy.selected || datasetExportDialog.working}
+              onclick={() => void viewerModel.browseDatasetExportPath("segy")}
+            >
+              Browse
+            </button>
+          </div>
+        </div>
+
+        <label
+          class:selected={datasetExportDialog.formats.zarr.selected}
+          class:disabled={!datasetExportDialog.formats.zarr.available}
+          class="import-geometry-candidate export-format-card"
+        >
+          <input
+            type="checkbox"
+            checked={datasetExportDialog.formats.zarr.selected}
+            disabled={!datasetExportDialog.formats.zarr.available || datasetExportDialog.working}
+            onchange={(event) =>
+              viewerModel.setDatasetExportFormatSelected(
+                "zarr",
+                (event.currentTarget as HTMLInputElement).checked
+              )}
+          />
+          <div class="import-geometry-candidate-copy">
+            <strong>Zarr</strong>
+            <span>
+              {#if datasetExportDialog.formats.zarr.available}
+                Export to a chunked Zarr store with TraceBoost metadata.
+              {:else}
+                {datasetExportDialog.formats.zarr.reason ?? "Zarr export is unavailable for this dataset."}
+              {/if}
+            </span>
+          </div>
+        </label>
+
+        <div class="import-geometry-manual export-path-card">
+          <div class="import-geometry-manual-header">
+            <span>Zarr Output Path</span>
+            <small>Choose the `.zarr` store path to write.</small>
+          </div>
+          <div class="export-path-row">
+            <input
+              type="text"
+              value={datasetExportDialog.formats.zarr.path}
+              disabled={!datasetExportDialog.formats.zarr.available || !datasetExportDialog.formats.zarr.selected || datasetExportDialog.working}
+              oninput={(event) =>
+                viewerModel.setDatasetExportPath(
+                  "zarr",
+                  (event.currentTarget as HTMLInputElement).value
+                )}
+            />
+            <button
+              class="settings-btn secondary"
+              type="button"
+              disabled={!datasetExportDialog.formats.zarr.available || !datasetExportDialog.formats.zarr.selected || datasetExportDialog.working}
+              onclick={() => void viewerModel.browseDatasetExportPath("zarr")}
+            >
+              Browse
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {#if datasetExportDialog.error}
+        <p class="import-geometry-error">{datasetExportDialog.error}</p>
+      {/if}
+
+      <div class="import-geometry-actions">
+        <button
+          class="settings-btn secondary"
+          type="button"
+          onclick={() => viewerModel.closeDatasetExportDialog()}
+          disabled={datasetExportDialog.working}
+        >
+          Cancel
+        </button>
+        <button
+          class="settings-btn primary"
+          type="button"
+          onclick={() => void viewerModel.confirmDatasetExportDialog()}
+          disabled={datasetExportDialog.working}
+        >
+          {datasetExportDialog.working ? "Exporting..." : "Export Selected Formats"}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if geometryRecovery}
   <div class="import-geometry-backdrop" role="presentation" onclick={() => viewerModel.closeImportGeometryRecovery()}>
     <div
@@ -690,6 +1159,17 @@
         <div class="import-geometry-summary-row">
           <span>Current result</span>
           <strong>{geometryRecovery.preflight.classification} • {geometryRecovery.preflight.layout}</strong>
+        </div>
+        <div class="import-geometry-summary-row">
+          <span>Samples</span>
+          <strong
+            class={[
+              viewerModel.preflightSampleDataFidelityNeedsWarning(geometryRecovery.preflight) && "warn"
+            ]}
+            title={viewerModel.preflightSampleDataFidelityDetail(geometryRecovery.preflight) ?? undefined}
+          >
+            {viewerModel.preflightSampleDataFidelityLabel(geometryRecovery.preflight) ?? "unknown"}
+          </strong>
         </div>
       </div>
 
@@ -838,6 +1318,8 @@
     </div>
   </div>
 {/if}
+
+<VelocityModelWorkbench open={viewerModel.velocityModelWorkbenchOpen} />
 
 <style>
   .sidebar-toggle {
@@ -993,6 +1475,39 @@
 
   .display-chip.field input {
     width: 52px;
+  }
+
+  .velocity-field {
+    gap: 4px;
+  }
+
+  .time-depth-status {
+    gap: 4px;
+  }
+
+  .time-depth-status strong {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: #e8f3ff;
+  }
+
+  .sample-fidelity-chip strong {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: #e8f3ff;
+  }
+
+  .sample-fidelity-chip.warn strong {
+    color: #ffd086;
+  }
+
+  .velocity-field small {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #7d7d7d;
   }
 
   .display-chip.action,
@@ -1186,6 +1701,27 @@
     color: rgba(240, 246, 250, 0.96);
   }
 
+  .horizon-import-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .horizon-import-copy {
+    margin: -6px 0 0;
+    color: rgba(194, 209, 218, 0.82);
+    line-height: 1.45;
+    font-size: 13px;
+  }
+
+  .horizon-import-summary {
+    display: grid;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(158, 183, 196, 0.14);
+    background: rgba(6, 17, 24, 0.52);
+  }
+
   .display-settings-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1299,6 +1835,10 @@
   .import-geometry-summary-row strong {
     color: #edf5f0;
     text-align: right;
+  }
+
+  .import-geometry-summary-row strong.warn {
+    color: #ffd086;
   }
 
   .import-geometry-mode {
@@ -1415,6 +1955,40 @@
     gap: 10px;
   }
 
+  .export-dialog {
+    border-color: rgba(107, 166, 206, 0.35);
+  }
+
+  .export-format-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .export-format-card.disabled {
+    opacity: 0.62;
+    cursor: not-allowed;
+  }
+
+  .export-path-card {
+    gap: 10px;
+  }
+
+  .export-path-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .export-path-row input {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(10, 13, 15, 0.7);
+    color: #eef4ef;
+    padding: 8px 10px;
+  }
+
   @media (max-width: 900px) {
     .workspace-columns {
       grid-template-columns: 1fr;
@@ -1438,6 +2012,10 @@
 
     .display-settings-grid {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .export-path-row {
+      grid-template-columns: 1fr;
     }
 
     .import-geometry-grid {
