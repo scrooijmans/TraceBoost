@@ -1,10 +1,10 @@
 import { createContext, tick } from "svelte";
 import type {
-  SectionHorizonOverlay as GeovizSectionHorizonOverlay,
-  SectionScalarOverlay as GeovizSectionScalarOverlay,
-  SectionWellOverlay as GeovizSectionWellOverlay
-} from "@geoviz/data-models";
-import type { SeismicChartInteractionState, SeismicChartTool } from "@geoviz/svelte";
+  SectionHorizonOverlay as ChartSectionHorizonOverlay,
+  SectionScalarOverlay as ChartSectionScalarOverlay,
+  SectionWellOverlay as ChartSectionWellOverlay
+} from "@ophiolite/charts-data-models";
+import type { SeismicChartInteractionState, SeismicChartTool } from "@ophiolite/charts";
 import type {
   BuildSurveyTimeDepthTransformRequest,
   DatasetRegistryEntry,
@@ -37,6 +37,10 @@ import type {
   WellTimeDepthModel1D
 } from "@ophiolite/contracts";
 import type {
+  AcceptProjectWellTieRequest,
+  AcceptProjectWellTieResponse,
+  AnalyzeProjectWellTieRequest,
+  ProjectWellTieAnalysisResponse,
   CompileProjectWellTimeDepthAuthoredModelRequest,
   DatasetExportCapabilitiesResponse,
   DiagnosticsEvent,
@@ -47,6 +51,10 @@ import type {
   ImportProjectWellTimeDepthModelRequest,
   ImportProjectWellTimeDepthModelResponse,
   ProjectSurveyAssetDescriptor,
+  ProjectSurveyDisplayCompatibility,
+  ProjectDisplayCoordinateReference,
+  ProjectGeospatialSettings,
+  ProjectWellboreDisplayCompatibility,
   ProjectWellTimeDepthAuthoredModelDescriptor,
   ProjectWellboreInventoryItem,
   ProjectWellOverlayInventoryResponse,
@@ -57,7 +65,10 @@ import type {
   TransportSectionView
 } from "./bridge";
 import {
+  acceptProjectWellTie,
+  analyzeProjectWellTie,
   compileProjectWellTimeDepthAuthoredModel,
+  convertHorizonDomain,
   exportDatasetSegy,
   exportDatasetZarr,
   defaultImportStorePath,
@@ -76,6 +87,8 @@ import {
   importVelocityFunctionsModel,
   listProjectWellOverlayInventory,
   listProjectWellTimeDepthInventory,
+  loadHorizonAssets,
+  loadProjectGeospatialSettings,
   loadVelocityModels,
   loadWorkspaceState,
   listenToDiagnosticsEvents,
@@ -83,8 +96,10 @@ import {
   preflightImport,
   readProjectWellTimeDepthModel,
   removeDatasetEntry,
+  resolveProjectSurveyMap,
   resolveProjectSectionWellOverlays,
   resolveSurveyMap,
+  saveProjectGeospatialSettings,
   saveWorkspaceSession,
   setProjectActiveWellTimeDepthModel,
   setActiveDatasetEntry,
@@ -99,6 +114,14 @@ import {
   pickSegyExportPath,
   pickZarrExportPath
 } from "./file-dialog";
+import { buildWorkspaceCoordinateReferenceWarnings } from "./coordinate-reference-warnings";
+import {
+  describeProjectDisplayCompatibilityBlockingReasonCode,
+  describeProjectSurveyDisplayCompatibility,
+  describeProjectWellboreDisplayCompatibility,
+  projectSurveyDisplayCompatibilityStatusLabel,
+  projectWellboreDisplayCompatibilityStatusLabel
+} from "./project-display-compatibility";
 
 type DisplaySectionView = SectionView | TransportSectionView;
 type SectionDisplayDomain = "time" | "depth";
@@ -114,6 +137,11 @@ const SECTION_WELL_OVERLAY_COLORS = [
   "#facc15",
   "#f472b6",
   "#a78bfa"
+] as const;
+const PROJECT_SURVEY_SELECTION_GROUPS = [
+  { key: "ready", label: "Ready" },
+  { key: "degraded", label: "Degraded" },
+  { key: "unavailable", label: "Unavailable" }
 ] as const;
 
 export interface ViewerActivity {
@@ -144,6 +172,16 @@ interface ImportDatasetOptions extends OpenDatasetOptions {
   outputStorePath?: string;
   reuseExistingStore?: boolean;
   geometryOverride?: SegyGeometryOverride | null;
+}
+
+interface ProjectWellTieDraftSeed {
+  observationAssetId: string | null;
+  sourceModelAssetId: string | null;
+  tieName: string;
+  tieStartMs: string;
+  tieEndMs: string;
+  searchRadiusM: string;
+  summary: string | null;
 }
 
 interface GeometryOverrideDraft {
@@ -186,6 +224,64 @@ interface DatasetExportDialogState {
     segy: DatasetExportFormatState;
     zarr: DatasetExportFormatState;
   };
+}
+
+type ProjectSurveySelectionGroupKey = (typeof PROJECT_SURVEY_SELECTION_GROUPS)[number]["key"];
+type ProjectWellboreSelectionGroupKey = (typeof PROJECT_SURVEY_SELECTION_GROUPS)[number]["key"];
+
+interface ProjectSurveySelectionGroup {
+  label: string;
+  surveys: ProjectSurveyAssetDescriptor[];
+}
+
+interface ProjectWellboreSelectionGroup {
+  label: string;
+  wellbores: ProjectWellboreInventoryItem[];
+}
+
+function projectSurveySelectionGroupKey(
+  survey: ProjectSurveyAssetDescriptor
+): ProjectSurveySelectionGroupKey {
+  if (survey.displayCompatibility.canResolveProjectMap) {
+    return survey.displayCompatibility.transformStatus === "display_degraded"
+      ? "degraded"
+      : "ready";
+  }
+  return "unavailable";
+}
+
+function projectSurveyReadinessRank(survey: ProjectSurveyAssetDescriptor): number {
+  if (survey.displayCompatibility.canResolveProjectMap) {
+    return survey.displayCompatibility.transformStatus === "display_equivalent"
+      ? 0
+      : survey.displayCompatibility.transformStatus === "display_transformed"
+        ? 1
+        : 2;
+  }
+  return 3;
+}
+
+function pickPreferredProjectSurveyAssetId(surveys: ProjectSurveyAssetDescriptor[]): string {
+  let preferredSurvey: ProjectSurveyAssetDescriptor | null = null;
+
+  for (const survey of surveys) {
+    if (!preferredSurvey || projectSurveyReadinessRank(survey) < projectSurveyReadinessRank(preferredSurvey)) {
+      preferredSurvey = survey;
+    }
+  }
+
+  return preferredSurvey?.assetId ?? "";
+}
+
+function projectWellboreSelectionGroupKey(
+  wellbore: ProjectWellboreInventoryItem
+): ProjectWellboreSelectionGroupKey {
+  if (wellbore.displayCompatibility.canResolveProjectMap) {
+    return wellbore.displayCompatibility.transformStatus === "display_degraded"
+      ? "degraded"
+      : "ready";
+  }
+  return "unavailable";
 }
 
 export type CompareCompatibilityReason =
@@ -283,7 +379,7 @@ function decodeF32Le(bytes: Array<number> | Uint8Array | null | undefined): Floa
 
 function adaptSectionHorizonOverlays(
   overlays: SectionHorizonOverlayView[]
-): GeovizSectionHorizonOverlay[] {
+): ChartSectionHorizonOverlay[] {
   return overlays.map((overlay) => ({
     id: overlay.id,
     name: overlay.name ?? undefined,
@@ -302,7 +398,7 @@ function adaptSectionHorizonOverlays(
 function adaptSectionScalarOverlays(
   overlays: TransportSectionScalarOverlayView[],
   opacityOverride?: number
-): GeovizSectionScalarOverlay[] {
+): ChartSectionScalarOverlay[] {
   return overlays.map((overlay) => ({
     id: overlay.id,
     name: overlay.name ?? undefined,
@@ -318,7 +414,7 @@ function adaptSectionScalarOverlays(
 
 function adaptSectionWellOverlays(
   response: ResolveSectionWellOverlaysResponse
-): GeovizSectionWellOverlay[] {
+): ChartSectionWellOverlay[] {
   return response.overlays.map((overlay, overlayIndex) => ({
     id: overlay.wellbore_id,
     name: overlay.name || overlay.wellbore_id,
@@ -522,6 +618,28 @@ function suggestedCandidateIndex(preflight: SurveyPreflightResponse): number {
 
 function trimPath(value: string): string {
   return value.trim();
+}
+
+function normalizeCoordinateReferenceId(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? "";
+  return normalized || null;
+}
+
+function uniqueStringsInOrder(values: string[]): string[] {
+  const uniqueValues: string[] = [];
+  for (const value of values) {
+    if (!uniqueValues.includes(value)) {
+      uniqueValues.push(value);
+    }
+  }
+  return uniqueValues;
+}
+
+function coordinateReferenceSelectionId(selection: ProjectDisplayCoordinateReference): string | null {
+  if (selection.kind !== "coordinate_reference_id") {
+    return null;
+  }
+  return normalizeCoordinateReferenceId(selection.coordinateReferenceId);
 }
 
 function deriveStorePathFromInput(inputPath: string): string {
@@ -757,9 +875,9 @@ export class ViewerModel {
   availableVelocityModels = $state.raw<SurveyTimeDepthTransform3D[]>([]);
   section = $state.raw<DisplaySectionView | null>(null);
   timeDepthDiagnostics = $state.raw<SectionTimeDepthDiagnostics | null>(null);
-  sectionScalarOverlays = $state.raw<GeovizSectionScalarOverlay[]>([]);
-  sectionHorizons = $state.raw<GeovizSectionHorizonOverlay[]>([]);
-  sectionWellOverlays = $state.raw<GeovizSectionWellOverlay[]>([]);
+  sectionScalarOverlays = $state.raw<ChartSectionScalarOverlay[]>([]);
+  sectionHorizons = $state.raw<ChartSectionHorizonOverlay[]>([]);
+  sectionWellOverlays = $state.raw<ChartSectionWellOverlay[]>([]);
   importedHorizons = $state.raw<ImportedHorizonDescriptor[]>([]);
   backgroundSection = $state.raw<DisplaySectionView | null>(null);
   showVelocityOverlay = $state(false);
@@ -767,6 +885,11 @@ export class ViewerModel {
   velocityModelWorkbenchOpen = $state(false);
   velocityModelWorkbenchBuilding = $state(false);
   velocityModelWorkbenchError = $state<string | null>(null);
+  depthConversionWorkbenchOpen = $state(false);
+  depthConversionWorkbenchWorking = $state(false);
+  depthConversionWorkbenchError = $state<string | null>(null);
+  wellTieWorkbenchOpen = $state(false);
+  wellTieWorkbenchError = $state<string | null>(null);
   velocityModelsLoading = $state(false);
   loading = $state(false);
   backgroundLoading = $state(false);
@@ -799,6 +922,14 @@ export class ViewerModel {
   activeEntryId = $state<string | null>(null);
   selectedPresetId = $state<string | null>(null);
   displayCoordinateReferenceId = $state<string | null>(null);
+  projectDisplayCoordinateReferenceMode = $state<"native_engineering" | "coordinate_reference_id">(
+    "native_engineering"
+  );
+  projectDisplayCoordinateReferenceIdDraft = $state("");
+  projectGeospatialSettingsResolved = $state(true);
+  projectGeospatialSettingsSource = $state<string | null>("temporary_workspace");
+  projectGeospatialSettingsLoading = $state(false);
+  projectGeospatialSettingsSaving = $state(false);
   surveyMapSource = $state.raw<ResolvedSurveyMapSourceDto | null>(null);
   surveyMapLoading = $state(false);
   surveyMapError = $state<string | null>(null);
@@ -818,6 +949,9 @@ export class ViewerModel {
   projectWellboreId = $state("");
   projectSectionToleranceM = $state(12.5);
   selectedProjectWellTimeDepthModelAssetId = $state<string | null>(null);
+  selectedProjectWellTieObservationAssetId = $state<string | null>(null);
+  projectWellTieDraftSeed = $state.raw<ProjectWellTieDraftSeed | null>(null);
+  projectWellTieDraftSeedNonce = $state(0);
   nativeCoordinateReferenceOverrideIdDraft = $state("");
   nativeCoordinateReferenceOverrideNameDraft = $state("");
   workspaceReady = $state(false);
@@ -1011,13 +1145,290 @@ export class ViewerModel {
     return this.tauriRuntime && !!trimPath(this.activeStorePath);
   }
 
+  get availableHorizonAssets(): ImportedHorizonDescriptor[] {
+    return this.importedHorizons;
+  }
+
+  get depthConversionHorizonAssets(): ImportedHorizonDescriptor[] {
+    return this.importedHorizons;
+  }
+
+  get canOpenDepthConversionWorkbench(): boolean {
+    return this.depthConversionBlocker === null;
+  }
+
   get canResolveConfiguredProjectSectionWellOverlays(): boolean {
-    return (
-      this.tauriRuntime &&
-      !!trimPath(this.projectRoot) &&
-      !!trimPath(this.projectSurveyAssetId) &&
-      !!trimPath(this.projectWellboreId)
+    return this.projectSectionWellOverlayResolveBlocker === null;
+  }
+
+  get canPrepareProjectWellTie(): boolean {
+    return this.projectWellTiePreparationBlocker === null;
+  }
+
+  get canImportHorizons(): boolean {
+    return this.horizonImportBlocker === null;
+  }
+
+  get canImportProjectWellAssets(): boolean {
+    return this.projectWellAssetImportBlocker === null;
+  }
+
+  get canAnalyzeProjectWellTie(): boolean {
+    return this.projectWellTieAnalysisBlocker === null;
+  }
+
+  get canAcceptProjectWellTie(): boolean {
+    return this.projectWellTieAcceptBlocker === null;
+  }
+
+  get projectSectionWellOverlayResolveBlocker(): string | null {
+    if (!this.tauriRuntime) {
+      return "Project section-well overlays are only available in the desktop runtime.";
+    }
+    if (!trimPath(this.projectRoot)) {
+      return "Set a project root before resolving section well overlays.";
+    }
+    if (!this.projectGeospatialSettingsResolved || !this.displayCoordinateReferenceId) {
+      return "Choose a project display CRS identifier before resolving section well overlays.";
+    }
+    if (!trimPath(this.projectSurveyAssetId)) {
+      return "Select a project survey before resolving section well overlays.";
+    }
+    if (!trimPath(this.projectWellboreId)) {
+      return "Select a project wellbore before resolving section well overlays.";
+    }
+    const selectedProjectSurveyCompatibility = this.selectedProjectSurveyDisplayCompatibility;
+    if (
+      selectedProjectSurveyCompatibility &&
+      !selectedProjectSurveyCompatibility.canResolveProjectMap
+    ) {
+      return (
+        this.selectedProjectSurveyDisplayCompatibilityMessage ??
+        "The selected project survey cannot be resolved in the current project display CRS."
+      );
+    }
+    const selectedProjectWellboreCompatibility = this.selectedProjectWellboreDisplayCompatibility;
+    if (
+      selectedProjectWellboreCompatibility &&
+      !selectedProjectWellboreCompatibility.canResolveProjectMap
+    ) {
+      return (
+        this.selectedProjectWellboreDisplayCompatibilityMessage ??
+        "The selected project wellbore cannot be resolved in the current project display CRS."
+      );
+    }
+    return null;
+  }
+
+  get projectWellTiePreparationBlocker(): string | null {
+    if (!this.tauriRuntime) {
+      return "Project well ties are only available in the desktop runtime.";
+    }
+    if (!trimPath(this.activeStorePath)) {
+      return "Open a seismic volume before preparing a project well tie.";
+    }
+    if (!trimPath(this.projectRoot)) {
+      return "Set a project root before preparing a project well tie.";
+    }
+    if (!this.projectGeospatialSettingsResolved || !this.displayCoordinateReferenceId) {
+      return "Choose a project display CRS identifier before preparing a project well tie.";
+    }
+    if (!trimPath(this.projectSurveyAssetId)) {
+      return "Select a project survey before preparing a project well tie.";
+    }
+    const selectedProjectSurveyCompatibility = this.selectedProjectSurveyDisplayCompatibility;
+    if (
+      selectedProjectSurveyCompatibility &&
+      !selectedProjectSurveyCompatibility.canResolveProjectMap
+    ) {
+      return (
+        this.selectedProjectSurveyDisplayCompatibilityMessage ??
+        "The selected project survey cannot be resolved in the current project display CRS."
+      );
+    }
+    if (!trimPath(this.projectWellboreId)) {
+      return "Select a project wellbore before preparing a project well tie.";
+    }
+    const selectedProjectWellboreCompatibility = this.selectedProjectWellboreDisplayCompatibility;
+    if (
+      selectedProjectWellboreCompatibility &&
+      !selectedProjectWellboreCompatibility.canResolveProjectMap
+    ) {
+      return (
+        this.selectedProjectWellboreDisplayCompatibilityMessage ??
+        "The selected project wellbore cannot be resolved in the current project display CRS."
+      );
+    }
+    return null;
+  }
+
+  get horizonImportBlocker(): string | null {
+    if (!trimPath(this.activeStorePath)) {
+      return "Open a seismic volume before importing horizons.";
+    }
+    return null;
+  }
+
+  get depthConversionBlocker(): string | null {
+    if (!this.tauriRuntime) {
+      return "Depth conversion workbench is only available in the desktop runtime.";
+    }
+    if (!trimPath(this.activeStorePath)) {
+      return "Open a seismic volume before converting horizons.";
+    }
+    if (!this.depthConversionHorizonAssets.length) {
+      return "Import or load horizons before converting between TWT and depth.";
+    }
+    if (!this.availableVelocityModels.length) {
+      return "Create or import a survey velocity model before converting horizons.";
+    }
+    return null;
+  }
+
+  get horizonImportSurveyModeBlocker(): string | null {
+    if (!this.activeEffectiveNativeCoordinateReferenceId) {
+      return "Active survey native CRS is unknown. Specify the horizon source CRS explicitly or assign the survey CRS first.";
+    }
+    return null;
+  }
+
+  get horizonImportProjectAdvisory(): string | null {
+    if (trimPath(this.projectRoot) && !this.projectGeospatialSettingsResolved) {
+      return "Project display CRS is unresolved. Horizon import can continue, but project overlays and map composition remain blocked until you choose a project CRS.";
+    }
+    if (
+      trimPath(this.projectRoot) &&
+      this.displayCoordinateReferenceId &&
+      this.activeEffectiveNativeCoordinateReferenceId &&
+      this.displayCoordinateReferenceId.toLowerCase() !==
+        this.activeEffectiveNativeCoordinateReferenceId.toLowerCase() &&
+      this.activeSurveyMapSurvey?.transform_status === "display_unavailable"
+    ) {
+      return `Project display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}, and no display transform is currently available. Horizon import can continue in survey coordinates, but project display composition remains unavailable.`;
+    }
+    return null;
+  }
+
+  get projectWellAssetImportBlocker(): string | null {
+    if (!this.tauriRuntime) {
+      return "Project well-asset import is only available in the desktop runtime.";
+    }
+    if (!trimPath(this.projectRoot)) {
+      return "Set a project root before importing project well assets.";
+    }
+    if (!this.projectGeospatialSettingsResolved || !this.displayCoordinateReferenceId) {
+      return "Choose a project display CRS identifier before importing project well assets.";
+    }
+    if (!trimPath(this.projectSurveyAssetId)) {
+      return "Select a project survey before importing project well assets.";
+    }
+    const selectedProjectSurveyCompatibility = this.selectedProjectSurveyDisplayCompatibility;
+    if (
+      selectedProjectSurveyCompatibility &&
+      !selectedProjectSurveyCompatibility.canResolveProjectMap
+    ) {
+      return (
+        this.selectedProjectSurveyDisplayCompatibilityMessage ??
+        "The selected project survey cannot be resolved in the current project display CRS."
+      );
+    }
+    if (!trimPath(this.projectWellboreId)) {
+      return "Select a project wellbore before importing project well assets.";
+    }
+    const selectedProjectWellboreCompatibility = this.selectedProjectWellboreDisplayCompatibility;
+    if (
+      selectedProjectWellboreCompatibility &&
+      !selectedProjectWellboreCompatibility.canResolveProjectMap
+    ) {
+      return (
+        this.selectedProjectWellboreDisplayCompatibilityMessage ??
+        "The selected project wellbore cannot be resolved in the current project display CRS."
+      );
+    }
+    return null;
+  }
+
+  get projectWellAssetImportAdvisory(): string | null {
+    const selectedProjectSurveyCompatibility = this.selectedProjectSurveyDisplayCompatibility;
+    if (
+      selectedProjectSurveyCompatibility?.transformStatus === "display_degraded" &&
+      this.selectedProjectSurveyDisplayCompatibilityMessage
+    ) {
+      return this.selectedProjectSurveyDisplayCompatibilityMessage;
+    }
+    const selectedProjectWellboreCompatibility = this.selectedProjectWellboreDisplayCompatibility;
+    if (
+      selectedProjectWellboreCompatibility?.transformStatus === "display_degraded" &&
+      this.selectedProjectWellboreDisplayCompatibilityMessage
+    ) {
+      return this.selectedProjectWellboreDisplayCompatibilityMessage;
+    }
+    return null;
+  }
+
+  get projectWellTieCompatibilityAdvisory(): string | null {
+    const selectedProjectWellboreCompatibility = this.selectedProjectWellboreDisplayCompatibility;
+    if (
+      selectedProjectWellboreCompatibility?.transformStatus === "display_degraded" &&
+      this.selectedProjectWellboreDisplayCompatibilityMessage
+    ) {
+      return this.selectedProjectWellboreDisplayCompatibilityMessage;
+    }
+    return null;
+  }
+
+  get projectWellTieAnalysisBlocker(): string | null {
+    const preparationBlocker = this.projectWellTiePreparationBlocker;
+    if (preparationBlocker) {
+      return preparationBlocker;
+    }
+    if (this.projectWellTieCompatibilityAdvisory) {
+      return this.projectWellTieCompatibilityAdvisory;
+    }
+    if (!this.selectedProjectWellTimeDepthModelAssetId) {
+      return "Select a compiled well time-depth model before analyzing a project well tie.";
+    }
+    return null;
+  }
+
+  get projectWellTieAcceptBlocker(): string | null {
+    const preparationBlocker = this.projectWellTiePreparationBlocker;
+    if (preparationBlocker) {
+      return preparationBlocker;
+    }
+    if (this.projectWellTieCompatibilityAdvisory) {
+      return this.projectWellTieCompatibilityAdvisory;
+    }
+    if (!this.selectedProjectWellTimeDepthModelAssetId) {
+      return "Select a compiled well time-depth model before accepting a project well tie.";
+    }
+    return null;
+  }
+
+  get requiresProjectGeospatialSettingsSelection(): boolean {
+    return !!trimPath(this.projectRoot) && !this.projectGeospatialSettingsResolved;
+  }
+
+  get suggestedProjectDisplayCoordinateReferenceId(): string | null {
+    const activeCoordinateReferenceId = normalizeCoordinateReferenceId(
+      this.activeEffectiveNativeCoordinateReferenceId
     );
+    if (activeCoordinateReferenceId) {
+      return activeCoordinateReferenceId;
+    }
+
+    const workspaceCoordinateReferenceIds = this.workspaceEntries
+      .map((entry) =>
+        normalizeCoordinateReferenceId(
+          entry.last_dataset?.descriptor.coordinate_reference_binding?.effective?.id ?? null
+        )
+      )
+      .filter((value): value is string => !!value);
+    const uniqueCoordinateReferenceIds = uniqueStringsInOrder(workspaceCoordinateReferenceIds);
+    if (uniqueCoordinateReferenceIds.length === 1) {
+      return uniqueCoordinateReferenceIds[0] ?? null;
+    }
+    return null;
   }
 
   get projectSurveyAssets(): ProjectSurveyAssetDescriptor[] {
@@ -1036,6 +1447,49 @@ export class ViewerModel {
     return this.projectSurveyAssets.find((survey) => survey.assetId === projectSurveyAssetId) ?? null;
   }
 
+  get selectedProjectSurveyDisplayCompatibility(): ProjectSurveyDisplayCompatibility | null {
+    return this.selectedProjectSurveyAsset?.displayCompatibility ?? null;
+  }
+
+  get selectedProjectSurveyDisplayCompatibilityMessage(): string | null {
+    return describeProjectSurveyDisplayCompatibility(this.selectedProjectSurveyDisplayCompatibility);
+  }
+
+  get selectedProjectSurveyWellboreId(): string | null {
+    return trimPath(this.selectedProjectSurveyAsset?.wellboreId ?? "") || null;
+  }
+
+  get compatibleProjectSurveyAssets(): ProjectSurveyAssetDescriptor[] {
+    return this.projectSurveyAssets.filter((survey) => survey.displayCompatibility.canResolveProjectMap);
+  }
+
+  get projectSurveySelectionGroups(): ProjectSurveySelectionGroup[] {
+    return PROJECT_SURVEY_SELECTION_GROUPS.map((group) => ({
+      label: group.label,
+      surveys: this.projectSurveyAssets.filter(
+        (survey) => projectSurveySelectionGroupKey(survey) === group.key
+      )
+    })).filter((group) => group.surveys.length > 0);
+  }
+
+  get projectSurveyDisplayCompatibilitySummaryLine(): string | null {
+    const summary = this.projectWellOverlayInventory?.displayCompatibility;
+    if (!summary) {
+      return null;
+    }
+    const totalSurveyCount = summary.compatibleSurveyCount + summary.incompatibleSurveyCount;
+    if (totalSurveyCount === 0) {
+      return "No project surveys are available.";
+    }
+    const displayCoordinateReferenceId = summary.displayCoordinateReferenceId ?? "unresolved CRS";
+    return `${summary.compatibleSurveyCount} of ${totalSurveyCount} surveys are ready for project display CRS ${displayCoordinateReferenceId}.`;
+  }
+
+  projectSurveyOptionLabel = (survey: ProjectSurveyAssetDescriptor): string => {
+    const status = projectSurveyDisplayCompatibilityStatusLabel(survey.displayCompatibility);
+    return `${survey.name} | ${survey.wellboreName} | ${status}`;
+  };
+
   get selectedProjectWellboreInventoryItem(): ProjectWellboreInventoryItem | null {
     const projectWellboreId = trimPath(this.projectWellboreId);
     if (!projectWellboreId) {
@@ -1047,6 +1501,66 @@ export class ViewerModel {
     );
   }
 
+  get selectedProjectWellboreDisplayCompatibility(): ProjectWellboreDisplayCompatibility | null {
+    return this.selectedProjectWellboreInventoryItem?.displayCompatibility ?? null;
+  }
+
+  get selectedProjectWellboreDisplayCompatibilityMessage(): string | null {
+    return describeProjectWellboreDisplayCompatibility(this.selectedProjectWellboreDisplayCompatibility);
+  }
+
+  get projectWellboreSelectionGroups(): ProjectWellboreSelectionGroup[] {
+    return PROJECT_SURVEY_SELECTION_GROUPS.map((group) => ({
+      label: group.label,
+      wellbores: this.projectWellboreInventory.filter(
+        (wellbore) => projectWellboreSelectionGroupKey(wellbore) === group.key
+      )
+    })).filter((group) => group.wellbores.length > 0);
+  }
+
+  get projectWellboreDisplayCompatibilitySummaryLine(): string | null {
+    const summary = this.projectWellOverlayInventory?.displayCompatibility;
+    if (!summary) {
+      return null;
+    }
+    const totalWellboreCount = summary.compatibleWellboreCount + summary.incompatibleWellboreCount;
+    if (totalWellboreCount === 0) {
+      return "No project wellbores are available.";
+    }
+    const displayCoordinateReferenceId = summary.displayCoordinateReferenceId ?? "unresolved CRS";
+    return `${summary.compatibleWellboreCount} of ${totalWellboreCount} wellbores are ready for project display CRS ${displayCoordinateReferenceId}.`;
+  }
+
+  get projectDisplayCompatibilityBlockingMessages(): string[] {
+    const summary = this.projectWellOverlayInventory?.displayCompatibility;
+    if (!summary) {
+      return [];
+    }
+
+    const blockingReasonCodes = summary.blockingReasonCodes ?? [];
+    const blockingReasons = summary.blockingReasons ?? [];
+    const messages = blockingReasonCodes.length
+      ? blockingReasonCodes.map((reasonCode) =>
+          describeProjectDisplayCompatibilityBlockingReasonCode(
+            reasonCode,
+            summary.displayCoordinateReferenceId ?? null
+          )
+        )
+      : blockingReasons;
+    return uniqueStringsInOrder(messages.filter((message) => !!message));
+  }
+
+  projectWellboreStatusLabel = (wellbore: ProjectWellboreInventoryItem): string => {
+    const readiness = projectWellboreDisplayCompatibilityStatusLabel(wellbore.displayCompatibility);
+    return wellbore.wellboreId === this.selectedProjectSurveyWellboreId
+      ? `${readiness} - survey match`
+      : readiness;
+  }
+
+  projectWellboreOptionLabel = (wellbore: ProjectWellboreInventoryItem): string => {
+    return `${wellbore.wellName} | ${wellbore.wellboreName} | ${this.projectWellboreStatusLabel(wellbore)}`;
+  };
+
   get selectedProjectWellTimeDepthModel(): ProjectWellTimeDepthModelDescriptor | null {
     if (!this.selectedProjectWellTimeDepthModelAssetId) {
       return null;
@@ -1054,6 +1568,17 @@ export class ViewerModel {
     return (
       this.projectWellTimeDepthModels.find(
         (model) => model.assetId === this.selectedProjectWellTimeDepthModelAssetId
+      ) ?? null
+    );
+  }
+
+  get selectedProjectWellTieObservationSet(): ProjectWellTimeDepthObservationDescriptor | null {
+    if (!this.selectedProjectWellTieObservationAssetId) {
+      return null;
+    }
+    return (
+      this.projectWellTimeDepthObservationSets.find(
+        (asset) => asset.assetId === this.selectedProjectWellTieObservationAssetId
       ) ?? null
     );
   }
@@ -1210,46 +1735,63 @@ export class ViewerModel {
     return this.surveyMapSource?.surveys[0] ?? null;
   }
 
-  get workspaceCoordinateReferenceWarnings(): string[] {
+  get surveyMapWellTransformWarnings(): string[] {
+    const displayCoordinateReferenceId = normalizeCoordinateReferenceId(this.displayCoordinateReferenceId);
+    if (!displayCoordinateReferenceId) {
+      return [];
+    }
+
+    const wells = this.surveyMapSource?.wells ?? [];
+    if (wells.length === 0) {
+      return [];
+    }
+
+    const unavailableWells = wells.filter((well) => well.transform_status === "display_unavailable");
+    const degradedWells = wells.filter((well) => well.transform_status === "display_degraded");
     const warnings: string[] = [];
-    const activeDataset = this.comparePrimaryDataset;
-    if (!activeDataset) {
-      return warnings;
+
+    if (unavailableWells.length > 0) {
+      warnings.push(
+        `${unavailableWells.length} well${unavailableWells.length === 1 ? "" : "s"} could not be projected into display CRS ${displayCoordinateReferenceId}.`
+      );
     }
 
-    if (!this.activeEffectiveNativeCoordinateReferenceId) {
-      warnings.push("Active survey native CRS is unknown. Assign an override before relying on cross-survey map alignment.");
-    }
-
-    if (this.displayCoordinateReferenceId && !this.activeEffectiveNativeCoordinateReferenceId) {
-      warnings.push(`Display CRS ${this.displayCoordinateReferenceId} is set, but the active survey has no effective native CRS.`);
-    } else if (
-      this.displayCoordinateReferenceId &&
-      this.activeEffectiveNativeCoordinateReferenceId &&
-      this.displayCoordinateReferenceId.toLowerCase() !==
-        this.activeEffectiveNativeCoordinateReferenceId.toLowerCase()
-    ) {
-      const transformStatus = this.activeSurveyMapSurvey?.transform_status ?? "native_only";
-      if (transformStatus === "display_unavailable") {
-        warnings.push(
-          `Display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}, but no display transform is currently available.`
-        );
-      } else if (transformStatus === "display_degraded") {
-        warnings.push(
-          `Display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}. The current map preview uses a degraded transform.`
-        );
-      } else if (transformStatus === "native_only") {
-        warnings.push(
-          `Display CRS ${this.displayCoordinateReferenceId} differs from active survey native CRS ${this.activeEffectiveNativeCoordinateReferenceId}. The current map preview is still in native coordinates.`
-        );
-      }
-    }
-
-    if (this.surveyMapError) {
-      warnings.push(this.surveyMapError);
+    if (degradedWells.length > 0) {
+      warnings.push(
+        `${degradedWells.length} well${degradedWells.length === 1 ? "" : "s"} use partial geometry in display CRS ${displayCoordinateReferenceId}.`
+      );
     }
 
     return warnings;
+  }
+
+  get workspaceCoordinateReferenceWarnings(): string[] {
+    const canEvaluateProjectDisplayCompatibility =
+      this.projectGeospatialSettingsResolved && !!this.displayCoordinateReferenceId;
+    const selectedProjectSurveyCompatibility = this.selectedProjectSurveyDisplayCompatibility;
+    const selectedProjectWellboreCompatibility = this.selectedProjectWellboreDisplayCompatibility;
+
+    return buildWorkspaceCoordinateReferenceWarnings({
+      requiresProjectGeospatialSettingsSelection: this.requiresProjectGeospatialSettingsSelection,
+      suggestedProjectDisplayCoordinateReferenceId: this.suggestedProjectDisplayCoordinateReferenceId,
+      canEvaluateProjectDisplayCompatibility,
+      hasProjectRoot: !!trimPath(this.projectRoot),
+      projectDisplayCompatibilityBlockingWarnings: this.projectDisplayCompatibilityBlockingMessages,
+      hasSelectedProjectSurvey: !!trimPath(this.projectSurveyAssetId),
+      selectedProjectSurveyCanResolveProjectMap:
+        selectedProjectSurveyCompatibility?.canResolveProjectMap ?? null,
+      selectedProjectSurveyReason: this.selectedProjectSurveyDisplayCompatibilityMessage,
+      hasSelectedProjectWellbore: !!trimPath(this.projectWellboreId),
+      selectedProjectWellboreCanResolveProjectMap:
+        selectedProjectWellboreCompatibility?.canResolveProjectMap ?? null,
+      selectedProjectWellboreReason: this.selectedProjectWellboreDisplayCompatibilityMessage,
+      hasActiveDataset: !!this.comparePrimaryDataset,
+      displayCoordinateReferenceId: this.displayCoordinateReferenceId,
+      activeEffectiveNativeCoordinateReferenceId: this.activeEffectiveNativeCoordinateReferenceId,
+      activeSurveyMapTransformStatus: this.activeSurveyMapSurvey?.transform_status ?? null,
+      surveyMapError: this.surveyMapError,
+      surveyMapWellTransformWarnings: this.surveyMapWellTransformWarnings
+    });
   }
 
   selectCompareBackground = (storePath: string | null): void => {
@@ -1330,9 +1872,32 @@ export class ViewerModel {
 
   refreshSurveyMap = async (): Promise<void> => {
     const requestId = ++this.#surveyMapRequestId;
+    const projectRoot = trimPath(this.projectRoot);
+    const projectSurveyAssetId = trimPath(this.projectSurveyAssetId);
+    const projectWellboreId = trimPath(this.projectWellboreId);
     const storePath = this.comparePrimaryStorePath;
 
-    if (!storePath) {
+    if (projectRoot && projectSurveyAssetId) {
+      if (!this.projectGeospatialSettingsResolved || !this.displayCoordinateReferenceId) {
+        this.surveyMapSource = null;
+        this.surveyMapError = null;
+        this.surveyMapLoading = false;
+        return;
+      }
+
+      const selectedProjectSurveyCompatibility = this.selectedProjectSurveyDisplayCompatibility;
+      if (
+        selectedProjectSurveyCompatibility &&
+        !selectedProjectSurveyCompatibility.canResolveProjectMap
+      ) {
+        this.surveyMapSource = null;
+        this.surveyMapError =
+          this.selectedProjectSurveyDisplayCompatibilityMessage ??
+          "The selected project survey cannot be resolved in the current project display CRS.";
+        this.surveyMapLoading = false;
+        return;
+      }
+    } else if (!storePath) {
       this.surveyMapSource = null;
       this.surveyMapError = null;
       this.surveyMapLoading = false;
@@ -1350,17 +1915,25 @@ export class ViewerModel {
     this.surveyMapError = null;
 
     try {
-      const response = await resolveSurveyMap({
-        schema_version: 1,
-        store_path: storePath,
-        display_coordinate_reference_id: this.displayCoordinateReferenceId
-      });
+      const response =
+        projectRoot && projectSurveyAssetId
+          ? await resolveProjectSurveyMap({
+              projectRoot,
+              surveyAssetId: projectSurveyAssetId,
+              wellboreId: projectWellboreId || null,
+              displayCoordinateReferenceId: this.displayCoordinateReferenceId!
+            })
+          : await resolveSurveyMap({
+              schema_version: 1,
+              store_path: storePath as string,
+              display_coordinate_reference_id: this.displayCoordinateReferenceId
+            });
 
       if (requestId !== this.#surveyMapRequestId) {
         return;
       }
 
-      this.surveyMapSource = response.survey_map;
+      this.surveyMapSource = "survey_map" in response ? response.survey_map : response.surveyMap;
       this.surveyMapError = null;
     } catch (error) {
       if (requestId !== this.#surveyMapRequestId) {
@@ -1378,7 +1951,8 @@ export class ViewerModel {
   };
 
   refreshProjectWellOverlayInventory = async (
-    projectRoot: string
+    projectRoot: string,
+    displayCoordinateReferenceId: string | null = this.displayCoordinateReferenceId
   ): Promise<ProjectWellOverlayInventoryResponse | null> => {
     const normalizedProjectRoot = trimPath(projectRoot);
     if (!normalizedProjectRoot) {
@@ -1409,16 +1983,25 @@ export class ViewerModel {
     const previousWellboreId = this.projectWellboreId;
 
     try {
-      const inventory = await listProjectWellOverlayInventory(normalizedProjectRoot);
+      const inventory = await listProjectWellOverlayInventory(
+        normalizedProjectRoot,
+        displayCoordinateReferenceId
+      );
       if (requestId !== this.#projectWellOverlayInventoryRequestId) {
         return null;
       }
       this.projectWellOverlayInventory = inventory;
+      const preferredSurveyAssetId = pickPreferredProjectSurveyAssetId(inventory.surveys);
+      const previousSurvey = inventory.surveys.find((survey) => survey.assetId === previousSurveyAssetId) ?? null;
+      const preferredSurvey =
+        inventory.surveys.find((survey) => survey.assetId === preferredSurveyAssetId) ?? null;
 
       const nextSurveyAssetId =
-        inventory.surveys.find((survey) => survey.assetId === previousSurveyAssetId)?.assetId ??
-        inventory.surveys[0]?.assetId ??
-        "";
+        previousSurvey &&
+        (!preferredSurvey ||
+          projectSurveyReadinessRank(previousSurvey) <= projectSurveyReadinessRank(preferredSurvey))
+          ? previousSurvey.assetId
+          : preferredSurveyAssetId;
       const surveyMatchedWellboreId =
         inventory.surveys.find((survey) => survey.assetId === nextSurveyAssetId)?.wellboreId ?? "";
       const nextWellboreId =
@@ -1513,6 +2096,14 @@ export class ViewerModel {
       this.projectWellTimeDepthAuthoredModels = inventory.authoredModels;
       this.projectWellTimeDepthModels = models;
       if (
+        this.selectedProjectWellTieObservationAssetId &&
+        !inventory.observationSets.some(
+          (asset) => asset.assetId === this.selectedProjectWellTieObservationAssetId
+        )
+      ) {
+        this.selectedProjectWellTieObservationAssetId = null;
+      }
+      if (
         this.selectedProjectWellTimeDepthModelAssetId &&
         !models.some((model) => model.assetId === this.selectedProjectWellTimeDepthModelAssetId)
       ) {
@@ -1534,6 +2125,7 @@ export class ViewerModel {
       this.projectWellTimeDepthAuthoredModels = [];
       this.projectWellTimeDepthModels = [];
       this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.selectedProjectWellTieObservationAssetId = null;
       this.projectWellTimeDepthModelsError = errorMessage(
         error,
         "Failed to load project well time-depth models."
@@ -1563,6 +2155,7 @@ export class ViewerModel {
       this.projectWellTimeDepthAuthoredModels = [];
       this.projectWellTimeDepthModels = [];
       this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.selectedProjectWellTieObservationAssetId = null;
       this.projectWellTimeDepthModelsError =
         "Set both the project root and wellbore id before loading well models.";
       if (this.workspaceReady) {
@@ -1574,7 +2167,7 @@ export class ViewerModel {
     return this.refreshProjectWellTimeDepthModels(projectRoot, wellboreId);
   };
 
-  setProjectRoot = (projectRoot: string): void => {
+  setProjectRoot = async (projectRoot: string): Promise<void> => {
     this.projectRoot = projectRoot.trim();
     this.clearProjectSectionWellOverlays();
     if (!this.projectRoot) {
@@ -1591,17 +2184,36 @@ export class ViewerModel {
       this.projectWellTimeDepthModelsError = null;
       this.projectWellTimeDepthModelsLoading = false;
       this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.selectedProjectWellTieObservationAssetId = null;
+      this.projectWellTieDraftSeed = null;
+      this.projectWellTieDraftSeedNonce += 1;
+      this.#applyTemporaryDisplaySelection(this.displayCoordinateReferenceId);
     } else if (this.tauriRuntime) {
-      void this.refreshProjectWellOverlayInventory(this.projectRoot);
+      await this.loadProjectGeospatialSettings(this.projectRoot);
+      await this.refreshProjectWellOverlayInventory(this.projectRoot, this.displayCoordinateReferenceId);
+    } else {
+      await this.loadProjectGeospatialSettings(this.projectRoot);
     }
     if (this.workspaceReady) {
-      void this.persistWorkspaceSession();
+      await this.persistWorkspaceSession();
     }
   };
 
   setProjectSurveyAssetId = (surveyAssetId: string): void => {
     this.projectSurveyAssetId = surveyAssetId.trim();
+    const matchedWellboreId =
+      this.projectSurveyAssets.find((survey) => survey.assetId === this.projectSurveyAssetId)?.wellboreId ?? "";
+    const nextWellboreId = matchedWellboreId.trim();
+    if (nextWellboreId && nextWellboreId !== this.projectWellboreId) {
+      this.projectWellboreId = nextWellboreId;
+      if (trimPath(this.projectRoot)) {
+        void this.refreshProjectWellTimeDepthModels(trimPath(this.projectRoot), nextWellboreId);
+      }
+    }
     this.clearProjectSectionWellOverlays();
+    if (trimPath(this.projectRoot)) {
+      void this.refreshSurveyMap();
+    }
     if (this.workspaceReady) {
       void this.persistWorkspaceSession();
     }
@@ -1610,6 +2222,9 @@ export class ViewerModel {
   setProjectWellboreId = (wellboreId: string): void => {
     this.projectWellboreId = wellboreId.trim();
     this.clearProjectSectionWellOverlays();
+    if (trimPath(this.projectRoot)) {
+      void this.refreshSurveyMap();
+    }
     if (this.projectWellboreId && trimPath(this.projectRoot)) {
       void this.refreshProjectWellTimeDepthModels(trimPath(this.projectRoot), this.projectWellboreId);
     } else {
@@ -1620,6 +2235,9 @@ export class ViewerModel {
       this.projectWellTimeDepthModelsError = null;
       this.projectWellTimeDepthModelsLoading = false;
       this.selectedProjectWellTimeDepthModelAssetId = null;
+      this.selectedProjectWellTieObservationAssetId = null;
+      this.projectWellTieDraftSeed = null;
+      this.projectWellTieDraftSeedNonce += 1;
     }
     if (this.workspaceReady) {
       void this.persistWorkspaceSession();
@@ -1734,6 +2352,43 @@ export class ViewerModel {
     return response;
   };
 
+  analyzeProjectWellTie = async (
+    request: AnalyzeProjectWellTieRequest
+  ): Promise<ProjectWellTieAnalysisResponse> => {
+    const blocker = this.projectWellTieAnalysisBlocker;
+    if (blocker) {
+      throw new Error(blocker);
+    }
+    const response = await analyzeProjectWellTie(request);
+    this.note(
+      "Analyzed project well tie.",
+      "backend",
+      "info",
+      `${response.sourceModelName}:${response.analysis.synthetic_trace.amplitudes.length} synthetic samples`
+    );
+    return response;
+  };
+
+  acceptProjectWellTie = async (
+    request: AcceptProjectWellTieRequest
+  ): Promise<AcceptProjectWellTieResponse> => {
+    const blocker = this.projectWellTieAcceptBlocker;
+    if (blocker) {
+      throw new Error(blocker);
+    }
+    const response = await acceptProjectWellTie(request);
+    this.note(
+      request.setActive ? "Accepted and activated project well tie." : "Accepted project well tie.",
+      "backend",
+      "info",
+      response.compiledModelAssetId
+    );
+    await this.refreshProjectWellOverlayInventory(request.projectRoot, this.displayCoordinateReferenceId);
+    this.selectedProjectWellTieObservationAssetId = response.observationAssetId;
+    this.selectedProjectWellTimeDepthModelAssetId = response.compiledModelAssetId;
+    return response;
+  };
+
   readProjectWellTimeDepthModel = async (
     projectRoot: string,
     assetId: string
@@ -1789,10 +2444,9 @@ export class ViewerModel {
     const projectRoot = trimPath(this.projectRoot);
     const surveyAssetId = trimPath(this.projectSurveyAssetId);
     const wellboreId = trimPath(this.projectWellboreId);
-    if (!projectRoot || !surveyAssetId || !wellboreId) {
-      throw new Error(
-        "Set the project root, survey asset id, and wellbore id before resolving section well overlays."
-      );
+    const blocker = this.projectSectionWellOverlayResolveBlocker;
+    if (blocker) {
+      throw new Error(blocker);
     }
 
     const activeWellModelIds = this.selectedProjectWellTimeDepthModelAssetId
@@ -1959,6 +2613,26 @@ export class ViewerModel {
     }
   };
 
+  refreshHorizonAssets = async (storePathOverride?: string): Promise<void> => {
+    const storePath = trimPath(storePathOverride ?? this.activeStorePath);
+    if (!this.tauriRuntime || !storePath) {
+      this.importedHorizons = [];
+      return;
+    }
+
+    try {
+      this.importedHorizons = await loadHorizonAssets(storePath);
+    } catch (error) {
+      this.importedHorizons = [];
+      this.note(
+        "Failed to load horizon assets.",
+        "backend",
+        "warn",
+        errorMessage(error, "Unknown horizon asset error")
+      );
+    }
+  };
+
   activateVelocityModel = async (assetId: string | null): Promise<void> => {
     if (assetId === this.activeVelocityModelAssetId) {
       return;
@@ -2012,6 +2686,82 @@ export class ViewerModel {
     this.velocityModelWorkbenchOpen = false;
   };
 
+  openDepthConversionWorkbench = (): void => {
+    this.depthConversionWorkbenchError = null;
+    this.depthConversionWorkbenchOpen = true;
+    this.note("Opened the depth-conversion workbench.", "ui", "info");
+  };
+
+  closeDepthConversionWorkbench = (): void => {
+    this.depthConversionWorkbenchError = null;
+    this.depthConversionWorkbenchOpen = false;
+  };
+
+  openWellTieWorkbench = (): void => {
+    this.wellTieWorkbenchError = null;
+    this.wellTieWorkbenchOpen = true;
+    this.note("Opened the well-tie workbench.", "ui", "info");
+  };
+
+  resumeWellTieWorkbenchFromObservation = (assetId: string): void => {
+    const observation = this.projectWellTimeDepthObservationSets.find(
+      (candidate) => candidate.assetId === assetId
+    );
+    if (!observation || observation.assetKind !== "well_tie_observation_set") {
+      this.note("Selected observation is not a resumable well tie.", "ui", "warn", assetId);
+      return;
+    }
+
+    this.selectedProjectWellTieObservationAssetId = observation.assetId;
+    const sourceModelAssetId = observation.sourceWellTimeDepthModelAssetId?.trim() || null;
+    if (
+      sourceModelAssetId &&
+      this.projectWellTimeDepthModels.some((model) => model.assetId === sourceModelAssetId)
+    ) {
+      this.selectedProjectWellTimeDepthModelAssetId = sourceModelAssetId;
+    } else if (sourceModelAssetId) {
+      this.note(
+        "The saved well-tie source model is not currently available in this wellbore inventory.",
+        "ui",
+        "warn",
+        sourceModelAssetId
+      );
+    }
+
+    this.projectWellTieDraftSeed = {
+      observationAssetId: observation.assetId,
+      sourceModelAssetId,
+      tieName: observation.name,
+      tieStartMs:
+        observation.tieWindowStartMs !== null && observation.tieWindowStartMs !== undefined
+          ? observation.tieWindowStartMs.toFixed(0)
+          : "1100",
+      tieEndMs:
+        observation.tieWindowEndMs !== null && observation.tieWindowEndMs !== undefined
+          ? observation.tieWindowEndMs.toFixed(0)
+          : "2200",
+      searchRadiusM:
+        observation.traceSearchRadiusM !== null && observation.traceSearchRadiusM !== undefined
+          ? observation.traceSearchRadiusM.toFixed(0)
+          : "200",
+      summary:
+        observation.tieWindowStartMs !== null &&
+        observation.tieWindowStartMs !== undefined &&
+        observation.tieWindowEndMs !== null &&
+        observation.tieWindowEndMs !== undefined
+          ? `Resumed from accepted tie ${observation.tieWindowStartMs.toFixed(0)}-${observation.tieWindowEndMs.toFixed(0)} ms.`
+          : `Resumed from accepted tie '${observation.name}'.`
+    };
+    this.projectWellTieDraftSeedNonce += 1;
+    this.openWellTieWorkbench();
+    this.note("Loaded an accepted well tie into the workbench.", "ui", "info", observation.name);
+  };
+
+  closeWellTieWorkbench = (): void => {
+    this.wellTieWorkbenchError = null;
+    this.wellTieWorkbenchOpen = false;
+  };
+
   buildAuthoredVelocityModel = async (
     request: BuildSurveyTimeDepthTransformRequest,
     activate = true
@@ -2051,6 +2801,54 @@ export class ViewerModel {
       throw error;
     } finally {
       this.velocityModelWorkbenchBuilding = false;
+    }
+  };
+
+  convertSurveyHorizonDomain = async (request: {
+    sourceHorizonId: string;
+    transformId: string;
+    targetDomain: "time" | "depth";
+    outputId?: string | null;
+    outputName?: string | null;
+  }): Promise<ImportedHorizonDescriptor> => {
+    const storePath = trimPath(this.activeStorePath);
+    if (!storePath) {
+      throw new Error("Open a seismic volume before converting horizons.");
+    }
+    if (!this.tauriRuntime) {
+      throw new Error("Survey horizon conversion is only available in the desktop runtime right now.");
+    }
+
+    this.depthConversionWorkbenchWorking = true;
+    this.depthConversionWorkbenchError = null;
+    try {
+      const converted = await convertHorizonDomain(
+        storePath,
+        request.sourceHorizonId,
+        request.transformId,
+        request.targetDomain,
+        request.outputId,
+        request.outputName
+      );
+      await this.refreshHorizonAssets(storePath);
+      await this.load(this.axis, this.index, storePath);
+      await this.refreshSurveyMap();
+      this.note(
+        request.targetDomain === "depth"
+          ? "Converted horizon from TWT to depth."
+          : "Converted horizon from depth to TWT.",
+        "backend",
+        "info",
+        converted.name
+      );
+      return converted;
+    } catch (error) {
+      const message = errorMessage(error, "Failed to convert the selected horizon.");
+      this.depthConversionWorkbenchError = message;
+      this.note("Depth conversion failed.", "backend", "error", message);
+      throw error;
+    } finally {
+      this.depthConversionWorkbenchWorking = false;
     }
   };
 
@@ -2125,8 +2923,197 @@ export class ViewerModel {
     void this.persistWorkspaceSession();
   };
 
+  #applyProjectDisplaySelection = (
+    selection: ProjectDisplayCoordinateReference,
+    resolved: boolean,
+    source: string | null
+  ): void => {
+    this.projectDisplayCoordinateReferenceMode = selection.kind;
+    this.projectDisplayCoordinateReferenceIdDraft =
+      selection.kind === "coordinate_reference_id" ? selection.coordinateReferenceId : "";
+    this.projectGeospatialSettingsResolved = resolved;
+    this.projectGeospatialSettingsSource = source;
+    this.displayCoordinateReferenceId = resolved ? coordinateReferenceSelectionId(selection) : null;
+  };
+
+  #applyProjectGeospatialSettings = (settings: ProjectGeospatialSettings | null): void => {
+    if (!settings) {
+      this.#applyProjectDisplaySelection({ kind: "native_engineering" }, false, null);
+      return;
+    }
+    this.#applyProjectDisplaySelection(settings.displayCoordinateReference, true, settings.source);
+  };
+
+  #applyTemporaryDisplaySelection = (coordinateReferenceId: string | null): void => {
+    const normalizedCoordinateReferenceId = normalizeCoordinateReferenceId(coordinateReferenceId);
+    this.#applyProjectDisplaySelection(
+      normalizedCoordinateReferenceId
+        ? {
+            kind: "coordinate_reference_id",
+            coordinateReferenceId: normalizedCoordinateReferenceId
+          }
+        : { kind: "native_engineering" },
+      true,
+      "temporary_workspace"
+    );
+  };
+
+  loadProjectGeospatialSettings = async (
+    projectRoot: string,
+    options: { allowAutoSeed?: boolean; allowMigration?: boolean } = {}
+  ): Promise<boolean> => {
+    const normalizedProjectRoot = trimPath(projectRoot);
+    if (!normalizedProjectRoot) {
+      this.#applyTemporaryDisplaySelection(this.displayCoordinateReferenceId);
+      return true;
+    }
+
+    const allowAutoSeed = options.allowAutoSeed !== false;
+    const allowMigration = options.allowMigration !== false;
+    this.projectGeospatialSettingsLoading = true;
+
+    try {
+      const settings = await loadProjectGeospatialSettings(normalizedProjectRoot);
+      if (settings) {
+        this.#applyProjectGeospatialSettings(settings);
+        return true;
+      }
+
+      const legacyDisplayCoordinateReferenceId = allowMigration
+        ? normalizeCoordinateReferenceId(this.displayCoordinateReferenceId)
+        : null;
+      if (legacyDisplayCoordinateReferenceId) {
+        await this.saveProjectDisplaySettings("migrated", {
+          kind: "coordinate_reference_id",
+          coordinateReferenceId: legacyDisplayCoordinateReferenceId
+        });
+        this.note(
+          "Migrated the project display CRS from the legacy workspace session into project settings.",
+          "backend",
+          "info",
+          legacyDisplayCoordinateReferenceId
+        );
+        return true;
+      }
+
+      const suggestedCoordinateReferenceId = allowAutoSeed
+        ? normalizeCoordinateReferenceId(this.suggestedProjectDisplayCoordinateReferenceId)
+        : null;
+      if (suggestedCoordinateReferenceId) {
+        await this.saveProjectDisplaySettings("auto_seeded", {
+          kind: "coordinate_reference_id",
+          coordinateReferenceId: suggestedCoordinateReferenceId
+        });
+        this.note(
+          "Seeded the project display CRS from the active survey effective CRS.",
+          "backend",
+          "info",
+          suggestedCoordinateReferenceId
+        );
+        return true;
+      }
+
+      this.#applyProjectGeospatialSettings(null);
+      this.note(
+        "Project geospatial settings require an explicit display-coordinate choice.",
+        "ui",
+        "warn",
+        normalizedProjectRoot
+      );
+      return false;
+    } catch (error) {
+      const message = errorMessage(error, "Failed to load the project geospatial settings.");
+      this.#applyProjectGeospatialSettings(null);
+      this.note("Failed to load project geospatial settings.", "backend", "warn", message);
+      return false;
+    } finally {
+      this.projectGeospatialSettingsLoading = false;
+      if (!this.workspaceReady) {
+        void this.refreshSurveyMap();
+      }
+    }
+  };
+
+  saveProjectDisplaySettings = async (
+    source = "user_selected",
+    selection?: ProjectDisplayCoordinateReference
+  ): Promise<boolean> => {
+    const nextSelection =
+      selection ??
+      (this.projectDisplayCoordinateReferenceMode === "coordinate_reference_id"
+        ? {
+            kind: "coordinate_reference_id",
+            coordinateReferenceId: this.projectDisplayCoordinateReferenceIdDraft.trim()
+          }
+        : { kind: "native_engineering" });
+
+    if (
+      nextSelection.kind === "coordinate_reference_id" &&
+      !normalizeCoordinateReferenceId(nextSelection.coordinateReferenceId)
+    ) {
+      this.note("Enter a project display CRS identifier before applying it.", "ui", "warn");
+      return false;
+    }
+
+    this.projectGeospatialSettingsSaving = true;
+
+    try {
+      const normalizedProjectRoot = trimPath(this.projectRoot);
+      if (!normalizedProjectRoot) {
+        this.#applyProjectDisplaySelection(nextSelection, true, "temporary_workspace");
+        void this.refreshSurveyMap();
+        if (this.workspaceReady) {
+          void this.persistWorkspaceSession();
+        }
+        return true;
+      }
+
+      const settings = await saveProjectGeospatialSettings(
+        normalizedProjectRoot,
+        nextSelection,
+        source
+      );
+      this.#applyProjectGeospatialSettings(settings);
+      await this.refreshProjectWellOverlayInventory(
+        normalizedProjectRoot,
+        this.displayCoordinateReferenceId
+      );
+      void this.refreshSurveyMap();
+      if (this.workspaceReady) {
+        void this.persistWorkspaceSession();
+      }
+      return true;
+    } catch (error) {
+      this.note(
+        "Failed to save project geospatial settings.",
+        "backend",
+        "warn",
+        errorMessage(error, "Unknown project geospatial settings error")
+      );
+      return false;
+    } finally {
+      this.projectGeospatialSettingsSaving = false;
+    }
+  };
+
+  setProjectDisplayCoordinateReferenceMode = (
+    mode: "native_engineering" | "coordinate_reference_id"
+  ): void => {
+    this.projectDisplayCoordinateReferenceMode = mode;
+    if (mode === "native_engineering") {
+      this.projectDisplayCoordinateReferenceIdDraft = "";
+    }
+  };
+
   setDisplayCoordinateReferenceId = (coordinateReferenceId: string | null): void => {
-    this.displayCoordinateReferenceId = coordinateReferenceId?.trim() || null;
+    const normalizedCoordinateReferenceId = normalizeCoordinateReferenceId(coordinateReferenceId);
+    this.projectDisplayCoordinateReferenceMode = normalizedCoordinateReferenceId
+      ? "coordinate_reference_id"
+      : "native_engineering";
+    this.projectDisplayCoordinateReferenceIdDraft = normalizedCoordinateReferenceId ?? "";
+    this.displayCoordinateReferenceId = normalizedCoordinateReferenceId;
+    this.projectGeospatialSettingsResolved = true;
+    this.projectGeospatialSettingsSource = trimPath(this.projectRoot) ? "legacy_session" : "temporary_workspace";
     if (!this.workspaceReady) {
       void this.refreshSurveyMap();
       return;
@@ -2151,6 +3138,13 @@ export class ViewerModel {
         : 12.5;
     this.selectedProjectWellTimeDepthModelAssetId =
       session.selected_project_well_time_depth_model_asset_id ?? null;
+    if (!trimPath(this.projectRoot)) {
+      this.#applyTemporaryDisplaySelection(session.display_coordinate_reference_id);
+    } else {
+      this.projectGeospatialSettingsResolved = false;
+      this.projectGeospatialSettingsSource = null;
+      this.displayCoordinateReferenceId = null;
+    }
   };
 
   #applyWorkspaceEntry = (entry: DatasetRegistryEntry | null): void => {
@@ -2218,7 +3212,10 @@ export class ViewerModel {
     this.workspaceReady = true;
     void this.refreshSurveyMap();
     if (this.tauriRuntime && trimPath(this.projectRoot)) {
-      void this.refreshProjectWellOverlayInventory(trimPath(this.projectRoot));
+      void this.refreshProjectWellOverlayInventory(
+        trimPath(this.projectRoot),
+        this.displayCoordinateReferenceId
+      );
     }
   };
 
@@ -2839,6 +3836,13 @@ export class ViewerModel {
       }
 
       this.#syncWorkspaceState(workspace.entries, workspace.session);
+      if (trimPath(workspace.session.project_root ?? "")) {
+        await this.loadProjectGeospatialSettings(workspace.session.project_root ?? "");
+        await this.refreshProjectWellOverlayInventory(
+          workspace.session.project_root ?? "",
+          this.displayCoordinateReferenceId
+        );
+      }
       if (workspace.session.active_store_path) {
         this.restoringWorkspace = true;
         this.note("Restoring previous workspace dataset.", "viewer", "info", workspace.session.active_store_path);
@@ -3083,6 +4087,7 @@ export class ViewerModel {
         this.activeEntryId = workspaceResponse.entry.entry_id;
         this.#applyWorkspaceSession(workspaceResponse.session);
         await this.refreshVelocityModels(response.dataset.store_path);
+        await this.refreshHorizonAssets(response.dataset.store_path);
         void this.refreshSurveyMap();
 
       this.note(
@@ -3383,7 +4388,7 @@ export class ViewerModel {
 
     try {
       const response = await importHorizonXyz(activeStorePath, normalizedPaths, options);
-      this.importedHorizons = response.imported;
+      await this.refreshHorizonAssets(activeStorePath);
       const display = await this.loadResolvedSectionDisplay(activeStorePath, this.axis, this.index);
       this.section = display.section;
       this.timeDepthDiagnostics = display.time_depth_diagnostics;

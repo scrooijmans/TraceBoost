@@ -2,7 +2,13 @@
 
 ## Summary
 
-TraceBoost is the backend/product monorepo for the seismic application stack.
+TraceBoost is the product repository in the current seismic application stack.
+
+Product ownership is:
+
+- `TraceBoost` for workflow composition, desktop UX, and automation surfaces
+- `Ophiolite` for canonical contracts and runtime primitives
+- `Ophiolite Charts` for visualization and interaction wrappers
 
 The active backend/product architecture is:
 
@@ -16,13 +22,7 @@ The active backend/product architecture is:
 - `app/`
   - product-facing application workflow and Tauri-facing desktop command surface
 
-`geoviz` remains outside this repository as the visualization SDK boundary.
-
-The target ecosystem boundary is:
-
-- `ophiolite` owns shared subsurface SDK layers and canonical domain/app-boundary types over time
-- `TraceBoost` owns product-facing seismic workflow composition, desktop UX, and app-specific orchestration
-- `geoviz` remains the visualization SDK and adapter boundary
+`Ophiolite Charts` remains outside this repository as the visualization SDK boundary.
 
 ## Design Rules
 
@@ -33,12 +33,13 @@ The target ecosystem boundary is:
 - dependency direction is strict:
   - `app -> runtime -> io -> contracts`
 - no generic `shared/` or `common/` bucket is allowed
-- as shared seismic core concerns move into `ophiolite`, TraceBoost should consume them rather than recreate a second canonical core here
+- as shared subsurface concerns move into `Ophiolite`, TraceBoost should consume them rather than recreate a second canonical core here
 
 ## Current Package Map
 
 - `seis-contracts-core`
 - `seis-contracts-views`
+- `seis-contracts-operations`
 - `seis-contracts-interop`
 - `seis-io`
 - `seis-runtime`
@@ -99,7 +100,7 @@ Design rules for TraceBoost:
 
 - TraceBoost owns workflow, activation, orchestration, and user-facing diagnostics for those families
 - Ophiolite owns canonical model contracts, CRS/geometry/coverage checks, and model-build/runtime logic
-- geoviz remains a rendering consumer of resolved DTOs and must not become the source of authored-model semantics
+- Ophiolite Charts remains a rendering consumer of resolved DTOs and must not become the source of authored-model semantics
 - not every future computation belongs in the shared operator family; authored-model and model-build workflows stay separate from processing operators
 
 This matters directly for future velocity/property modeling:
@@ -123,7 +124,7 @@ The current desktop persistence split is:
   - reactive viewer/session state
   - active dataset selection from the remembered registry
   - restore of the last active dataset/section on startup
-- `geoviz`
+- `Ophiolite Charts`
   - rendering only; it does not know about recent datasets or session persistence
 
 This keeps “remember what I was working on” as a desktop/workspace concern rather than forcing it into canonical seismic storage or chart models.
@@ -134,7 +135,7 @@ For seismic map display and future survey/well overlays:
 
 - Ophiolite owns native/effective CRS truth and any future reprojection
 - TraceBoost owns the workspace display-CRS preference and related warnings
-- geoviz consumes resolved geometry and does not assign or transform CRS metadata
+- Ophiolite Charts consumes resolved geometry and does not assign or transform CRS metadata
 
 The phase-1 contract for that split is documented in:
 

@@ -6542,7 +6542,8 @@
             "checkshot_model1_d",
             "sonic_log1_d",
             "vp_log1_d",
-            "horizon_layer_model"
+            "horizon_layer_model",
+            "well_tie_observation_set1_d"
           ]
         },
         "VelocityQuantityKind": {
@@ -7206,7 +7207,8 @@
             "checkshot_model1_d",
             "sonic_log1_d",
             "vp_log1_d",
-            "horizon_layer_model"
+            "horizon_layer_model",
+            "well_tie_observation_set1_d"
           ]
         },
         "VelocityQuantityKind": {
@@ -28409,7 +28411,8 @@
             "checkshot_model1_d",
             "sonic_log1_d",
             "vp_log1_d",
-            "horizon_layer_model"
+            "horizon_layer_model",
+            "well_tie_observation_set1_d"
           ]
         },
         "VerticalAxisDescriptor": {
@@ -29402,6 +29405,8 @@
             "name",
             "notes",
             "trajectories",
+            "transform_diagnostics",
+            "transform_status",
             "well_id",
             "wellbore_id"
           ],
@@ -29425,6 +29430,12 @@
                 "type": "string"
               }
             },
+            "plan_trajectory": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ProjectedPoint2Dto"
+              }
+            },
             "surface_location": {
               "anyOf": [
                 {
@@ -29440,6 +29451,12 @@
               "items": {
                 "$ref": "#/definitions/SurveyMapTrajectoryDto"
               }
+            },
+            "transform_diagnostics": {
+              "$ref": "#/definitions/SurveyMapTransformDiagnosticsDto"
+            },
+            "transform_status": {
+              "$ref": "#/definitions/SurveyMapTransformStatusDto"
             },
             "well_id": {
               "type": "string"
@@ -30157,6 +30174,8 @@
             "name",
             "notes",
             "trajectories",
+            "transform_diagnostics",
+            "transform_status",
             "well_id",
             "wellbore_id"
           ],
@@ -30180,6 +30199,12 @@
                 "type": "string"
               }
             },
+            "plan_trajectory": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ProjectedPoint2Dto"
+              }
+            },
             "surface_location": {
               "anyOf": [
                 {
@@ -30195,6 +30220,12 @@
               "items": {
                 "$ref": "#/definitions/SurveyMapTrajectoryDto"
               }
+            },
+            "transform_diagnostics": {
+              "$ref": "#/definitions/SurveyMapTransformDiagnosticsDto"
+            },
+            "transform_status": {
+              "$ref": "#/definitions/SurveyMapTransformStatusDto"
             },
             "well_id": {
               "type": "string"
@@ -32119,7 +32150,8 @@
             "checkshot_model1_d",
             "sonic_log1_d",
             "vp_log1_d",
-            "horizon_layer_model"
+            "horizon_layer_model",
+            "well_tie_observation_set1_d"
           ]
         },
         "VerticalAxisDescriptor": {

@@ -125,76 +125,79 @@
 <style>
   .tree-node {
     display: grid;
-    gap: 6px;
+    gap: var(--ui-space-1);
   }
 
   .tree-children {
     display: grid;
-    gap: 6px;
+    gap: var(--ui-space-1);
   }
 
   .volume-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px;
+    gap: var(--ui-space-1);
   }
 
   .volume-entry-shell {
     min-width: 0;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 6px;
+    gap: var(--ui-space-1);
     align-items: stretch;
-    padding-left: calc(var(--depth) * 14px);
+    padding-left: calc(var(--depth) * 12px);
   }
 
   .tree-toggle,
   .tree-spacer {
-    width: 22px;
-    min-width: 22px;
-    height: 22px;
-    margin-top: 8px;
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    margin-top: var(--ui-space-2);
   }
 
   .tree-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #2a2a2a;
-    background: #171717;
-    color: #838383;
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-md);
+    background: var(--surface-subtle);
+    color: var(--text-muted);
     cursor: pointer;
   }
 
   .tree-toggle:hover {
-    border-color: #3a3a3a;
-    background: #202020;
-    color: #d8d8d8;
+    border-color: var(--app-border-strong);
+    background: var(--surface-bg);
+    color: var(--text-primary);
   }
 
   .volume-entry {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    border: 1px solid #2b2b2b;
-    background: #1d1d1d;
-    color: #a9a9a9;
+    gap: var(--ui-space-2);
+    min-height: var(--sidebar-item-min-height);
+    padding: var(--ui-space-1) var(--ui-space-2);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-sm);
+    background: #fff;
+    color: var(--text-primary);
     text-align: left;
     cursor: pointer;
   }
 
   .volume-entry:hover:not(:disabled) {
-    border-color: #3b3b3b;
-    background: #242424;
-    color: #dddddd;
+    border-color: var(--app-border-strong);
+    background: var(--surface-bg);
+    color: var(--text-primary);
   }
 
   .volume-entry.active {
-    border-color: rgba(103, 196, 143, 0.45);
-    background: rgba(33, 60, 44, 0.72);
-    color: #f2fff7;
+    border-color: #b0d4ee;
+    background: #e8f3fb;
+    color: var(--text-primary);
   }
 
   .volume-entry:disabled {
@@ -205,14 +208,14 @@
   .volume-entry-copy {
     min-width: 0;
     display: grid;
-    gap: 3px;
+    gap: 2px;
   }
 
   .volume-entry-head {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--ui-space-2);
   }
 
   .volume-entry-label {
@@ -230,20 +233,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 10px;
-    color: #7d7d7d;
+    color: var(--text-muted);
   }
 
   .volume-badge {
     flex: 0 0 auto;
     padding: 1px 5px;
     border-radius: 999px;
-    border: 1px solid #3a3a3a;
+    border: 1px solid var(--app-border-strong);
     font-size: 9px;
     line-height: 1.4;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #c2c2c2;
-    background: #232323;
+    color: var(--text-dim);
+    background: var(--surface-bg);
   }
 
   .volume-badge.source {
@@ -265,14 +268,15 @@
   }
 
   .volume-remove {
-    width: 28px;
-    height: 28px;
-    margin-top: 4px;
-    border-radius: 2px;
-    border: 1px solid #2c2c2c;
-    background: #1b1b1b;
-    color: #6f6f6f;
+    width: 22px;
+    height: 22px;
+    margin-top: 3px;
+    border-radius: var(--ui-radius-sm);
+    border: 1px solid var(--app-border);
+    background: var(--surface-subtle);
+    color: var(--text-muted);
     cursor: pointer;
+    font-size: 10px;
     opacity: 0;
     pointer-events: none;
     transition:
@@ -289,8 +293,8 @@
   }
 
   .volume-remove:hover:not(:disabled) {
-    border-color: #733838;
-    background: #2a1b1b;
-    color: #f08f8f;
+    border-color: var(--danger-border);
+    background: var(--danger-bg);
+    color: var(--danger-text);
   }
 </style>

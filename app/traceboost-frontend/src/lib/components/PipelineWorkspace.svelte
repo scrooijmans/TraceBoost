@@ -140,16 +140,16 @@
   .workspace-shell {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--ui-panel-gap);
     min-height: 0;
-    padding: 10px 12px 8px;
+    padding: var(--ui-panel-padding) var(--ui-space-5) var(--ui-space-3);
     outline: none;
   }
 
   .workspace-header {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--ui-space-5);
     align-items: flex-start;
   }
 
@@ -159,34 +159,34 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #555;
+    color: var(--text-dim);
   }
 
   h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .workspace-header p {
     margin: 2px 0 0;
     font-size: 11px;
-    color: #777;
+    color: var(--text-muted);
   }
 
   .workspace-grid {
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.35fr);
-    gap: 8px;
+    gap: var(--ui-panel-gap);
     flex: 1;
   }
 
   .inspector-stack {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--ui-panel-gap);
     min-height: 0;
   }
 
@@ -194,7 +194,7 @@
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(300px, 0.95fr) minmax(380px, 1.2fr);
-    gap: 8px;
+    gap: var(--ui-panel-gap);
   }
 
   @media (max-width: 1100px) {

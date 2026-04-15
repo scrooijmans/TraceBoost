@@ -2,11 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $frontendRoot = Split-Path -Parent $PSScriptRoot
 $traceBoostRoot = Split-Path -Parent (Split-Path -Parent $frontendRoot)
-$geovizRoot = Resolve-Path (Join-Path $traceBoostRoot "..\\geoviz")
+$ophioliteRoot = Resolve-Path (Join-Path $traceBoostRoot "..\\ophiolite")
 
 $linkTargets = @(
   (Join-Path $traceBoostRoot "contracts\\ts\\seis-contracts"),
-  (Join-Path $geovizRoot "packages\\svelte")
+  (Join-Path $ophioliteRoot "charts\\packages\\svelte")
 )
 
 foreach ($target in $linkTargets) {

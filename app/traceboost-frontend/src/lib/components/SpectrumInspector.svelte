@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { SpectrumChart, WaveletChart } from "@geoviz/svelte";
+  import { SpectrumChart, WaveletChart } from "@ophiolite/charts";
   import type { AmplitudeSpectrumResponse } from "@traceboost/seis-contracts";
   import { deriveZeroPhaseWavelet } from "../spectrum-wavelet";
 
@@ -224,16 +224,14 @@
     pointer-events: auto;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--ui-space-4);
     min-height: 0;
-    padding: 14px;
-    border: 1px solid rgba(91, 118, 136, 0.38);
-    border-radius: 14px;
-    background:
-      linear-gradient(180deg, rgba(11, 22, 31, 0.98), rgba(9, 16, 24, 0.98)),
-      radial-gradient(circle at top right, rgba(70, 120, 150, 0.16), transparent 42%);
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
-    color: #dbe5eb;
+    padding: var(--ui-space-6);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
+    background: var(--panel-bg);
+    box-shadow: var(--ui-shadow-popover);
+    color: var(--text-primary);
   }
 
   .spectrum-inspector.floating {
@@ -247,7 +245,7 @@
   .controls-row,
   .legend-row {
     display: flex;
-    gap: 10px;
+    gap: var(--ui-space-4);
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
@@ -263,19 +261,19 @@
     font-size: 10px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #7aa0b8;
+    color: #447196;
   }
 
   h3 {
     margin: 0;
     font-size: 17px;
     font-weight: 600;
-    color: #f1f6f8;
+    color: var(--text-primary);
   }
 
   .header-copy p {
     margin: 4px 0 0;
-    color: #9fb2bf;
+    color: var(--text-muted);
     font-size: 12px;
     line-height: 1.45;
   }
@@ -288,11 +286,11 @@
   }
 
   .selection-badge {
-    border: 1px solid rgba(123, 157, 177, 0.38);
-    border-radius: 999px;
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
     padding: 5px 10px;
-    background: rgba(20, 36, 48, 0.9);
-    color: #bfd2de;
+    background: var(--surface-subtle);
+    color: var(--text-muted);
     font-size: 11px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -300,10 +298,10 @@
 
   .chip,
   .icon-btn {
-    border: 1px solid rgba(123, 157, 177, 0.28);
-    background: rgba(16, 31, 43, 0.92);
-    color: #bfd2de;
-    border-radius: 999px;
+    border: 1px solid var(--app-border);
+    background: var(--surface-subtle);
+    color: var(--text-primary);
+    border-radius: 6px;
     padding: 6px 10px;
     font-size: 11px;
     font-weight: 600;
@@ -325,9 +323,9 @@
 
   .chip:hover:not(:disabled),
   .icon-btn:hover:not(:disabled) {
-    background: rgba(27, 48, 63, 0.98);
-    border-color: rgba(123, 157, 177, 0.48);
-    color: #e6f0f5;
+    background: var(--surface-bg);
+    border-color: var(--app-border-strong);
+    color: var(--text-primary);
   }
 
   .chip:disabled,
@@ -337,14 +335,15 @@
   }
 
   .chip.primary {
-    border-color: rgba(77, 212, 139, 0.42);
-    color: #d9ffe9;
+    border-color: #9bc7e3;
+    background: #eef6fb;
+    color: #274b61;
   }
 
   .chip.active {
-    background: rgba(77, 212, 139, 0.12);
-    border-color: rgba(77, 212, 139, 0.52);
-    color: #d9ffe9;
+    background: #e8f3fb;
+    border-color: #b0d4ee;
+    color: #274b61;
   }
 
   .legend-row {
@@ -356,14 +355,14 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    color: #b5c7d3;
+    color: var(--text-muted);
     font-size: 11px;
   }
 
   .legend-swatch {
     width: 14px;
     height: 3px;
-    border-radius: 999px;
+    border-radius: 6px;
     display: inline-block;
   }
 
@@ -372,13 +371,13 @@
   .summary-card,
   .empty-state,
   .error-bar {
-    border: 1px solid rgba(83, 106, 123, 0.26);
-    background: rgba(8, 16, 24, 0.86);
+    border: 1px solid var(--app-border);
+    background: #fff;
   }
 
   .chart-shell {
     padding: 10px;
-    border-radius: 12px;
+    border-radius: 8px;
   }
 
   .chart-grid {
@@ -397,7 +396,7 @@
   .status-bar,
   .empty-state,
   .error-bar {
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 12px;
   }
 
@@ -406,14 +405,14 @@
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #7f99aa;
+    color: var(--text-dim);
   }
 
   .summary-card strong {
     display: block;
     margin-top: 5px;
     font-size: 13px;
-    color: #eff5f8;
+    color: var(--text-primary);
     line-height: 1.45;
   }
 
@@ -422,9 +421,9 @@
   }
 
   .status-bar {
-    color: #d9e8f0;
-    border-color: rgba(123, 157, 177, 0.36);
-    background: rgba(17, 37, 51, 0.82);
+    color: #315b75;
+    border-color: #c9dcec;
+    background: #edf6fc;
     font-size: 12px;
     line-height: 1.5;
   }
@@ -432,7 +431,7 @@
   .empty-state strong {
     display: block;
     margin-bottom: 4px;
-    color: #eff5f8;
+    color: var(--text-primary);
     font-size: 13px;
   }
 
@@ -441,13 +440,13 @@
     margin: 0;
     font-size: 12px;
     line-height: 1.5;
-    color: #9fb2bf;
+    color: var(--text-muted);
   }
 
   .error-bar {
-    color: #ffb9b9;
-    border-color: rgba(218, 91, 91, 0.28);
-    background: rgba(47, 18, 18, 0.78);
+    color: #8f3c3c;
+    border-color: #e0b7b7;
+    background: #f9ecec;
   }
 
   @media (max-width: 900px) {

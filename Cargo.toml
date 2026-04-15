@@ -2,6 +2,7 @@
 members = [
     "contracts/seis-contracts-core",
     "contracts/seis-contracts-views",
+    "contracts/seis-contracts-operations",
     "contracts/seis-contracts-interop",
     "io",
     "runtime",

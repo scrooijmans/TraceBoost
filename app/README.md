@@ -1,6 +1,12 @@
 # app
 
-`app/` contains the product-facing application layer for TraceBoost.
+`app/` contains the application layer for TraceBoost.
+
+This is the layer where the platform becomes a user-facing workflow:
+
+- Ophiolite provides the canonical core beneath it
+- Ophiolite Charts provides the embedded visualization SDK beneath it
+- TraceBoost owns the workflow shell that users actually operate
 
 ## Stack
 
@@ -9,8 +15,8 @@
 - Svelte 5 + Vite + Bun in `traceboost-frontend`
 - Tauri 2 in `traceboost-frontend/src-tauri`
 - generated contracts from `contracts/ts/seis-contracts`
-- external `@geoviz/svelte` for section rendering
-- sibling `@ophiolite/contracts` for generated gather and well-panel DTOs consumed through `geoviz`
+- external `@ophiolite/charts` for section rendering
+- sibling `@ophiolite/contracts` for generated gather and well-panel DTOs consumed through Ophiolite Charts
 
 ## Current Contents
 

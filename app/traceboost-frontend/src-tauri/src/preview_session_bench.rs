@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use seis_contracts_interop::IPC_SCHEMA_VERSION;
+use seis_contracts_operations::IPC_SCHEMA_VERSION;
 use seis_runtime::{
-    open_store, DatasetId, FrequencyPhaseMode, FrequencyWindowShape,
-    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse, ProcessingOperation,
-    SectionAxis, SectionRequest, TraceLocalProcessingPipeline, TraceLocalProcessingStep,
+    DatasetId, FrequencyPhaseMode, FrequencyWindowShape, PreviewTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, ProcessingOperation, SectionAxis, SectionRequest,
+    TraceLocalProcessingPipeline, TraceLocalProcessingStep, open_store,
 };
 use traceboost_app::preview_processing;
 

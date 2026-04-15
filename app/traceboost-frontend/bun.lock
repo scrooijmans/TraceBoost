@@ -5,8 +5,12 @@
     "": {
       "name": "@traceboost/traceboost-frontend",
       "dependencies": {
-        "@geoviz/svelte": "file:../../../geoviz/packages/svelte",
-        "@geoviz/svelte-toolbar": "file:../../../geoviz/packages/svelte-toolbar",
+        "@ophiolite/charts": "file:../../../ophiolite/charts/packages/svelte",
+        "@ophiolite/charts-core": "file:../../../ophiolite/charts/packages/chart-core",
+        "@ophiolite/charts-data-models": "file:../../../ophiolite/charts/packages/data-models",
+        "@ophiolite/charts-domain": "file:../../../ophiolite/charts/packages/domain-geoscience",
+        "@ophiolite/charts-renderer": "file:../../../ophiolite/charts/packages/renderer",
+        "@ophiolite/charts-toolbar": "file:../../../ophiolite/charts/packages/svelte-toolbar",
         "@ophiolite/contracts": "file:../../../ophiolite/contracts/ts/ophiolite-contracts",
         "@tauri-apps/api": "^2.0.0",
         "@tauri-apps/plugin-dialog": "^2.6.0",
@@ -76,10 +80,6 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.4", "", { "os": "win32", "cpu": "x64" }, "sha512-+knoa0BDoeXgkNvvV1vvbZX4+hizelrkwmGJBdT17t8FNPwG2lKemmuMZlmaNQ3ws3DKKCxpb4zRZEIp3UxFCg=="],
 
-    "@geoviz/svelte": ["@geoviz/svelte@file:../../../geoviz/packages/svelte", { "dependencies": { "@geoviz/data-models": "file:../data-models", "@geoviz/domain-geoscience": "file:../domain-geoscience", "@geoviz/renderer": "file:../renderer", "@traceboost/seis-contracts": "file:../../../TraceBoost/contracts/ts/seis-contracts" }, "peerDependencies": { "svelte": "^5.0.0" } }],
-
-    "@geoviz/svelte-toolbar": ["@geoviz/svelte-toolbar@file:../../../geoviz/packages/svelte-toolbar", { "peerDependencies": { "svelte": "^5.0.0" } }],
-
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@jridgewell/remapping": ["@jridgewell/remapping@2.3.5", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ=="],
@@ -89,6 +89,18 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@ophiolite/charts": ["@ophiolite/charts@file:../../../ophiolite/charts/packages/svelte", { "dependencies": { "@ophiolite/charts-data-models": "file:../data-models", "@ophiolite/charts-domain": "file:../domain-geoscience", "@ophiolite/charts-renderer": "file:../renderer", "@ophiolite/contracts": "file:../../../contracts/ts/ophiolite-contracts" }, "peerDependencies": { "svelte": "^5.0.0" } }],
+
+    "@ophiolite/charts-core": ["@ophiolite/charts-core@file:../../../ophiolite/charts/packages/chart-core", { "dependencies": { "@ophiolite/charts-data-models": "file:../data-models" } }],
+
+    "@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", { "dependencies": { "@ophiolite/contracts": "file:../../../contracts/ts/ophiolite-contracts" } }],
+
+    "@ophiolite/charts-domain": ["@ophiolite/charts-domain@file:../../../ophiolite/charts/packages/domain-geoscience", { "dependencies": { "@ophiolite/charts-core": "file:../chart-core", "@ophiolite/charts-data-models": "file:../data-models", "@ophiolite/charts-renderer": "file:../renderer" } }],
+
+    "@ophiolite/charts-renderer": ["@ophiolite/charts-renderer@file:../../../ophiolite/charts/packages/renderer", { "dependencies": { "@ophiolite/charts-core": "file:../chart-core", "@ophiolite/charts-data-models": "file:../data-models" } }],
+
+    "@ophiolite/charts-toolbar": ["@ophiolite/charts-toolbar@file:../../../ophiolite/charts/packages/svelte-toolbar", { "peerDependencies": { "svelte": "^5.0.0" } }],
 
     "@ophiolite/contracts": ["@ophiolite/contracts@file:../../../ophiolite/contracts/ts/ophiolite-contracts", {}],
 
@@ -252,12 +264,38 @@
 
     "zimmerframe": ["zimmerframe@1.1.4", "", {}, "sha512-B58NGBEoc8Y9MWWCQGl/gq9xBCe4IiKM0a2x7GZdQKOW5Exr8S1W24J6OgM1njK8xCRGvAJIL/MxXHf6SkmQKQ=="],
 
-    "@geoviz/svelte/@geoviz/data-models": ["@geoviz/data-models@file:../../../geoviz/packages/data-models", {}],
+    "@ophiolite/charts/@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", { "dependencies": { "@ophiolite/contracts": "file:../../../contracts/ts/ophiolite-contracts" } }],
 
-    "@geoviz/svelte/@geoviz/domain-geoscience": ["@geoviz/domain-geoscience@file:../../../geoviz/packages/domain-geoscience", {}],
+    "@ophiolite/charts/@ophiolite/charts-domain": ["@ophiolite/charts-domain@file:../../../ophiolite/charts/packages/domain-geoscience", { "dependencies": { "@ophiolite/charts-core": "file:../chart-core", "@ophiolite/charts-data-models": "file:../data-models", "@ophiolite/charts-renderer": "file:../renderer" } }],
 
-    "@geoviz/svelte/@geoviz/renderer": ["@geoviz/renderer@file:../../../geoviz/packages/renderer", {}],
+    "@ophiolite/charts/@ophiolite/charts-renderer": ["@ophiolite/charts-renderer@file:../../../ophiolite/charts/packages/renderer", { "dependencies": { "@ophiolite/charts-core": "file:../chart-core", "@ophiolite/charts-data-models": "file:../data-models" } }],
 
-    "@geoviz/svelte/@traceboost/seis-contracts": ["@traceboost/seis-contracts@file:../../contracts/ts/seis-contracts", {}],
+    "@ophiolite/charts/@ophiolite/contracts": ["@ophiolite/contracts@file:../../../ophiolite/contracts/ts/ophiolite-contracts", {}],
+
+    "@ophiolite/charts-core/@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", {}],
+
+    "@ophiolite/charts-data-models/@ophiolite/contracts": ["@ophiolite/contracts@file:../../../ophiolite/contracts/ts/ophiolite-contracts", {}],
+
+    "@ophiolite/charts-domain/@ophiolite/charts-core": ["@ophiolite/charts-core@file:../../../ophiolite/charts/packages/chart-core", {}],
+
+    "@ophiolite/charts-domain/@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", {}],
+
+    "@ophiolite/charts-domain/@ophiolite/charts-renderer": ["@ophiolite/charts-renderer@file:../../../ophiolite/charts/packages/renderer", {}],
+
+    "@ophiolite/charts-renderer/@ophiolite/charts-core": ["@ophiolite/charts-core@file:../../../ophiolite/charts/packages/chart-core", {}],
+
+    "@ophiolite/charts-renderer/@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", {}],
+
+    "@ophiolite/charts/@ophiolite/charts-data-models/@ophiolite/contracts": ["@ophiolite/contracts@file:../../../ophiolite/contracts/ts/ophiolite-contracts", {}],
+
+    "@ophiolite/charts/@ophiolite/charts-domain/@ophiolite/charts-core": ["@ophiolite/charts-core@file:../../../ophiolite/charts/packages/chart-core", {}],
+
+    "@ophiolite/charts/@ophiolite/charts-domain/@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", {}],
+
+    "@ophiolite/charts/@ophiolite/charts-domain/@ophiolite/charts-renderer": ["@ophiolite/charts-renderer@file:../../../ophiolite/charts/packages/renderer", {}],
+
+    "@ophiolite/charts/@ophiolite/charts-renderer/@ophiolite/charts-core": ["@ophiolite/charts-core@file:../../../ophiolite/charts/packages/chart-core", {}],
+
+    "@ophiolite/charts/@ophiolite/charts-renderer/@ophiolite/charts-data-models": ["@ophiolite/charts-data-models@file:../../../ophiolite/charts/packages/data-models", {}],
   }
 }

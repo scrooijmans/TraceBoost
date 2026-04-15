@@ -14,7 +14,7 @@ Regenerate from the repo root with:
 .\scripts\generate-ts-contracts.ps1
 ```
 
-Consumers such as `geoviz` should treat this package as the frontend contract
+Consumers such as `Ophiolite Charts` should treat this package as the frontend contract
 surface for app/runtime IPC payloads, shared dataset/view models, desktop
 workspace/session DTOs, and survey preflight metadata such as resolved stacking
 and layout classification.

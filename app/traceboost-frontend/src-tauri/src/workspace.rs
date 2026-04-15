@@ -2,12 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use seis_contracts_interop::{
+use seis_contracts_operations::datasets::{
     DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, LoadWorkspaceStateResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, SaveWorkspaceSessionRequest,
-    SaveWorkspaceSessionResponse, SectionAxis, SetActiveDatasetEntryRequest,
+    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, SetActiveDatasetEntryRequest,
     SetActiveDatasetEntryResponse, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
-    WorkspaceSession, IPC_SCHEMA_VERSION,
+};
+use seis_contracts_operations::resolve::IPC_SCHEMA_VERSION;
+use seis_contracts_operations::workspace::{
+    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SectionAxis, WorkspaceSession,
 };
 use serde::{Deserialize, Serialize};
 

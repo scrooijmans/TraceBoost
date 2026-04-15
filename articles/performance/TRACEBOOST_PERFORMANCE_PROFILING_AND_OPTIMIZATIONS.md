@@ -14,7 +14,7 @@ It is intended to explain:
 
 - what was slow
 - how it was profiled
-- what changed in Rust, Tauri, Svelte, and geoviz
+- what changed in Rust, Tauri, Svelte, and Ophiolite Charts
 - what materially improved
 - what still remains worth investigating
 
@@ -158,9 +158,9 @@ We switched the large holders to `$state.raw(...)` in the frontend models for:
 
 This removed a large amount of unnecessary reactive proxy overhead.
 
-## 5. Cache decoded section payloads in geoviz
+## 5. Cache decoded section payloads in Ophiolite Charts
 
-`geoviz` was repeatedly decoding the same incoming section object.
+`Ophiolite Charts` was repeatedly decoding the same incoming section object.
 
 We added object-identity decode caches using `WeakMap`, so the decoded typed-array payload can be reused as long as the same section object instance is still in play.
 

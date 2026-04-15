@@ -306,6 +306,18 @@ function traceboostDevApi(): Plugin {
 export default defineConfig({
   plugins: [svelte(), traceboostDevApi()],
   clearScreen: false,
+  optimizeDeps: {
+    exclude: [
+      "@ophiolite/contracts",
+      "@ophiolite/charts",
+      "@ophiolite/charts-core",
+      "@ophiolite/charts-data-models",
+      "@ophiolite/charts-domain",
+      "@ophiolite/charts-renderer",
+      "@ophiolite/charts-toolbar",
+      "@traceboost/seis-contracts"
+    ]
+  },
   server: {
     port: 1420,
     strictPort: true,
@@ -328,22 +340,35 @@ export default defineConfig({
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG)
   },
   resolve: {
+    preserveSymlinks: true,
     alias: {
+      "@ophiolite/charts": path.resolve(
+        __dirname,
+        "../../../ophiolite/charts/packages/svelte/src/index.ts"
+      ),
+      "@ophiolite/charts-toolbar": path.resolve(
+        __dirname,
+        "../../../ophiolite/charts/packages/svelte-toolbar/src/index.ts"
+      ),
+      "@ophiolite/charts-renderer": path.resolve(
+        __dirname,
+        "../../../ophiolite/charts/packages/renderer/src/index.ts"
+      ),
+      "@ophiolite/charts-domain": path.resolve(
+        __dirname,
+        "../../../ophiolite/charts/packages/domain-geoscience/src/index.ts"
+      ),
+      "@ophiolite/charts-data-models": path.resolve(
+        __dirname,
+        "../../../ophiolite/charts/packages/data-models/src/index.ts"
+      ),
+      "@ophiolite/charts-core": path.resolve(
+        __dirname,
+        "../../../ophiolite/charts/packages/chart-core/src/index.ts"
+      ),
       "@ophiolite/contracts": path.resolve(
         __dirname,
         "../../../ophiolite/contracts/ts/ophiolite-contracts/src/index.ts"
-      ),
-      "@geoviz/data-models": path.resolve(__dirname, "../../../geoviz/packages/data-models/src/index.ts"),
-      "@geoviz/chart-core": path.resolve(__dirname, "../../../geoviz/packages/chart-core/src/index.ts"),
-      "@geoviz/renderer": path.resolve(__dirname, "../../../geoviz/packages/renderer/src/index.ts"),
-      "@geoviz/domain-geoscience": path.resolve(
-        __dirname,
-        "../../../geoviz/packages/domain-geoscience/src/index.ts"
-      ),
-      "@geoviz/svelte": path.resolve(__dirname, "../../../geoviz/packages/svelte/src/index.ts"),
-      "@geoviz/svelte-toolbar": path.resolve(
-        __dirname,
-        "../../../geoviz/packages/svelte-toolbar/src/index.ts"
       ),
       "@traceboost/seis-contracts": path.resolve(
         __dirname,

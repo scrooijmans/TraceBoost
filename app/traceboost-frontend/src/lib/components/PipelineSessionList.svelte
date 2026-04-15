@@ -103,47 +103,48 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
     overflow: hidden;
   }
 
   .panel-header,
   .panel-footer {
-    padding: 8px 10px;
+    padding: var(--ui-space-3) var(--ui-space-4);
   }
 
   .panel-header {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    border-bottom: 1px solid #242424;
+    gap: var(--ui-space-2);
+    border-bottom: 1px solid var(--app-border);
   }
 
   h3 {
     margin: 0;
     font-size: 12px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .panel-header p {
     margin: 0;
     font-size: 11px;
-    color: #666;
+    color: var(--text-muted);
   }
 
   .action-row {
     display: flex;
-    gap: 5px;
+    gap: var(--ui-space-1);
     flex-wrap: wrap;
   }
 
   .pipeline-list {
-    padding: 6px;
+    padding: var(--ui-space-2);
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: var(--ui-space-1);
     overflow: auto;
     min-height: 0;
     flex: 1;
@@ -153,38 +154,40 @@
   .pipeline-row-shell {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px;
+    gap: var(--ui-space-2);
   }
 
   .pipeline-row {
     width: 100%;
     display: grid;
     grid-template-columns: 22px 1fr;
-    gap: 8px;
+    gap: var(--ui-space-2);
     align-items: center;
     text-align: left;
-    border: 1px solid #2a2a2a;
-    background: #1e1e1e;
+    border: 1px solid var(--app-border);
+    background: #fff;
     color: inherit;
-    padding: 7px 8px;
+    min-height: var(--ui-list-row-min-height);
+    padding: var(--ui-list-row-padding-y) var(--ui-list-row-padding-x);
+    border-radius: var(--ui-radius-md);
     cursor: pointer;
   }
 
   .pipeline-row:hover {
-    background: #252525;
+    background: var(--surface-bg);
   }
 
   .pipeline-row.selected {
-    border-color: rgba(74, 222, 128, 0.4);
-    background: rgba(74, 222, 128, 0.06);
+    border-color: #b0d4ee;
+    background: #e8f3fb;
   }
 
   .pipeline-remove {
-    width: 28px;
-    border-radius: 2px;
-    border: 1px solid #2c2c2c;
-    background: #1b1b1b;
-    color: #6f6f6f;
+    width: var(--ui-icon-button-size);
+    border-radius: var(--ui-radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--surface-subtle);
+    color: var(--text-muted);
     cursor: pointer;
     opacity: 0;
     pointer-events: none;
@@ -203,9 +206,9 @@
   }
 
   .pipeline-remove:hover:not(:disabled) {
-    border-color: #733838;
-    background: #2a1b1b;
-    color: #f08f8f;
+    border-color: #e0b7b7;
+    background: #f9ecec;
+    color: #a74646;
   }
 
   .pipeline-remove:disabled {
@@ -219,10 +222,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 2px;
-    background: #2a2a2a;
+    border-radius: var(--ui-radius-md);
+    background: var(--surface-subtle);
     font-size: 10px;
-    color: #888;
+    color: var(--text-dim);
     flex-shrink: 0;
   }
 
@@ -230,7 +233,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
   }
 
   .pipeline-copy strong,
@@ -242,36 +245,37 @@
 
   .pipeline-copy strong {
     font-size: 12px;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .pipeline-copy small {
     font-size: 11px;
-    color: #666;
+    color: var(--text-muted);
   }
 
   .panel-footer {
-    border-top: 1px solid #242424;
+    border-top: 1px solid var(--app-border);
   }
 
   .chip {
-    border: 1px solid #333;
-    background: #252525;
-    color: #aaa;
-    border-radius: 2px;
-    padding: 4px 8px;
+    border: 1px solid var(--app-border-strong);
+    background: var(--surface-subtle);
+    color: var(--text-primary);
+    border-radius: var(--ui-radius-md);
+    min-height: var(--ui-button-height);
+    padding: 0 var(--ui-button-padding-x);
     font-size: 11px;
     cursor: pointer;
   }
 
   .chip:hover:not(:disabled) {
-    background: #2e2e2e;
-    color: #d0d0d0;
+    background: var(--surface-bg);
+    color: var(--text-primary);
   }
 
   .chip.danger {
-    border-color: rgba(200, 60, 60, 0.3);
-    color: #c07070;
+    border-color: #e0b7b7;
+    color: #a74646;
   }
 
   .chip:disabled {

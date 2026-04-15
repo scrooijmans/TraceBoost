@@ -20,31 +20,40 @@ use seis_contracts_core::{
     TraceLocalVolumeArithmeticOperator, VelocityFunctionSource, VelocityQuantityKind,
     VelocityScanRequest, VelocityScanResponse, VolumeDescriptor,
 };
-use seis_contracts_interop::{
-    BuildSurveyTimeDepthTransformRequest, CancelProcessingJobRequest, CancelProcessingJobResponse,
-    DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, DepthReferenceKind, ExportSegyRequest, ExportSegyResponse,
-    GetProcessingJobRequest, GetProcessingJobResponse, IPC_SCHEMA_VERSION, ImportDatasetRequest,
-    ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
-    LateralInterpolationMethod, LayeredVelocityInterval, LayeredVelocityModel,
-    ListPipelinePresetsResponse, LoadSectionHorizonsRequest, LoadSectionHorizonsResponse,
-    LoadVelocityModelsRequest, LoadVelocityModelsResponse, LoadWorkspaceStateResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PreviewCommand, PreviewGatherProcessingRequest,
+use seis_contracts_operations::datasets::{
+    DatasetRegistryEntry, DatasetRegistryStatus, DatasetSummary, LoadWorkspaceStateResponse,
+    OpenDatasetRequest, OpenDatasetResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
+    SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse, UpsertDatasetEntryRequest,
+    UpsertDatasetEntryResponse,
+};
+use seis_contracts_operations::import_ops::{
+    ExportSegyRequest, ExportSegyResponse, ImportDatasetRequest, ImportDatasetResponse,
+    ImportHorizonXyzRequest, ImportHorizonXyzResponse, LoadSectionHorizonsRequest,
+    LoadSectionHorizonsResponse, SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField,
+    SegyHeaderValueType, SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+};
+use seis_contracts_operations::processing_ops::{
+    CancelProcessingJobRequest, CancelProcessingJobResponse, DeletePipelinePresetRequest,
+    DeletePipelinePresetResponse, GetProcessingJobRequest, GetProcessingJobResponse,
+    ListPipelinePresetsResponse, PreviewCommand, PreviewGatherProcessingRequest,
     PreviewGatherProcessingResponse, PreviewResponse, PreviewSubvolumeProcessingRequest,
     PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
-    PreviewTraceLocalProcessingResponse, RemoveDatasetEntryRequest, RemoveDatasetEntryResponse,
-    ResolveSurveyMapRequest, ResolveSurveyMapResponse, ResolvedSurveyMapSourceDto,
-    RunGatherProcessingRequest, RunGatherProcessingResponse, RunSubvolumeProcessingRequest,
-    RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest, RunGatherProcessingResponse,
+    RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
     RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SegyGeometryCandidate,
-    SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SetDatasetNativeCoordinateReferenceRequest,
-    SetDatasetNativeCoordinateReferenceResponse, StratigraphicBoundaryReference,
-    SubvolumeCropOperation, SubvolumeProcessingPipeline, SuggestedImportAction,
-    SurveyPreflightRequest, SurveyPreflightResponse, SurveyTimeDepthTransform3D, TimeDepthDomain,
-    TravelTimeReference, UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
-    VelocityIntervalTrend, VerticalInterpolationMethod, WorkspacePipelineEntry, WorkspaceSession,
+    SubvolumeCropOperation, SubvolumeProcessingPipeline, VelocityIntervalTrend,
+};
+use seis_contracts_operations::resolve::{
+    BuildSurveyTimeDepthTransformRequest, DepthReferenceKind, IPC_SCHEMA_VERSION,
+    LateralInterpolationMethod, LayeredVelocityInterval, LayeredVelocityModel,
+    ResolveSurveyMapRequest, ResolveSurveyMapResponse, ResolvedSurveyMapSourceDto,
+    SetDatasetNativeCoordinateReferenceRequest, SetDatasetNativeCoordinateReferenceResponse,
+    StratigraphicBoundaryReference, SurveyTimeDepthTransform3D, TimeDepthDomain,
+    TravelTimeReference, VerticalInterpolationMethod,
+};
+use seis_contracts_operations::workspace::{
+    LoadVelocityModelsRequest, LoadVelocityModelsResponse, SaveWorkspaceSessionRequest,
+    SaveWorkspaceSessionResponse, WorkspacePipelineEntry, WorkspaceSession,
 };
 use seis_contracts_views::{
     GatherPreviewView, GatherProbe, GatherProbeChanged, GatherView, GatherViewport,
@@ -397,6 +406,7 @@ fn export_ts_types(output_dir: &Path) -> Result<(), Box<dyn Error>> {
     rewrite_generated_numeric_timestamps(&output_dir.join("ProcessingJobStatus.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("DatasetRegistryEntry.ts"))?;
     rewrite_generated_numeric_timestamps(&output_dir.join("WorkspacePipelineEntry.ts"))?;
+    rewrite_generated_ophiolite_aliases(output_dir)?;
 
     fs::write(
         output_dir.join("ipc-schema-version.ts"),
@@ -412,6 +422,83 @@ fn rewrite_generated_numeric_timestamps(path: &Path) -> Result<(), Box<dyn Error
     let source = fs::read_to_string(path)?;
     let rewritten = source.replace(": bigint", ": number");
     fs::write(path, rewritten)?;
+    Ok(())
+}
+
+fn rewrite_generated_ophiolite_aliases(output_dir: &Path) -> Result<(), Box<dyn Error>> {
+    for type_name in [
+        "BuildSurveyTimeDepthTransformRequest",
+        "CoordinateReferenceBindingDto",
+        "CoordinateReferenceDto",
+        "CoordinateReferenceSourceDto",
+        "DepthReferenceKind",
+        "GatherAxisKind",
+        "GatherInteractionChanged",
+        "GatherPreviewView",
+        "GatherProbe",
+        "GatherProbeChanged",
+        "GatherSampleDomain",
+        "GatherView",
+        "GatherViewport",
+        "GatherViewportChanged",
+        "ImportedHorizonDescriptor",
+        "LateralInterpolationMethod",
+        "LayeredVelocityInterval",
+        "LayeredVelocityModel",
+        "PreviewView",
+        "ProjectSurveyMapRequestDto",
+        "ProjectedPoint2Dto",
+        "ProjectedPolygon2Dto",
+        "ProjectedVector2Dto",
+        "ResolvedSectionDisplayView",
+        "ResolvedSurveyMapSourceDto",
+        "ResolvedSurveyMapSurveyDto",
+        "ResolvedSurveyMapWellDto",
+        "SectionColorMap",
+        "SectionCoordinate",
+        "SectionDisplayDefaults",
+        "SectionHorizonLineStyle",
+        "SectionHorizonOverlayView",
+        "SectionHorizonSample",
+        "SectionHorizonStyle",
+        "SectionInteractionChanged",
+        "SectionMetadata",
+        "SectionPolarity",
+        "SectionPrimaryMode",
+        "SectionProbe",
+        "SectionProbeChanged",
+        "SectionRenderMode",
+        "SectionScalarOverlayColorMap",
+        "SectionScalarOverlayValueRange",
+        "SectionScalarOverlayView",
+        "SectionTimeDepthDiagnostics",
+        "SectionTimeDepthTransformMode",
+        "SectionUnits",
+        "SectionView",
+        "SectionViewport",
+        "SectionViewportChanged",
+        "StratigraphicBoundaryReference",
+        "SurveyIndexAxisDto",
+        "SurveyIndexGridDto",
+        "SurveyMapGridTransformDto",
+        "SurveyMapSpatialAvailabilityDto",
+        "SurveyMapSpatialDescriptorDto",
+        "SurveyMapTrajectoryDto",
+        "SurveyMapTrajectoryStationDto",
+        "SurveyTimeDepthTransform3D",
+        "TimeDepthDomain",
+        "TravelTimeReference",
+        "VelocityIntervalTrend",
+        "VelocityQuantityKind",
+        "VerticalInterpolationMethod",
+    ] {
+        fs::write(
+            output_dir.join(format!("{type_name}.ts")),
+            format!(
+                "// Generated by `cargo run -p contracts-export`\nexport type {{ {type_name} }} from \"@ophiolite/contracts\";\n"
+            ),
+        )?;
+    }
     Ok(())
 }
 
@@ -481,6 +568,7 @@ export type { SectionHorizonOverlayView } from "./SectionHorizonOverlayView";
 export type { ResolvedSectionDisplayView } from "./ResolvedSectionDisplayView";
 export type { GatherView } from "./GatherView";
 export type { PreviewView } from "./PreviewView";
+export type { ProjectSurveyMapRequestDto } from "./ProjectSurveyMapRequestDto";
 export type { GatherPreviewView } from "./GatherPreviewView";
 export type { SectionViewport } from "./SectionViewport";
 export type { GatherViewport } from "./GatherViewport";

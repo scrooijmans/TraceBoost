@@ -926,7 +926,7 @@ version = "0.1.0"
 dependencies = [
  "schemars 0.8.22",
  "seis-contracts-core",
- "seis-contracts-interop",
+ "seis-contracts-operations",
  "seis-contracts-views",
  "serde_json",
  "ts-rs",
@@ -3590,6 +3590,8 @@ dependencies = [
  "ophiolite-core",
  "ophiolite-package",
  "ophiolite-parser",
+ "ophiolite-project",
+ "serde",
  "serde_json",
 ]
 
@@ -4880,6 +4882,13 @@ dependencies = [
 
 [[package]]
 name = "seis-contracts-interop"
+version = "0.1.0"
+dependencies = [
+ "seis-contracts-operations",
+]
+
+[[package]]
+name = "seis-contracts-operations"
 version = "0.1.0"
 dependencies = [
  "ophiolite-project",
@@ -6332,7 +6341,9 @@ name = "traceboost-app"
 version = "0.1.0"
 dependencies = [
  "clap",
- "seis-contracts-interop",
+ "ndarray 0.17.2",
+ "ophiolite",
+ "seis-contracts-operations",
  "seis-io",
  "seis-runtime",
  "serde",
@@ -6349,7 +6360,7 @@ dependencies = [
  "log",
  "ophiolite",
  "rusqlite",
- "seis-contracts-interop",
+ "seis-contracts-operations",
  "seis-runtime",
  "serde",
  "serde_json",

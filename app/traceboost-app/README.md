@@ -2,17 +2,27 @@
 
 `traceboost-app` is the Rust app/backend control plane inside the TraceBoost monorepo.
 
+It is the product-orchestration layer above the shared core. This crate turns canonical runtime and contract capabilities into TraceBoost workflows, and it feeds both the desktop shell and the automation surface.
+
 ## Stack And Role
 
 - Rust 2024 binary + library crate
 - `clap` for the developer-facing CLI
 - `serde` / `serde_json` for app-facing payloads
 - depends on:
-  - `seis-contracts-interop`
+  - `seis-contracts-operations`
   - `seis-runtime`
   - `seis-io`
 
 This crate is where product-level commands should live. It should orchestrate the runtime; it should not absorb raw SEG-Y parsing or runtime-store internals.
+
+The intended shape is one Rust workflow layer with multiple control surfaces on top of it:
+
+- desktop/Tauri commands
+- CLI commands
+- thin Python automation wrappers
+
+Those surfaces should reuse shared workflow orchestration here rather than reimplementing product flows independently.
 
 ## Implemented
 
@@ -20,6 +30,10 @@ This crate is where product-level commands should live. It should orchestrate th
   - survey preflight
   - dataset import
   - dataset open/summary
+  - survey-map resolution
+  - native coordinate-reference assignment
+  - survey time-depth demo/model workflows
+  - a shared `TraceBoostWorkflowService` for app-facing orchestration
 - CLI commands for:
   - backend info
   - inspect/analyze
@@ -27,7 +41,13 @@ This crate is where product-level commands should live. It should orchestrate th
   - preflight-import
   - import-dataset
   - open-dataset
+  - set-native-coordinate-reference
+  - resolve-survey-map
   - view-section
+  - load-velocity-models
+  - ensure-demo-survey-time-depth-transform
+  - prepare-survey-demo
+  - import-velocity-functions-model
 
 ## Roadmap
 

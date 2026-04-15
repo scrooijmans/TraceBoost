@@ -459,7 +459,7 @@
     z-index: 45;
     display: grid;
     place-items: center;
-    background: rgb(6 14 21 / 0.7);
+    background: rgb(38 55 71 / 0.2);
     backdrop-filter: blur(4px);
   }
 
@@ -467,11 +467,10 @@
     width: min(1120px, calc(100vw - 40px));
     max-height: calc(100vh - 40px);
     overflow: auto;
-    border: 1px solid rgb(135 175 204 / 0.24);
-    background:
-      linear-gradient(180deg, rgb(8 23 34 / 0.98), rgb(11 29 42 / 0.98)),
-      rgb(10 22 32);
-    box-shadow: 0 24px 60px rgb(0 0 0 / 0.35);
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--panel-bg);
+    box-shadow: 0 24px 60px rgba(42, 64, 84, 0.22);
   }
 
   .workbench-header,
@@ -481,18 +480,18 @@
     justify-content: space-between;
     gap: 16px;
     padding: 18px 20px;
-    border-bottom: 1px solid rgb(135 175 204 / 0.16);
+    border-bottom: 1px solid var(--app-border);
   }
 
   .workbench-actions {
-    border-top: 1px solid rgb(135 175 204 / 0.16);
+    border-top: 1px solid var(--app-border);
     border-bottom: 0;
   }
 
   .workbench-header h3,
   .workbench-sidebar h4 {
     margin: 0;
-    color: #ecf4fa;
+    color: var(--text-primary);
   }
 
   .workbench-header p,
@@ -500,7 +499,7 @@
   .sidebar-empty,
   .experimental-note p {
     margin: 6px 0 0;
-    color: #8fb0c5;
+    color: var(--text-muted);
     line-height: 1.45;
   }
 
@@ -512,8 +511,9 @@
   }
 
   .workbench-panel {
-    border: 1px solid rgb(135 175 204 / 0.12);
-    background: rgb(10 25 36 / 0.82);
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--surface-bg);
     padding: 16px;
   }
 
@@ -533,7 +533,7 @@
   }
 
   .field span {
-    color: #bad1df;
+    color: var(--text-muted);
     font-size: 11px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -548,9 +548,10 @@
   input,
   select {
     min-height: 34px;
-    border: 1px solid rgb(135 175 204 / 0.18);
-    background: rgb(6 16 24 / 0.88);
-    color: #e7f0f6;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--text-primary);
     padding: 0 10px;
   }
 
@@ -559,22 +560,23 @@
     align-items: center;
     gap: 10px;
     min-height: 34px;
-    border: 1px solid rgb(135 175 204 / 0.18);
-    background: rgb(6 16 24 / 0.88);
-    color: #e7f0f6;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--text-primary);
     padding: 0 10px;
   }
 
   input:disabled,
   select:disabled {
-    color: #7f96a5;
+    color: var(--text-dim);
   }
 
   .experimental-note,
   .sidebar-block {
     margin-top: 18px;
     padding-top: 14px;
-    border-top: 1px solid rgb(135 175 204 / 0.14);
+    border-top: 1px solid var(--app-border);
   }
 
   .interval-toolbar,
@@ -588,13 +590,13 @@
   .interval-toolbar {
     margin-top: 18px;
     padding-top: 14px;
-    border-top: 1px solid rgb(135 175 204 / 0.14);
+    border-top: 1px solid var(--app-border);
   }
 
   .interval-toolbar p,
   .interval-card-header small {
     margin: 6px 0 0;
-    color: #8fb0c5;
+    color: var(--text-muted);
   }
 
   .interval-toolbar-actions {
@@ -609,14 +611,15 @@
   }
 
   .interval-card {
-    border: 1px solid rgb(135 175 204 / 0.12);
-    background: rgb(6 18 27 / 0.72);
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: #fff;
     padding: 14px;
   }
 
   .interval-card h4 {
     margin: 0;
-    color: #ecf4fa;
+    color: var(--text-primary);
   }
 
   .interval-field-grid {
@@ -632,38 +635,41 @@
   .horizon-entry {
     display: grid;
     gap: 2px;
-    border: 1px solid rgb(135 175 204 / 0.1);
-    background: rgb(5 16 23 / 0.6);
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: #fff;
     padding: 10px 12px;
   }
 
   .horizon-entry span {
-    color: #e7f0f6;
+    color: var(--text-primary);
   }
 
   .horizon-entry small {
-    color: #89a4b6;
+    color: var(--text-muted);
   }
 
   .close-btn,
   .secondary,
   .workbench-actions button {
     min-height: 34px;
-    border: 1px solid rgb(135 175 204 / 0.2);
-    background: rgb(10 25 36 / 0.95);
-    color: #e7f0f6;
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    background: var(--surface-subtle);
+    color: var(--text-primary);
     padding: 0 12px;
   }
 
   .workbench-actions button:last-child {
-    background: linear-gradient(180deg, #2f7ab1, #225f8f);
-    border-color: rgb(104 176 230 / 0.4);
+    background: #e8f3fb;
+    border-color: #b0d4ee;
+    color: #274b61;
   }
 
   .build-error {
     margin: 0;
     padding: 0 20px 18px;
-    color: #ff9d9d;
+    color: #8f3c3c;
   }
 
   @media (max-width: 980px) {

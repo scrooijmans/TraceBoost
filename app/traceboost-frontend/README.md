@@ -2,13 +2,19 @@
 
 `traceboost-frontend` is the current UI host for the first working TraceBoost desktop workflow.
 
+It is the point where the other two products become visible in one application:
+
+- TraceBoost owns the workflow and app state
+- Ophiolite-backed contracts shape the data crossing the boundary
+- Ophiolite Charts renders the embedded chart experience
+
 ## Stack
 
 - Svelte 5
 - Vite
 - Bun
 - generated `@traceboost/seis-contracts`
-- external `@geoviz/svelte`
+- external `@ophiolite/charts`
 - Tauri 2 desktop shell under `src-tauri`
 
 ## Data Boundary
@@ -32,7 +38,7 @@
 - shared frontend bridge that can call:
   - Vite dev endpoints in browser mode
   - Tauri commands in desktop mode
-- embedded `geoviz` section rendering
+- embedded Ophiolite Charts section rendering
 - typechecked/generated contract consumption
 
 ## Development
@@ -63,7 +69,7 @@ bun run tauri:dev
 
 ## Local Prerequisites
 
-- keep the sibling `geoviz` repository checked out at `../geoviz`
+- keep the sibling `ophiolite` repository checked out at `../ophiolite`
 - use the repo-pinned Rust toolchain from `../../rust-toolchain.toml`
 
 In browser dev mode, Vite exposes app-oriented endpoints that shell out to `traceboost-app` for:

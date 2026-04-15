@@ -16,7 +16,7 @@ That split is a strength, not technical debt. The current benchmarks already sho
 
 ## Current read
 
-The current `tbvol` design remains well aligned with the workloads demonstrated in TraceBoost, GeoViz, and Ophiolite:
+The current `tbvol` design remains well aligned with the workloads demonstrated in TraceBoost, Ophiolite Charts, and Ophiolite:
 
 - logical shape `[iline, xline, sample]`
 - payload type `f32`

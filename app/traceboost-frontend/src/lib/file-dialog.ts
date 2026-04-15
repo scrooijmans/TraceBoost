@@ -21,22 +21,19 @@ function normalizeDialogPaths(result: string[] | string | null): string[] {
 }
 
 /**
- * Opens a native file picker for TraceBoost-supported seismic volumes.
+ * Opens a native file picker for TraceBoost runtime stores.
  * Returns the selected file path, or null if cancelled.
  */
-export async function pickVolumeFile(): Promise<string | null> {
+export async function pickRuntimeStoreFile(): Promise<string | null> {
   if (!isTauriEnvironment()) {
-    return normalizeDialogPath(prompt("Enter volume path (.segy, .sgy, .zarr, .tbvol):"));
+    return normalizeDialogPath(prompt("Enter runtime store path (.tbvol):"));
   }
 
   const { open } = await import("@tauri-apps/plugin-dialog");
   const result = await open({
     title: "Open Volume",
     filters: [
-      { name: "Supported Volumes", extensions: ["tbvol", "zarr", "sgy", "segy"] },
       { name: "Runtime Stores", extensions: ["tbvol"] },
-      { name: "Zarr Stores", extensions: ["zarr"] },
-      { name: "SEG-Y Files", extensions: ["sgy", "segy"] },
       { name: "All Files", extensions: ["*"] }
     ],
     multiple: false,
@@ -46,7 +43,29 @@ export async function pickVolumeFile(): Promise<string | null> {
   return normalizeDialogPath(result);
 }
 
-export const pickSegyFile = pickVolumeFile;
+export async function pickImportSeismicFile(): Promise<string | null> {
+  if (!isTauriEnvironment()) {
+    return normalizeDialogPath(prompt("Enter import path (.segy, .sgy, .zarr):"));
+  }
+
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({
+    title: "Import Seismic Volume",
+    filters: [
+      { name: "SEG-Y / Zarr", extensions: ["sgy", "segy", "zarr"] },
+      { name: "SEG-Y Files", extensions: ["sgy", "segy"] },
+      { name: "Zarr Stores", extensions: ["zarr"] },
+      { name: "All Files", extensions: ["*"] }
+    ],
+    multiple: false,
+    directory: false
+  });
+
+  return normalizeDialogPath(result);
+}
+
+export const pickVolumeFile = pickRuntimeStoreFile;
+export const pickSegyFile = pickImportSeismicFile;
 
 export async function pickHorizonFiles(): Promise<string[]> {
   if (!isTauriEnvironment()) {

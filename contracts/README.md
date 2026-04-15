@@ -2,11 +2,14 @@
 
 `contracts/` is the shared schema layer for the TraceBoost monorepo.
 
+These contracts are product-facing. They describe what the TraceBoost application needs to move across its own app/runtime/frontend boundaries, while canonical reusable subsurface meaning is pushed down into Ophiolite where that ownership is stable.
+
 ## Stack And Formats
 
 - Rust 2024 crates:
   - `seis-contracts-core`
   - `seis-contracts-views`
+  - `seis-contracts-operations`
   - `seis-contracts-interop`
 - `serde` for JSON serialization
 - `schemars` for JSON Schema export
@@ -17,11 +20,11 @@ The contracts layer defines the typed payloads that cross:
 
 - runtime <-> app/backend
 - app/backend <-> Tauri frontend
-- monorepo <-> external frontend consumers such as `geoviz` integrations
+- monorepo <-> external frontend consumers such as `Ophiolite Charts` integrations
 
 Current architectural direction:
 
-- the existing `seis-contracts-core`, `seis-contracts-views`, and `seis-contracts-interop` split remains a compatibility surface rather than the final package naming
+- the existing `seis-contracts-core`, `seis-contracts-views`, `seis-contracts-operations`, and `seis-contracts-interop` split is a migration step toward clearer long-term ownership
 - Ophiolite contract ownership is now split by concern under `ophiolite-seismic/src/contracts/`:
   - `domain.rs`
   - `processing.rs`
@@ -31,7 +34,9 @@ Current architectural direction:
 - TraceBoost crates now expose matching compatibility namespaces:
   - `seis-contracts-core::{domain, processing, models, operations, views}`
   - `seis-contracts-views::{section, gather}`
-  - `seis-contracts-interop::{datasets, import_ops, processing_ops, workspace, resolve}`
+  - `seis-contracts-operations::{datasets, import_ops, processing_ops, workspace, resolve}`
+  - `seis-contracts-interop::*` as a compatibility re-export of `seis-contracts-operations`
+- the owning Rust source for app/workflow operations now lives in `seis-contracts-operations`; `seis-contracts-interop` remains only to avoid a breaking rename across downstream consumers
 - packed frontend section transport is now explicit in `app/traceboost-frontend/src/lib/transport/packed-sections.ts` instead of living only as bridge-local helpers
 - see `../articles/architecture/CONTRACT_ARCHITECTURE_AND_MIGRATION.md` for the target layout and migration plan
 

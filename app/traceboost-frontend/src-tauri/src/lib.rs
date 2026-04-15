@@ -3,6 +3,7 @@ mod diagnostics;
 mod preview_session;
 mod processing;
 mod processing_cache;
+mod project_settings;
 mod workspace;
 
 #[cfg(test)]
@@ -11,39 +12,50 @@ mod preview_session_bench;
 mod processing_cache_bench;
 
 use ophiolite::{
-    resolve_dataset_summary_survey_map_source, AssetBindingInput, AssetKind, AssetStatus,
-    OphioliteProject, ResolveSectionWellOverlaysResponse, SectionWellOverlayRequestDto,
-    WellTimeDepthModel1D,
+    AssetBindingInput, AssetKind, AssetStatus, OphioliteProject, ProjectSurveyMapRequestDto,
+    ResolveSectionWellOverlaysResponse, SURVEY_MAP_CONTRACT_VERSION, SectionWellOverlayRequestDto,
+    SurveyMapTransformStatusDto, WellTieAnalysis1D, WellTieObservationSet1D, WellTimeDepthModel1D,
+    resolve_dataset_summary_survey_map_source,
 };
-use seis_contracts_interop::{
-    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, BuildSurveyTimeDepthTransformRequest,
-    CancelProcessingJobRequest, CancelProcessingJobResponse, DeletePipelinePresetRequest,
-    DeletePipelinePresetResponse, ExportSegyRequest, ExportSegyResponse, GatherProcessingPipeline,
-    GatherRequest, GatherView, GetProcessingJobRequest, GetProcessingJobResponse,
-    ImportDatasetRequest, ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
-    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    ListPipelinePresetsResponse, LoadSectionHorizonsResponse, LoadVelocityModelsResponse,
-    LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse,
-    PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
-    PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
-    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
-    RemoveDatasetEntryRequest, RemoveDatasetEntryResponse, ResolveSurveyMapRequest,
-    ResolveSurveyMapResponse, RunGatherProcessingRequest, RunGatherProcessingResponse,
+use seis_contracts_operations::datasets::{
+    LoadWorkspaceStateResponse, OpenDatasetRequest, OpenDatasetResponse, RemoveDatasetEntryRequest,
+    RemoveDatasetEntryResponse, SetActiveDatasetEntryRequest, SetActiveDatasetEntryResponse,
+    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse,
+};
+use seis_contracts_operations::import_ops::{
+    ExportSegyRequest, ExportSegyResponse, ImportDatasetRequest, ImportDatasetResponse,
+    ImportHorizonXyzRequest, ImportHorizonXyzResponse, ImportPrestackOffsetDatasetRequest,
+    ImportPrestackOffsetDatasetResponse, LoadSectionHorizonsResponse, SurveyPreflightRequest,
+    SurveyPreflightResponse,
+};
+use seis_contracts_operations::processing_ops::{
+    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, CancelProcessingJobRequest,
+    CancelProcessingJobResponse, DeletePipelinePresetRequest, DeletePipelinePresetResponse,
+    GatherProcessingPipeline, GatherRequest, GatherView, GetProcessingJobRequest,
+    GetProcessingJobResponse, ListPipelinePresetsResponse, PreviewGatherProcessingRequest,
+    PreviewGatherProcessingResponse, PreviewSubvolumeProcessingRequest,
+    PreviewSubvolumeProcessingResponse, PreviewTraceLocalProcessingRequest,
+    PreviewTraceLocalProcessingResponse, RunGatherProcessingRequest, RunGatherProcessingResponse,
     RunSubvolumeProcessingRequest, RunSubvolumeProcessingResponse, RunTraceLocalProcessingRequest,
     RunTraceLocalProcessingResponse, SavePipelinePresetRequest, SavePipelinePresetResponse,
-    SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse, SetActiveDatasetEntryRequest,
-    SetActiveDatasetEntryResponse, SetDatasetNativeCoordinateReferenceRequest,
-    SetDatasetNativeCoordinateReferenceResponse, SurveyPreflightRequest, SurveyPreflightResponse,
-    UpsertDatasetEntryRequest, UpsertDatasetEntryResponse, VelocityScanRequest,
-    VelocityScanResponse, IPC_SCHEMA_VERSION,
+    VelocityScanRequest, VelocityScanResponse,
+};
+use seis_contracts_operations::resolve::{
+    BuildSurveyTimeDepthTransformRequest, IPC_SCHEMA_VERSION, ResolveSurveyMapRequest,
+    ResolveSurveyMapResponse, SetDatasetNativeCoordinateReferenceRequest,
+    SetDatasetNativeCoordinateReferenceResponse,
+};
+use seis_contracts_operations::workspace::{
+    LoadVelocityModelsResponse, SaveWorkspaceSessionRequest, SaveWorkspaceSessionResponse,
 };
 use seis_runtime::{
+    MaterializeOptions, ProcessingArtifactRole, ProcessingJobArtifact, ProcessingJobArtifactKind,
+    ProcessingPipelineSpec, SectionAxis, SectionHorizonOverlayView, SectionView,
+    SubvolumeProcessingPipeline, TbvolManifest, TimeDepthDomain, TraceLocalProcessingPipeline,
+    VelocityFunctionSource, VelocityQuantityKind,
     materialize_gather_processing_store_with_progress, materialize_processing_volume_with_progress,
     materialize_subvolume_processing_volume_with_progress, open_store,
-    set_any_store_native_coordinate_reference, MaterializeOptions, ProcessingArtifactRole,
-    ProcessingJobArtifact, ProcessingJobArtifactKind, ProcessingPipelineSpec, SectionAxis,
-    SectionHorizonOverlayView, SectionView, SubvolumeProcessingPipeline, TbvolManifest,
-    TimeDepthDomain, TraceLocalProcessingPipeline, VelocityFunctionSource, VelocityQuantityKind,
+    set_any_store_native_coordinate_reference,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -54,34 +66,61 @@ use std::{
     time::Instant,
 };
 use tauri::{
+    AppHandle, Emitter, Manager, State,
     ipc::Response,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
-    AppHandle, Emitter, Manager, State,
 };
 use traceboost_app::{
-    amplitude_spectrum, build_velocity_model_transform, default_export_segy_path,
-    default_export_zarr_path, ensure_demo_survey_time_depth_transform, export_dataset_segy,
-    export_dataset_zarr, import_dataset, import_horizon_xyz, import_prestack_offset_dataset,
-    import_velocity_functions_model, load_depth_converted_section, load_gather,
-    load_resolved_section_display, load_section_horizons, load_velocity_models,
-    open_dataset_summary, preflight_dataset, preview_gather_processing,
-    preview_subvolume_processing, run_velocity_scan, ExportZarrResponse,
+    ExportZarrResponse, TraceBoostWorkflowService, amplitude_spectrum,
+    build_velocity_model_transform, convert_horizon_domain, default_export_segy_path,
+    default_export_zarr_path, export_dataset_zarr, import_horizon_xyz,
+    load_depth_converted_section, load_gather, load_horizon_assets, load_resolved_section_display,
+    open_dataset_summary, preview_gather_processing, preview_subvolume_processing,
+    run_velocity_scan,
 };
 
 use crate::app_paths::AppPaths;
-use crate::diagnostics::{build_fields, json_value, DiagnosticsState, ExportBundleResponse};
+use crate::diagnostics::{DiagnosticsState, ExportBundleResponse, build_fields, json_value};
 use crate::preview_session::PreviewSessionState;
 use crate::processing::{JobRecord, ProcessingState};
 use crate::processing_cache::ProcessingCacheState;
+use crate::project_settings::{
+    ProjectDisplayCoordinateReference, ProjectGeospatialSettings, load_project_geospatial_settings,
+    save_project_geospatial_settings,
+};
 use crate::workspace::WorkspaceState;
 
 const FILE_OPEN_VOLUME_MENU_ID: &str = "file.open_volume";
 const FILE_OPEN_VOLUME_MENU_EVENT: &str = "menu:file-open-volume";
-const VELOCITY_MODEL_MENU_ID: &str = "velocity.velocity_model";
-const VELOCITY_MODEL_MENU_EVENT: &str = "menu:velocity-model";
+const APP_SETTINGS_MENU_ID: &str = "app.settings";
+const APP_SETTINGS_MENU_EVENT: &str = "menu:app-settings";
+const APP_VELOCITY_MODEL_MENU_ID: &str = "app.velocity_model";
+const APP_VELOCITY_MODEL_MENU_EVENT: &str = "menu:app-velocity-model";
+const APP_DEPTH_CONVERSION_MENU_ID: &str = "app.depth_conversion";
+const APP_DEPTH_CONVERSION_MENU_EVENT: &str = "menu:app-depth-conversion";
+const APP_WELL_TIE_MENU_ID: &str = "app.well_tie";
+const APP_WELL_TIE_MENU_EVENT: &str = "menu:app-well-tie";
+const FILE_IMPORT_SEISMIC_MENU_ID: &str = "file.import_seismic";
+const FILE_IMPORT_SEISMIC_MENU_EVENT: &str = "menu:file-import-seismic";
+const FILE_IMPORT_HORIZONS_MENU_ID: &str = "file.import_horizons";
+const FILE_IMPORT_HORIZONS_MENU_EVENT: &str = "menu:file-import-horizons";
+const FILE_IMPORT_VELOCITY_FUNCTIONS_MENU_ID: &str = "file.import_velocity_functions";
+const FILE_IMPORT_VELOCITY_FUNCTIONS_MENU_EVENT: &str = "menu:file-import-velocity-functions";
+const FILE_IMPORT_CHECKSHOT_MENU_ID: &str = "file.import_checkshot";
+const FILE_IMPORT_CHECKSHOT_MENU_EVENT: &str = "menu:file-import-checkshot";
+const FILE_IMPORT_MANUAL_PICKS_MENU_ID: &str = "file.import_manual_picks";
+const FILE_IMPORT_MANUAL_PICKS_MENU_EVENT: &str = "menu:file-import-manual-picks";
+const FILE_IMPORT_AUTHORED_WELL_MODEL_MENU_ID: &str = "file.import_authored_well_model";
+const FILE_IMPORT_AUTHORED_WELL_MODEL_MENU_EVENT: &str = "menu:file-import-authored-well-model";
+const FILE_IMPORT_COMPILED_WELL_MODEL_MENU_ID: &str = "file.import_compiled_well_model";
+const FILE_IMPORT_COMPILED_WELL_MODEL_MENU_EVENT: &str = "menu:file-import-compiled-well-model";
 const TRACE_LOCAL_CACHE_FAMILY: &str = "trace_local";
 const TBVOL_STORE_FORMAT_VERSION: &str = "tbvol-v1";
 const PROCESSING_CACHE_RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn workflow_service() -> TraceBoostWorkflowService {
+    TraceBoostWorkflowService
+}
 const PACKED_PREVIEW_MAGIC: &[u8; 8] = b"TBPRV001";
 const PACKED_SECTION_MAGIC: &[u8; 8] = b"TBSEC001";
 const PACKED_SECTION_DISPLAY_MAGIC: &[u8; 8] = b"TBSDP001";
@@ -118,9 +157,45 @@ struct ProjectRootRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ProjectWellOverlayInventoryRequest {
+    project_root: String,
+    display_coordinate_reference_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveProjectGeospatialSettingsRequest {
+    project_root: String,
+    display_coordinate_reference: ProjectDisplayCoordinateReference,
+    source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadProjectGeospatialSettingsResponse {
+    settings: Option<ProjectGeospatialSettings>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProjectAssetRequest {
     project_root: String,
     asset_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveProjectSurveyMapRequest {
+    project_root: String,
+    survey_asset_id: String,
+    wellbore_id: Option<String>,
+    display_coordinate_reference_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveProjectSurveyMapResponse {
+    survey_map: ophiolite::ResolvedSurveyMapSourceDto,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,6 +226,860 @@ struct CompileProjectWellTimeDepthAuthoredModelRequest {
     set_active: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeProjectWellTieRequest {
+    project_root: String,
+    source_model_asset_id: String,
+    tie_name: String,
+    tie_start_ms: f64,
+    tie_end_ms: f64,
+    search_radius_m: f64,
+    store_path: String,
+    survey_asset_id: String,
+    display_coordinate_reference_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AcceptProjectWellTieRequest {
+    project_root: String,
+    binding: AssetBindingInput,
+    source_model_asset_id: String,
+    tie_name: String,
+    tie_start_ms: f64,
+    tie_end_ms: f64,
+    search_radius_m: f64,
+    store_path: String,
+    survey_asset_id: String,
+    display_coordinate_reference_id: String,
+    output_collection_name: Option<String>,
+    set_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectWellTieAnalysisResponse {
+    draft_observation_set: WellTieObservationSet1D,
+    analysis: WellTieAnalysis1D,
+    source_model_asset_id: String,
+    source_model_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcceptProjectWellTieResponse {
+    observation_asset_id: String,
+    authored_model_asset_id: String,
+    compiled_model_asset_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct StoreBackedWellTieSelection {
+    axis: SectionAxis,
+    section_index: usize,
+    well_trace_index: usize,
+    trace_spacing_m: f64,
+}
+
+#[derive(Debug, Clone)]
+struct StoreBackedWellTieMatch {
+    lateral_offset_m: f32,
+    bulk_shift_samples: i32,
+    stretch_factor: f32,
+    correlation: f32,
+    aligned_trace_amplitudes: Vec<f32>,
+}
+
+fn enrich_well_tie_analysis_with_store(
+    project: &OphioliteProject,
+    source_model_asset_id: &ophiolite::AssetId,
+    analysis: &WellTieAnalysis1D,
+    store_path: &str,
+    survey_asset_id: &str,
+    display_coordinate_reference_id: &str,
+    search_radius_m: f64,
+) -> Result<WellTieAnalysis1D, String> {
+    let source_asset = project
+        .asset_record(source_model_asset_id)
+        .map_err(|error| error.to_string())?;
+    let resolved = project
+        .resolve_survey_map_source(&ProjectSurveyMapRequestDto {
+            schema_version: SURVEY_MAP_CONTRACT_VERSION,
+            survey_asset_ids: vec![survey_asset_id.to_string()],
+            wellbore_ids: vec![source_asset.wellbore_id.0.clone()],
+            display_coordinate_reference_id: display_coordinate_reference_id.to_string(),
+        })
+        .map_err(|error| error.to_string())?;
+    let survey = resolved.surveys.first().ok_or_else(|| {
+        format!("survey asset '{survey_asset_id}' did not resolve to a survey map")
+    })?;
+    let well = resolved
+        .wells
+        .iter()
+        .find(|well| well.wellbore_id == source_asset.wellbore_id.0)
+        .or_else(|| resolved.wells.first())
+        .ok_or_else(|| {
+            format!(
+                "wellbore '{}' could not be resolved into the selected survey map",
+                source_asset.wellbore_id.0
+            )
+        })?;
+    let selection = select_store_backed_well_tie_section(survey, well)?;
+    let handle = open_store(store_path).map_err(|error| error.to_string())?;
+    let plane = handle
+        .read_section_plane(selection.axis, selection.section_index)
+        .map_err(|error| error.to_string())?;
+    if plane.traces == 0 || plane.samples == 0 {
+        return Err("selected store section does not contain any seismic samples".to_string());
+    }
+
+    let well_trace_index = selection
+        .well_trace_index
+        .min(plane.traces.saturating_sub(1));
+    let half_window_traces = if search_radius_m.is_finite() && search_radius_m > 0.0 {
+        ((search_radius_m / selection.trace_spacing_m.max(1.0)).ceil() as usize).clamp(4, 24)
+    } else {
+        4
+    };
+    let window_start = well_trace_index.saturating_sub(half_window_traces);
+    let window_end = (well_trace_index + half_window_traces + 1).min(plane.traces);
+    let tie_times_ms = analysis.synthetic_trace.times_ms.clone();
+    let tie_amplitudes = analysis.synthetic_trace.amplitudes.clone();
+    let sample_step_ms = mean_sample_step_ms(&tie_times_ms).unwrap_or(4.0).max(1.0);
+    let max_lag_samples = ((48.0 / sample_step_ms).round() as usize).clamp(1, 16);
+
+    let mut section_amplitudes =
+        Vec::with_capacity((window_end - window_start) * tie_times_ms.len());
+    let mut well_trace_amplitudes = Vec::new();
+    let mut best_match: Option<StoreBackedWellTieMatch> = None;
+
+    for trace_index in window_start..window_end {
+        let resampled = resample_section_trace(
+            &plane.sample_axis_ms,
+            trace_slice(&plane.amplitudes, plane.samples, trace_index),
+            &tie_times_ms,
+        );
+        if trace_index == well_trace_index {
+            well_trace_amplitudes = resampled.clone();
+        }
+
+        let lateral_offset_m = ((trace_index as isize - well_trace_index as isize) as f32)
+            * selection.trace_spacing_m as f32;
+        let has_samples = plane
+            .occupancy
+            .as_ref()
+            .and_then(|occupancy| occupancy.get(trace_index))
+            .copied()
+            .unwrap_or(1)
+            != 0;
+        if has_samples {
+            if let Some(match_result) = best_shift_stretch_match(
+                &tie_times_ms,
+                &tie_amplitudes,
+                &resampled,
+                max_lag_samples,
+                sample_step_ms,
+            ) {
+                let replace = best_match
+                    .as_ref()
+                    .map(|current| {
+                        match_result.correlation > current.correlation + 0.001
+                            || ((match_result.correlation - current.correlation).abs() <= 0.001
+                                && (match_result.stretch_factor - 1.0).abs()
+                                    < (current.stretch_factor - 1.0).abs())
+                    })
+                    .unwrap_or(true);
+                if replace {
+                    best_match = Some(StoreBackedWellTieMatch {
+                        lateral_offset_m,
+                        bulk_shift_samples: match_result.bulk_shift_samples,
+                        stretch_factor: match_result.stretch_factor,
+                        correlation: match_result.correlation,
+                        aligned_trace_amplitudes: match_result.aligned_trace_amplitudes,
+                    });
+                }
+            }
+        }
+
+        section_amplitudes.extend(resampled);
+    }
+
+    if well_trace_amplitudes.is_empty() {
+        return Err("failed to extract the nearest seismic trace at the well location".to_string());
+    }
+    let Some(best_match) = best_match else {
+        return Err(
+            "failed to identify a seismic trace with usable correlation against the synthetic"
+                .to_string(),
+        );
+    };
+
+    let bulk_shift_ms = best_match.bulk_shift_samples as f32 * sample_step_ms;
+    let stretch_factor = best_match.stretch_factor;
+    let local_well_trace_index = well_trace_index - window_start;
+    let section_label = format!(
+        "Local {} {:.0}",
+        match selection.axis {
+            SectionAxis::Inline => "Inline",
+            SectionAxis::Xline => "Xline",
+        },
+        plane.coordinate_value
+    );
+    let trace_offsets_m = (window_start..window_end)
+        .map(|trace_index| {
+            ((trace_index as isize - well_trace_index as isize) as f32)
+                * selection.trace_spacing_m as f32
+        })
+        .collect::<Vec<_>>();
+
+    let mut enriched = analysis.clone();
+    let mut observation_set = enriched.draft_observation_set.clone();
+    observation_set.bulk_shift_ms = Some(bulk_shift_ms);
+    observation_set.stretch_factor = Some(stretch_factor);
+    observation_set.trace_search_offset_m = Some(best_match.lateral_offset_m);
+    observation_set.correlation = Some(best_match.correlation);
+    let tie_midpoint_ms = time_axis_midpoint_ms(&tie_times_ms).unwrap_or_else(|| {
+        let first = tie_times_ms.first().copied().unwrap_or_default();
+        let last = tie_times_ms.last().copied().unwrap_or(first);
+        (first + last) * 0.5
+    });
+    for (index, sample) in observation_set.samples.iter_mut().enumerate() {
+        let base_time_ms = tie_times_ms
+            .get(index)
+            .copied()
+            .map(f64::from)
+            .unwrap_or(sample.time_ms);
+        sample.time_ms = f64::from(tie_midpoint_ms)
+            + (base_time_ms - f64::from(tie_midpoint_ms)) * f64::from(stretch_factor)
+            + f64::from(bulk_shift_ms);
+        sample.quality = Some(best_match.correlation);
+    }
+    observation_set.notes.push(format!(
+        "Survey-backed seismic extracted from '{}' using survey asset '{}' and {} {:.0}.",
+        store_path,
+        survey_asset_id,
+        match selection.axis {
+            SectionAxis::Inline => "inline",
+            SectionAxis::Xline => "xline",
+        },
+        plane.coordinate_value
+    ));
+    observation_set.notes.push(format!(
+        "Best seismic match selected at {:+.0} m with {:.2} correlation, {:+.0} ms bulk shift, and {:.3}x stretch.",
+        best_match.lateral_offset_m, best_match.correlation, bulk_shift_ms, stretch_factor
+    ));
+
+    let tie_length_ms = tie_times_ms
+        .first()
+        .zip(tie_times_ms.last())
+        .map(|(start, end)| *end - *start)
+        .unwrap_or(0.0)
+        .abs();
+    enriched.best_match_trace = ophiolite::WellTieTrace1D {
+        id: "best-seismic".to_string(),
+        label: "Best Seis".to_string(),
+        times_ms: tie_times_ms.clone(),
+        amplitudes: best_match.aligned_trace_amplitudes.clone(),
+    };
+    enriched.well_trace = ophiolite::WellTieTrace1D {
+        id: "well-seismic".to_string(),
+        label: "Well Seis".to_string(),
+        times_ms: tie_times_ms.clone(),
+        amplitudes: well_trace_amplitudes,
+    };
+    enriched.section_window = ophiolite::WellTieSectionWindow {
+        id: "local-seismic-window".to_string(),
+        label: section_label,
+        times_ms: tie_times_ms.clone(),
+        trace_offsets_m,
+        amplitudes: section_amplitudes,
+        trace_count: window_end - window_start,
+        sample_count: enriched.synthetic_trace.amplitudes.len(),
+        well_trace_index: local_well_trace_index,
+    };
+    if let Some(extracted_wavelet) = estimate_extracted_wavelet(
+        &enriched.reflectivity_trace.amplitudes,
+        &best_match.aligned_trace_amplitudes,
+        sample_step_ms,
+        tie_length_ms,
+    ) {
+        let extracted_synthetic = convolve_same_normalized(
+            &enriched.reflectivity_trace.amplitudes,
+            &extracted_wavelet.amplitudes,
+        );
+        if let Some(extracted_correlation) = correlation_with_synthetic_lag(
+            &extracted_synthetic,
+            &best_match.aligned_trace_amplitudes,
+            0,
+        ) {
+            observation_set.correlation = Some(extracted_correlation);
+            for sample in &mut observation_set.samples {
+                sample.quality = Some(extracted_correlation);
+            }
+            enriched.notes.push(format!(
+                "Least-squares wavelet extraction updated the synthetic/seismic correlation to {:.2}.",
+                extracted_correlation
+            ));
+        } else {
+            enriched.notes.push(
+                "Least-squares wavelet extraction ran, but the updated synthetic correlation could not be scored."
+                    .to_string(),
+            );
+        }
+        enriched.wavelet = extracted_wavelet;
+        enriched.synthetic_trace = ophiolite::WellTieTrace1D {
+            id: "synthetic-extracted-wavelet".to_string(),
+            label: "Syn".to_string(),
+            times_ms: tie_times_ms.clone(),
+            amplitudes: extracted_synthetic,
+        };
+        observation_set.notes.push(
+            "Synthetic updated with a least-squares extracted wavelet estimated from the matched seismic trace."
+                .to_string(),
+        );
+    } else {
+        enriched.notes.push(
+            "Wavelet extraction remained provisional because the least-squares estimate was unstable for this tie window."
+                .to_string(),
+        );
+    }
+    enriched
+        .notes
+        .retain(|note| !note.contains("remain provisional"));
+    enriched.notes.push(format!(
+        "Seismic traces and the local seismic window are extracted from the active store '{}' using survey asset '{}'.",
+        store_path, survey_asset_id
+    ));
+    enriched.notes.push(format!(
+        "Best-match trace preview is aligned with a solved {:+.0} ms bulk shift and {:.3}x stretch; the local seismic window remains in survey time.",
+        bulk_shift_ms, stretch_factor
+    ));
+    enriched.draft_observation_set = observation_set;
+
+    Ok(enriched)
+}
+
+fn select_store_backed_well_tie_section(
+    survey: &ophiolite::ResolvedSurveyMapSurveyDto,
+    well: &ophiolite::ResolvedSurveyMapWellDto,
+) -> Result<StoreBackedWellTieSelection, String> {
+    let grid_transform = survey
+        .display_spatial
+        .as_ref()
+        .and_then(|spatial| spatial.grid_transform.as_ref())
+        .or_else(|| survey.native_spatial.grid_transform.as_ref())
+        .ok_or_else(|| {
+            format!(
+                "survey '{}' does not expose a grid transform in the selected display/native map space",
+                survey.name
+            )
+        })?;
+    let surface_location = well.surface_location.as_ref().ok_or_else(|| {
+        format!(
+            "wellbore '{}' does not expose a survey-map surface location",
+            well.wellbore_id
+        )
+    })?;
+    let (inline_ordinal, xline_ordinal) =
+        invert_well_tie_grid_transform(grid_transform, surface_location.x, surface_location.y)
+            .ok_or_else(|| {
+                "survey grid transform could not be inverted at the well location".to_string()
+            })?;
+    let inline_spacing_m = vector_length_m(&grid_transform.inline_basis).max(1.0);
+    let xline_spacing_m = vector_length_m(&grid_transform.xline_basis).max(1.0);
+
+    let axis = if xline_spacing_m <= inline_spacing_m {
+        SectionAxis::Inline
+    } else {
+        SectionAxis::Xline
+    };
+    let section_index = match axis {
+        SectionAxis::Inline => {
+            clamp_rounded_index(inline_ordinal, survey.index_grid.inline_axis.count)
+        }
+        SectionAxis::Xline => {
+            clamp_rounded_index(xline_ordinal, survey.index_grid.xline_axis.count)
+        }
+    }
+    .ok_or_else(|| "well location falls outside the survey section axis bounds".to_string())?;
+    let well_trace_index = match axis {
+        SectionAxis::Inline => {
+            clamp_rounded_index(xline_ordinal, survey.index_grid.xline_axis.count)
+        }
+        SectionAxis::Xline => {
+            clamp_rounded_index(inline_ordinal, survey.index_grid.inline_axis.count)
+        }
+    }
+    .ok_or_else(|| "well location falls outside the survey trace axis bounds".to_string())?;
+    let trace_spacing_m = match axis {
+        SectionAxis::Inline => xline_spacing_m,
+        SectionAxis::Xline => inline_spacing_m,
+    };
+
+    Ok(StoreBackedWellTieSelection {
+        axis,
+        section_index,
+        well_trace_index,
+        trace_spacing_m,
+    })
+}
+
+fn invert_well_tie_grid_transform(
+    transform: &ophiolite::SurveyMapGridTransformDto,
+    x: f64,
+    y: f64,
+) -> Option<(f64, f64)> {
+    let determinant = transform.inline_basis.x * transform.xline_basis.y
+        - transform.inline_basis.y * transform.xline_basis.x;
+    if determinant.abs() <= f64::EPSILON {
+        return None;
+    }
+
+    let dx = x - transform.origin.x;
+    let dy = y - transform.origin.y;
+    let inline_ordinal =
+        (dx * transform.xline_basis.y - dy * transform.xline_basis.x) / determinant;
+    let xline_ordinal =
+        (dy * transform.inline_basis.x - dx * transform.inline_basis.y) / determinant;
+    Some((inline_ordinal, xline_ordinal))
+}
+
+fn clamp_rounded_index(value: f64, len: usize) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    let rounded = value.round();
+    if !rounded.is_finite() || rounded < 0.0 {
+        return None;
+    }
+    Some((rounded as usize).min(len.saturating_sub(1)))
+}
+
+fn vector_length_m(vector: &ophiolite::ProjectedVector2Dto) -> f64 {
+    (vector.x * vector.x + vector.y * vector.y).sqrt()
+}
+
+fn trace_slice(amplitudes: &[f32], samples: usize, trace_index: usize) -> &[f32] {
+    let start = trace_index * samples;
+    &amplitudes[start..start + samples]
+}
+
+fn resample_section_trace(
+    sample_axis_ms: &[f32],
+    samples: &[f32],
+    target_times_ms: &[f32],
+) -> Vec<f32> {
+    target_times_ms
+        .iter()
+        .map(|time_ms| interpolate_trace_sample(sample_axis_ms, samples, *time_ms))
+        .collect()
+}
+
+fn interpolate_trace_sample(sample_axis_ms: &[f32], samples: &[f32], target_time_ms: f32) -> f32 {
+    let Some(first_time) = sample_axis_ms.first().copied() else {
+        return 0.0;
+    };
+    let Some(last_time) = sample_axis_ms.last().copied() else {
+        return 0.0;
+    };
+    if target_time_ms <= first_time {
+        return samples.first().copied().unwrap_or(0.0);
+    }
+    if target_time_ms >= last_time {
+        return samples.last().copied().unwrap_or(0.0);
+    }
+
+    let upper_index = sample_axis_ms.partition_point(|value| *value < target_time_ms);
+    if upper_index == 0 || upper_index >= sample_axis_ms.len() {
+        return samples
+            .get(upper_index.min(samples.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0.0);
+    }
+    let lower_index = upper_index - 1;
+    let start_time = sample_axis_ms[lower_index];
+    let end_time = sample_axis_ms[upper_index];
+    let start_value = samples.get(lower_index).copied().unwrap_or(0.0);
+    let end_value = samples.get(upper_index).copied().unwrap_or(start_value);
+    let weight = if (end_time - start_time).abs() <= f32::EPSILON {
+        0.0
+    } else {
+        (target_time_ms - start_time) / (end_time - start_time)
+    };
+    start_value + (end_value - start_value) * weight
+}
+
+fn mean_sample_step_ms(times_ms: &[f32]) -> Option<f32> {
+    if times_ms.len() < 2 {
+        return None;
+    }
+    let mut sum = 0.0_f32;
+    let mut count = 0_usize;
+    for pair in times_ms.windows(2) {
+        let delta = pair[1] - pair[0];
+        if delta.is_finite() && delta > 0.0 {
+            sum += delta;
+            count += 1;
+        }
+    }
+    (count > 0).then_some(sum / count as f32)
+}
+
+#[derive(Debug, Clone)]
+struct ShiftStretchMatch {
+    bulk_shift_samples: i32,
+    stretch_factor: f32,
+    correlation: f32,
+    aligned_trace_amplitudes: Vec<f32>,
+}
+
+fn best_bulk_shift_match(
+    synthetic: &[f32],
+    seismic: &[f32],
+    max_lag_samples: usize,
+) -> Option<(f32, i32)> {
+    let mut best: Option<(f32, i32)> = None;
+    let max_lag = max_lag_samples as i32;
+    for lag in -max_lag..=max_lag {
+        let Some(correlation) = correlation_with_synthetic_lag(synthetic, seismic, lag) else {
+            continue;
+        };
+        let replace = best
+            .as_ref()
+            .map(|(best_corr, _)| correlation > *best_corr)
+            .unwrap_or(true);
+        if replace {
+            best = Some((correlation, lag));
+        }
+    }
+    best
+}
+
+fn best_shift_stretch_match(
+    times_ms: &[f32],
+    synthetic: &[f32],
+    seismic: &[f32],
+    max_lag_samples: usize,
+    sample_step_ms: f32,
+) -> Option<ShiftStretchMatch> {
+    let midpoint_ms = time_axis_midpoint_ms(times_ms)?;
+    let (baseline_correlation, baseline_lag_samples) =
+        best_bulk_shift_match(synthetic, seismic, max_lag_samples)?;
+    let baseline = ShiftStretchMatch {
+        bulk_shift_samples: baseline_lag_samples,
+        stretch_factor: 1.0,
+        correlation: baseline_correlation,
+        aligned_trace_amplitudes: align_trace_with_affine_time_correction(
+            times_ms,
+            seismic,
+            times_ms,
+            midpoint_ms,
+            1.0,
+            baseline_lag_samples as f32 * sample_step_ms,
+        ),
+    };
+    let mut stretch_factors = Vec::with_capacity(17);
+    for step in -8..=8 {
+        stretch_factors.push(1.0 + step as f32 * 0.005);
+    }
+    let candidate = best_affine_match_for_stretch_factors(
+        times_ms,
+        synthetic,
+        seismic,
+        max_lag_samples,
+        sample_step_ms,
+        &stretch_factors,
+    )?;
+    let material_improvement = candidate.correlation - baseline.correlation >= 0.01;
+    let meaningful_stretch = (candidate.stretch_factor - 1.0).abs() >= 0.005;
+    if material_improvement && meaningful_stretch {
+        Some(candidate)
+    } else {
+        Some(baseline)
+    }
+}
+
+fn best_affine_match_for_stretch_factors(
+    times_ms: &[f32],
+    synthetic: &[f32],
+    seismic: &[f32],
+    max_lag_samples: usize,
+    sample_step_ms: f32,
+    stretch_factors: &[f32],
+) -> Option<ShiftStretchMatch> {
+    let midpoint_ms = time_axis_midpoint_ms(times_ms)?;
+    let max_lag = max_lag_samples as i32;
+    let mut best: Option<ShiftStretchMatch> = None;
+    for &stretch_factor in stretch_factors {
+        for lag_samples in -max_lag..=max_lag {
+            let bulk_shift_ms = lag_samples as f32 * sample_step_ms;
+            let aligned_trace = align_trace_with_affine_time_correction(
+                times_ms,
+                seismic,
+                times_ms,
+                midpoint_ms,
+                stretch_factor,
+                bulk_shift_ms,
+            );
+            let Some(correlation) = correlation_with_synthetic_lag(synthetic, &aligned_trace, 0)
+            else {
+                continue;
+            };
+            let replace = best
+                .as_ref()
+                .map(|current| {
+                    correlation > current.correlation + 0.0005
+                        || ((correlation - current.correlation).abs() <= 0.0005
+                            && (stretch_factor - 1.0).abs() < (current.stretch_factor - 1.0).abs())
+                        || ((correlation - current.correlation).abs() <= 0.0005
+                            && ((stretch_factor - 1.0).abs()
+                                - (current.stretch_factor - 1.0).abs())
+                            .abs()
+                                <= 0.0005
+                            && lag_samples.abs() < current.bulk_shift_samples.abs())
+                })
+                .unwrap_or(true);
+            if replace {
+                best = Some(ShiftStretchMatch {
+                    bulk_shift_samples: lag_samples,
+                    stretch_factor,
+                    correlation,
+                    aligned_trace_amplitudes: aligned_trace,
+                });
+            }
+        }
+    }
+    best
+}
+
+fn correlation_with_synthetic_lag(
+    synthetic: &[f32],
+    seismic: &[f32],
+    lag_samples: i32,
+) -> Option<f32> {
+    let mut sum_x = 0.0_f64;
+    let mut sum_y = 0.0_f64;
+    let mut sum_x2 = 0.0_f64;
+    let mut sum_y2 = 0.0_f64;
+    let mut sum_xy = 0.0_f64;
+    let mut count = 0_usize;
+
+    for (index, &seismic_value) in seismic.iter().enumerate() {
+        let synthetic_index = index as i32 - lag_samples;
+        if synthetic_index < 0 || synthetic_index >= synthetic.len() as i32 {
+            continue;
+        }
+        let synthetic_value = synthetic[synthetic_index as usize];
+        let x = f64::from(synthetic_value);
+        let y = f64::from(seismic_value);
+        sum_x += x;
+        sum_y += y;
+        sum_x2 += x * x;
+        sum_y2 += y * y;
+        sum_xy += x * y;
+        count += 1;
+    }
+
+    if count < 8 {
+        return None;
+    }
+    let count_f64 = count as f64;
+    let numerator = count_f64 * sum_xy - sum_x * sum_y;
+    let denominator_x = count_f64 * sum_x2 - sum_x * sum_x;
+    let denominator_y = count_f64 * sum_y2 - sum_y * sum_y;
+    let denominator = (denominator_x * denominator_y).sqrt();
+    if denominator <= f64::EPSILON {
+        return None;
+    }
+    Some((numerator / denominator) as f32)
+}
+
+fn estimate_extracted_wavelet(
+    reflectivity: &[f32],
+    seismic: &[f32],
+    sample_step_ms: f32,
+    tie_length_ms: f32,
+) -> Option<ophiolite::WellTieWavelet> {
+    if reflectivity.len() < 16 || seismic.len() < 16 || sample_step_ms <= 0.0 {
+        return None;
+    }
+    let target_wavelet_length_ms = (tie_length_ms / 4.0).clamp(96.0, 160.0);
+    let half_samples = ((target_wavelet_length_ms / sample_step_ms) * 0.5)
+        .round()
+        .max(8.0) as usize;
+    let half_samples = half_samples.clamp(8, 24);
+    let coefficient_count = half_samples * 2 + 1;
+    let mut ata = vec![0.0_f64; coefficient_count * coefficient_count];
+    let mut atb = vec![0.0_f64; coefficient_count];
+
+    for sample_index in 0..seismic.len() {
+        let target = f64::from(*seismic.get(sample_index).unwrap_or(&0.0));
+        for column in 0..coefficient_count {
+            let source_index = sample_index as isize + column as isize - half_samples as isize;
+            let x_column = reflectivity
+                .get(source_index.max(0) as usize)
+                .copied()
+                .filter(|_| source_index >= 0 && source_index < reflectivity.len() as isize)
+                .unwrap_or(0.0) as f64;
+            atb[column] += x_column * target;
+            for row in column..coefficient_count {
+                let other_index = sample_index as isize + row as isize - half_samples as isize;
+                let x_row = reflectivity
+                    .get(other_index.max(0) as usize)
+                    .copied()
+                    .filter(|_| other_index >= 0 && other_index < reflectivity.len() as isize)
+                    .unwrap_or(0.0) as f64;
+                ata[row * coefficient_count + column] += x_row * x_column;
+                if row != column {
+                    ata[column * coefficient_count + row] = ata[row * coefficient_count + column];
+                }
+            }
+        }
+    }
+
+    let diagonal_mean = (0..coefficient_count)
+        .map(|index| ata[index * coefficient_count + index])
+        .sum::<f64>()
+        / coefficient_count as f64;
+    let ridge = diagonal_mean.max(1.0) * 1.0e-3;
+    for index in 0..coefficient_count {
+        ata[index * coefficient_count + index] += ridge;
+    }
+    let solved = solve_dense_linear_system(&mut ata, &mut atb, coefficient_count)?;
+    let mut amplitudes = solved
+        .into_iter()
+        .map(|value| value as f32)
+        .collect::<Vec<_>>();
+    normalize_trace_in_place(&mut amplitudes);
+    if amplitudes.iter().all(|value| value.abs() <= f32::EPSILON) {
+        return None;
+    }
+    let times_ms = (0..coefficient_count)
+        .map(|index| (index as isize - half_samples as isize) as f32 * sample_step_ms)
+        .collect::<Vec<_>>();
+    Some(ophiolite::WellTieWavelet {
+        id: "extracted-wavelet".to_string(),
+        label: "Extracted Wavelet".to_string(),
+        times_ms,
+        amplitudes,
+    })
+}
+
+fn solve_dense_linear_system(
+    matrix: &mut [f64],
+    rhs: &mut [f64],
+    dimension: usize,
+) -> Option<Vec<f64>> {
+    if matrix.len() != dimension * dimension || rhs.len() != dimension {
+        return None;
+    }
+    for pivot_index in 0..dimension {
+        let mut best_row = pivot_index;
+        let mut best_value = matrix[pivot_index * dimension + pivot_index].abs();
+        for row in (pivot_index + 1)..dimension {
+            let candidate = matrix[row * dimension + pivot_index].abs();
+            if candidate > best_value {
+                best_value = candidate;
+                best_row = row;
+            }
+        }
+        if best_value <= f64::EPSILON {
+            return None;
+        }
+        if best_row != pivot_index {
+            for column in 0..dimension {
+                matrix.swap(
+                    pivot_index * dimension + column,
+                    best_row * dimension + column,
+                );
+            }
+            rhs.swap(pivot_index, best_row);
+        }
+        let pivot = matrix[pivot_index * dimension + pivot_index];
+        for column in pivot_index..dimension {
+            matrix[pivot_index * dimension + column] /= pivot;
+        }
+        rhs[pivot_index] /= pivot;
+        for row in 0..dimension {
+            if row == pivot_index {
+                continue;
+            }
+            let factor = matrix[row * dimension + pivot_index];
+            if factor.abs() <= f64::EPSILON {
+                continue;
+            }
+            for column in pivot_index..dimension {
+                matrix[row * dimension + column] -=
+                    factor * matrix[pivot_index * dimension + column];
+            }
+            rhs[row] -= factor * rhs[pivot_index];
+        }
+    }
+    Some(rhs.to_vec())
+}
+
+fn time_axis_midpoint_ms(times_ms: &[f32]) -> Option<f32> {
+    let first = times_ms.first().copied()?;
+    let last = times_ms.last().copied().unwrap_or(first);
+    Some((first + last) * 0.5)
+}
+
+fn align_trace_with_affine_time_correction(
+    source_times_ms: &[f32],
+    source_amplitudes: &[f32],
+    target_times_ms: &[f32],
+    midpoint_ms: f32,
+    stretch_factor: f32,
+    bulk_shift_ms: f32,
+) -> Vec<f32> {
+    let safe_stretch = if stretch_factor.is_finite() && stretch_factor > 0.5 {
+        stretch_factor
+    } else {
+        1.0
+    };
+    target_times_ms
+        .iter()
+        .map(|target_time_ms| {
+            let source_time_ms =
+                midpoint_ms + (*target_time_ms - bulk_shift_ms - midpoint_ms) / safe_stretch;
+            interpolate_trace_sample(source_times_ms, source_amplitudes, source_time_ms)
+        })
+        .collect()
+}
+
+fn convolve_same_normalized(signal: &[f32], kernel: &[f32]) -> Vec<f32> {
+    if signal.is_empty() || kernel.is_empty() {
+        return Vec::new();
+    }
+    let kernel_half = kernel.len() / 2;
+    let mut output = vec![0.0_f32; signal.len()];
+    for output_index in 0..signal.len() {
+        let mut sum = 0.0_f32;
+        for (kernel_index, coefficient) in kernel.iter().enumerate() {
+            let signal_index = output_index as isize + kernel_index as isize - kernel_half as isize;
+            if signal_index >= 0 && (signal_index as usize) < signal.len() {
+                sum += signal[signal_index as usize] * coefficient;
+            }
+        }
+        output[output_index] = sum;
+    }
+    normalize_trace_in_place(&mut output);
+    output
+}
+
+fn normalize_trace_in_place(values: &mut [f32]) {
+    let max_abs = values
+        .iter()
+        .fold(0.0_f32, |current, value| current.max(value.abs()));
+    if max_abs <= f32::EPSILON {
+        return;
+    }
+    for value in values {
+        *value /= max_abs;
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProjectWellTimeDepthModelDescriptor {
@@ -178,6 +1107,14 @@ struct ProjectWellTimeDepthObservationDescriptor {
     depth_reference: ophiolite::DepthReferenceKind,
     travel_time_reference: ophiolite::TravelTimeReference,
     sample_count: usize,
+    source_well_time_depth_model_asset_id: Option<String>,
+    tie_window_start_ms: Option<f64>,
+    tie_window_end_ms: Option<f64>,
+    trace_search_radius_m: Option<f32>,
+    bulk_shift_ms: Option<f32>,
+    stretch_factor: Option<f32>,
+    trace_search_offset_m: Option<f32>,
+    correlation: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -222,6 +1159,9 @@ struct ProjectSurveyAssetDescriptor {
     well_name: String,
     wellbore_id: String,
     wellbore_name: String,
+    effective_coordinate_reference_id: Option<String>,
+    effective_coordinate_reference_name: Option<String>,
+    display_compatibility: ProjectSurveyDisplayCompatibility,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,6 +1174,76 @@ struct ProjectWellboreInventoryItem {
     trajectory_asset_count: usize,
     well_time_depth_model_count: usize,
     active_well_time_depth_model_asset_id: Option<String>,
+    display_compatibility: ProjectWellboreDisplayCompatibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ProjectSurveyDisplayReasonCode {
+    ProjectDisplayCrsUnresolved,
+    DisplayCrsUnsupported,
+    SourceCrsUnknown,
+    SourceCrsUnsupported,
+    DisplayEquivalent,
+    DisplayTransformed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ProjectWellboreDisplayReasonCode {
+    ProjectDisplayCrsUnresolved,
+    ResolvedGeometryMissing,
+    DisplayEquivalent,
+    DisplayTransformed,
+    DisplayDegraded,
+    DisplayUnavailable,
+    ResolutionError,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ProjectDisplayCompatibilityBlockingReasonCode {
+    ProjectDisplayCrsUnresolved,
+    DisplayCrsUnsupported,
+    SourceCrsUnknown,
+    SourceCrsUnsupported,
+    ResolvedGeometryMissing,
+    DisplayUnavailable,
+    ResolutionError,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectSurveyDisplayCompatibility {
+    can_resolve_project_map: bool,
+    transform_status: SurveyMapTransformStatusDto,
+    source_coordinate_reference_id: Option<String>,
+    display_coordinate_reference_id: Option<String>,
+    reason_code: Option<ProjectSurveyDisplayReasonCode>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectWellboreDisplayCompatibility {
+    can_resolve_project_map: bool,
+    transform_status: SurveyMapTransformStatusDto,
+    source_coordinate_reference_id: Option<String>,
+    display_coordinate_reference_id: Option<String>,
+    reason_code: Option<ProjectWellboreDisplayReasonCode>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectMapDisplayCompatibilitySummary {
+    display_coordinate_reference_id: Option<String>,
+    compatible_survey_count: usize,
+    incompatible_survey_count: usize,
+    compatible_wellbore_count: usize,
+    incompatible_wellbore_count: usize,
+    blocking_reason_codes: Vec<ProjectDisplayCompatibilityBlockingReasonCode>,
+    blocking_reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -241,6 +1251,7 @@ struct ProjectWellboreInventoryItem {
 struct ProjectWellOverlayInventoryResponse {
     surveys: Vec<ProjectSurveyAssetDescriptor>,
     wellbores: Vec<ProjectWellboreInventoryItem>,
+    display_compatibility: ProjectMapDisplayCompatibilitySummary,
 }
 
 fn asset_status_label(status: &AssetStatus) -> &'static str {
@@ -251,6 +1262,306 @@ fn asset_status_label(status: &AssetStatus) -> &'static str {
         AssetStatus::NeedsReview => "needs_review",
         AssetStatus::Rejected => "rejected",
         AssetStatus::Superseded => "superseded",
+    }
+}
+
+fn normalized_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn supported_epsg_identifier(value: &str) -> bool {
+    value.trim().to_ascii_uppercase().starts_with("EPSG:")
+}
+
+const PROJECT_SURVEY_DISPLAY_CRS_UNRESOLVED_REASON: &str =
+    "Project display CRS is unresolved. Choose a project CRS before composing project maps.";
+const PROJECT_WELLBORE_DISPLAY_CRS_UNRESOLVED_REASON: &str = "Project display CRS is unresolved. Choose a project CRS before resolving well trajectories in project display coordinates.";
+const PROJECT_SURVEY_DISPLAY_EQUIVALENT_REASON: &str =
+    "Survey native CRS already matches the project display CRS.";
+const PROJECT_WELLBORE_DISPLAY_EQUIVALENT_REASON: &str =
+    "Well trajectory native CRS already matches the project display CRS.";
+
+fn project_survey_display_compatibility(
+    source_coordinate_reference_id: Option<&str>,
+    display_coordinate_reference_id: Option<&str>,
+) -> ProjectSurveyDisplayCompatibility {
+    let normalized_display_coordinate_reference_id =
+        normalized_optional_string(display_coordinate_reference_id);
+    let normalized_source_coordinate_reference_id =
+        normalized_optional_string(source_coordinate_reference_id);
+
+    let Some(display_coordinate_reference_id) =
+        normalized_display_coordinate_reference_id.as_deref()
+    else {
+        return ProjectSurveyDisplayCompatibility {
+            can_resolve_project_map: false,
+            transform_status: SurveyMapTransformStatusDto::NativeOnly,
+            source_coordinate_reference_id: normalized_source_coordinate_reference_id,
+            display_coordinate_reference_id: None,
+            reason_code: Some(ProjectSurveyDisplayReasonCode::ProjectDisplayCrsUnresolved),
+            reason: Some(String::from(PROJECT_SURVEY_DISPLAY_CRS_UNRESOLVED_REASON)),
+        };
+    };
+
+    if !supported_epsg_identifier(display_coordinate_reference_id) {
+        return ProjectSurveyDisplayCompatibility {
+            can_resolve_project_map: false,
+            transform_status: SurveyMapTransformStatusDto::DisplayUnavailable,
+            source_coordinate_reference_id: normalized_source_coordinate_reference_id,
+            display_coordinate_reference_id: Some(display_coordinate_reference_id.to_string()),
+            reason_code: Some(ProjectSurveyDisplayReasonCode::DisplayCrsUnsupported),
+            reason: Some(format!(
+                "Display CRS '{display_coordinate_reference_id}' is not yet supported for project map reprojection; phase 2 currently accepts only EPSG identifiers."
+            )),
+        };
+    }
+
+    let Some(source_coordinate_reference_id) = normalized_source_coordinate_reference_id.as_deref()
+    else {
+        return ProjectSurveyDisplayCompatibility {
+            can_resolve_project_map: false,
+            transform_status: SurveyMapTransformStatusDto::DisplayUnavailable,
+            source_coordinate_reference_id: None,
+            display_coordinate_reference_id: Some(display_coordinate_reference_id.to_string()),
+            reason_code: Some(ProjectSurveyDisplayReasonCode::SourceCrsUnknown),
+            reason: Some(String::from(
+                "Survey effective native CRS is unknown, so project map reprojection is unavailable.",
+            )),
+        };
+    };
+
+    if !supported_epsg_identifier(source_coordinate_reference_id) {
+        return ProjectSurveyDisplayCompatibility {
+            can_resolve_project_map: false,
+            transform_status: SurveyMapTransformStatusDto::DisplayUnavailable,
+            source_coordinate_reference_id: Some(source_coordinate_reference_id.to_string()),
+            display_coordinate_reference_id: Some(display_coordinate_reference_id.to_string()),
+            reason_code: Some(ProjectSurveyDisplayReasonCode::SourceCrsUnsupported),
+            reason: Some(format!(
+                "Survey effective native CRS '{source_coordinate_reference_id}' is not yet supported for project map reprojection; phase 2 currently accepts only EPSG identifiers."
+            )),
+        };
+    }
+
+    let transform_status =
+        if source_coordinate_reference_id.eq_ignore_ascii_case(display_coordinate_reference_id) {
+            SurveyMapTransformStatusDto::DisplayEquivalent
+        } else {
+            SurveyMapTransformStatusDto::DisplayTransformed
+        };
+    let reason = if matches!(
+        transform_status,
+        SurveyMapTransformStatusDto::DisplayEquivalent
+    ) {
+        Some(String::from(PROJECT_SURVEY_DISPLAY_EQUIVALENT_REASON))
+    } else {
+        Some(format!(
+            "Survey map geometry can be reprojected from {source_coordinate_reference_id} to {display_coordinate_reference_id}."
+        ))
+    };
+
+    ProjectSurveyDisplayCompatibility {
+        can_resolve_project_map: true,
+        transform_status,
+        source_coordinate_reference_id: Some(source_coordinate_reference_id.to_string()),
+        display_coordinate_reference_id: Some(display_coordinate_reference_id.to_string()),
+        reason_code: Some(
+            if matches!(
+                transform_status,
+                SurveyMapTransformStatusDto::DisplayEquivalent
+            ) {
+                ProjectSurveyDisplayReasonCode::DisplayEquivalent
+            } else {
+                ProjectSurveyDisplayReasonCode::DisplayTransformed
+            },
+        ),
+        reason,
+    }
+}
+
+fn project_wellbore_display_reason(
+    compatibility: &ProjectWellboreDisplayCompatibility,
+) -> Option<String> {
+    match compatibility.transform_status {
+        SurveyMapTransformStatusDto::NativeOnly => {
+            Some(String::from(PROJECT_WELLBORE_DISPLAY_CRS_UNRESOLVED_REASON))
+        }
+        SurveyMapTransformStatusDto::DisplayEquivalent => {
+            Some(String::from(PROJECT_WELLBORE_DISPLAY_EQUIVALENT_REASON))
+        }
+        SurveyMapTransformStatusDto::DisplayTransformed => compatibility
+            .source_coordinate_reference_id
+            .as_deref()
+            .zip(compatibility.display_coordinate_reference_id.as_deref())
+            .map(|(source_coordinate_reference_id, display_coordinate_reference_id)| {
+                format!(
+                    "Well trajectory can be reprojected from {source_coordinate_reference_id} to {display_coordinate_reference_id}."
+                )
+            })
+            .or_else(|| Some(String::from("Well trajectory can be resolved in the project display CRS."))),
+        SurveyMapTransformStatusDto::DisplayDegraded => compatibility.reason.clone().or_else(|| {
+            Some(String::from(
+                "Well trajectory is only partially available in the project display CRS.",
+            ))
+        }),
+        SurveyMapTransformStatusDto::DisplayUnavailable => compatibility.reason.clone().or_else(|| {
+            Some(String::from(
+                "Well trajectory cannot be resolved in the project display CRS.",
+            ))
+        }),
+    }
+}
+
+fn project_wellbore_display_compatibility(
+    project: &OphioliteProject,
+    wellbore_id: &str,
+    display_coordinate_reference_id: Option<&str>,
+) -> ProjectWellboreDisplayCompatibility {
+    let normalized_display_coordinate_reference_id =
+        normalized_optional_string(display_coordinate_reference_id);
+    let Some(display_coordinate_reference_id) =
+        normalized_display_coordinate_reference_id.as_deref()
+    else {
+        return ProjectWellboreDisplayCompatibility {
+            can_resolve_project_map: false,
+            transform_status: SurveyMapTransformStatusDto::NativeOnly,
+            source_coordinate_reference_id: None,
+            display_coordinate_reference_id: None,
+            reason_code: Some(ProjectWellboreDisplayReasonCode::ProjectDisplayCrsUnresolved),
+            reason: Some(String::from(PROJECT_WELLBORE_DISPLAY_CRS_UNRESOLVED_REASON)),
+        };
+    };
+
+    let resolution = project.resolve_survey_map_source(&ProjectSurveyMapRequestDto {
+        schema_version: 1,
+        survey_asset_ids: Vec::new(),
+        wellbore_ids: vec![wellbore_id.to_string()],
+        display_coordinate_reference_id: display_coordinate_reference_id.to_string(),
+    });
+
+    match resolution {
+        Ok(source) => {
+            let resolved_well = source
+                .wells
+                .into_iter()
+                .find(|well| well.wellbore_id == wellbore_id);
+            let Some(resolved_well) = resolved_well else {
+                return ProjectWellboreDisplayCompatibility {
+                    can_resolve_project_map: false,
+                    transform_status: SurveyMapTransformStatusDto::DisplayUnavailable,
+                    source_coordinate_reference_id: None,
+                    display_coordinate_reference_id: Some(
+                        display_coordinate_reference_id.to_string(),
+                    ),
+                    reason_code: Some(ProjectWellboreDisplayReasonCode::ResolvedGeometryMissing),
+                    reason: Some(String::from(
+                        "Wellbore survey-map geometry could not be resolved for the selected project display CRS.",
+                    )),
+                };
+            };
+
+            let mut compatibility = ProjectWellboreDisplayCompatibility {
+                can_resolve_project_map: matches!(
+                    resolved_well.transform_status,
+                    SurveyMapTransformStatusDto::DisplayEquivalent
+                        | SurveyMapTransformStatusDto::DisplayTransformed
+                        | SurveyMapTransformStatusDto::DisplayDegraded
+                ),
+                transform_status: resolved_well.transform_status,
+                source_coordinate_reference_id: normalized_optional_string(
+                    resolved_well
+                        .transform_diagnostics
+                        .source_coordinate_reference_id
+                        .as_deref(),
+                ),
+                display_coordinate_reference_id: normalized_optional_string(
+                    resolved_well
+                        .transform_diagnostics
+                        .target_coordinate_reference_id
+                        .as_deref(),
+                )
+                .or_else(|| Some(display_coordinate_reference_id.to_string())),
+                reason_code: Some(match resolved_well.transform_status {
+                    SurveyMapTransformStatusDto::NativeOnly => {
+                        ProjectWellboreDisplayReasonCode::ProjectDisplayCrsUnresolved
+                    }
+                    SurveyMapTransformStatusDto::DisplayEquivalent => {
+                        ProjectWellboreDisplayReasonCode::DisplayEquivalent
+                    }
+                    SurveyMapTransformStatusDto::DisplayTransformed => {
+                        ProjectWellboreDisplayReasonCode::DisplayTransformed
+                    }
+                    SurveyMapTransformStatusDto::DisplayDegraded => {
+                        ProjectWellboreDisplayReasonCode::DisplayDegraded
+                    }
+                    SurveyMapTransformStatusDto::DisplayUnavailable => {
+                        ProjectWellboreDisplayReasonCode::DisplayUnavailable
+                    }
+                }),
+                reason: resolved_well
+                    .transform_diagnostics
+                    .notes
+                    .first()
+                    .cloned()
+                    .or_else(|| resolved_well.notes.first().cloned()),
+            };
+            compatibility.reason = project_wellbore_display_reason(&compatibility);
+            compatibility
+        }
+        Err(error) => ProjectWellboreDisplayCompatibility {
+            can_resolve_project_map: false,
+            transform_status: SurveyMapTransformStatusDto::DisplayUnavailable,
+            source_coordinate_reference_id: None,
+            display_coordinate_reference_id: Some(display_coordinate_reference_id.to_string()),
+            reason_code: Some(ProjectWellboreDisplayReasonCode::ResolutionError),
+            reason: Some(error.to_string()),
+        },
+    }
+}
+
+fn project_survey_blocking_reason_code(
+    reason_code: ProjectSurveyDisplayReasonCode,
+) -> Option<ProjectDisplayCompatibilityBlockingReasonCode> {
+    match reason_code {
+        ProjectSurveyDisplayReasonCode::ProjectDisplayCrsUnresolved => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::ProjectDisplayCrsUnresolved)
+        }
+        ProjectSurveyDisplayReasonCode::DisplayCrsUnsupported => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::DisplayCrsUnsupported)
+        }
+        ProjectSurveyDisplayReasonCode::SourceCrsUnknown => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::SourceCrsUnknown)
+        }
+        ProjectSurveyDisplayReasonCode::SourceCrsUnsupported => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::SourceCrsUnsupported)
+        }
+        ProjectSurveyDisplayReasonCode::DisplayEquivalent
+        | ProjectSurveyDisplayReasonCode::DisplayTransformed => None,
+    }
+}
+
+fn project_wellbore_blocking_reason_code(
+    reason_code: ProjectWellboreDisplayReasonCode,
+) -> Option<ProjectDisplayCompatibilityBlockingReasonCode> {
+    match reason_code {
+        ProjectWellboreDisplayReasonCode::ProjectDisplayCrsUnresolved => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::ProjectDisplayCrsUnresolved)
+        }
+        ProjectWellboreDisplayReasonCode::ResolvedGeometryMissing => Some(
+            ProjectDisplayCompatibilityBlockingReasonCode::ResolvedGeometryMissing,
+        ),
+        ProjectWellboreDisplayReasonCode::DisplayUnavailable => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::DisplayUnavailable)
+        }
+        ProjectWellboreDisplayReasonCode::ResolutionError => {
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::ResolutionError)
+        }
+        ProjectWellboreDisplayReasonCode::DisplayEquivalent
+        | ProjectWellboreDisplayReasonCode::DisplayTransformed
+        | ProjectWellboreDisplayReasonCode::DisplayDegraded => None,
     }
 }
 
@@ -313,6 +1624,7 @@ fn project_well_time_depth_observation_descriptors(
     for asset_kind in [
         AssetKind::CheckshotVspObservationSet,
         AssetKind::ManualTimeDepthPickSet,
+        AssetKind::WellTieObservationSet,
     ] {
         let assets = project
             .list_assets(
@@ -321,7 +1633,20 @@ fn project_well_time_depth_observation_descriptors(
             )
             .map_err(|error| error.to_string())?;
         for asset in assets {
-            let (name, depth_reference, travel_time_reference, sample_count) = match asset_kind {
+            let (
+                name,
+                depth_reference,
+                travel_time_reference,
+                sample_count,
+                source_well_time_depth_model_asset_id,
+                tie_window_start_ms,
+                tie_window_end_ms,
+                trace_search_radius_m,
+                bulk_shift_ms,
+                stretch_factor,
+                trace_search_offset_m,
+                correlation,
+            ) = match asset_kind {
                 AssetKind::CheckshotVspObservationSet => {
                     let source = project
                         .read_checkshot_vsp_observation_set(&asset.id)
@@ -331,6 +1656,14 @@ fn project_well_time_depth_observation_descriptors(
                         source.depth_reference,
                         source.travel_time_reference,
                         source.samples.len(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
                     )
                 }
                 AssetKind::ManualTimeDepthPickSet => {
@@ -342,6 +1675,33 @@ fn project_well_time_depth_observation_descriptors(
                         source.depth_reference,
                         source.travel_time_reference,
                         source.samples.len(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                }
+                AssetKind::WellTieObservationSet => {
+                    let source = project
+                        .read_well_tie_observation_set(&asset.id)
+                        .map_err(|error| error.to_string())?;
+                    (
+                        source.name,
+                        source.depth_reference,
+                        source.travel_time_reference,
+                        source.samples.len(),
+                        source.source_well_time_depth_model_asset_id,
+                        source.tie_window_start_ms,
+                        source.tie_window_end_ms,
+                        source.trace_search_radius_m,
+                        source.bulk_shift_ms,
+                        source.stretch_factor,
+                        source.trace_search_offset_m,
+                        source.correlation,
                     )
                 }
                 _ => continue,
@@ -353,6 +1713,7 @@ fn project_well_time_depth_observation_descriptors(
                         "checkshot_vsp_observation_set".to_string()
                     }
                     AssetKind::ManualTimeDepthPickSet => "manual_time_depth_pick_set".to_string(),
+                    AssetKind::WellTieObservationSet => "well_tie_observation_set".to_string(),
                     _ => unreachable!("unexpected observation-set asset kind"),
                 },
                 well_id: asset.well_id.0,
@@ -362,6 +1723,14 @@ fn project_well_time_depth_observation_descriptors(
                 depth_reference,
                 travel_time_reference,
                 sample_count,
+                source_well_time_depth_model_asset_id,
+                tie_window_start_ms,
+                tie_window_end_ms,
+                trace_search_radius_m,
+                bulk_shift_ms,
+                stretch_factor,
+                trace_search_offset_m,
+                correlation,
             });
         }
     }
@@ -1636,6 +3005,34 @@ fn default_gather_processing_store_path_command(
 }
 
 fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let settings = MenuItem::with_id(
+        app,
+        APP_SETTINGS_MENU_ID,
+        "&Settings...",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
+    let velocity_model = MenuItem::with_id(
+        app,
+        APP_VELOCITY_MODEL_MENU_ID,
+        "&Velocity Model...",
+        true,
+        None::<&str>,
+    )?;
+    let depth_conversion = MenuItem::with_id(
+        app,
+        APP_DEPTH_CONVERSION_MENU_ID,
+        "&Depth Conversion...",
+        true,
+        None::<&str>,
+    )?;
+    let well_tie = MenuItem::with_id(
+        app,
+        APP_WELL_TIE_MENU_ID,
+        "&Well Tie...",
+        true,
+        None::<&str>,
+    )?;
     let open_volume = MenuItem::with_id(
         app,
         FILE_OPEN_VOLUME_MENU_ID,
@@ -1643,26 +3040,89 @@ fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R
         true,
         None::<&str>,
     )?;
-    let velocity_model = MenuItem::with_id(
+    let import_seismic = MenuItem::with_id(
         app,
-        VELOCITY_MODEL_MENU_ID,
-        "&Velocity Model...",
+        FILE_IMPORT_SEISMIC_MENU_ID,
+        "&Seismic Volume...",
+        true,
+        None::<&str>,
+    )?;
+    let import_horizons = MenuItem::with_id(
+        app,
+        FILE_IMPORT_HORIZONS_MENU_ID,
+        "&Horizons...",
+        true,
+        None::<&str>,
+    )?;
+    let import_velocity_functions = MenuItem::with_id(
+        app,
+        FILE_IMPORT_VELOCITY_FUNCTIONS_MENU_ID,
+        "&Velocity Functions...",
+        true,
+        None::<&str>,
+    )?;
+    let import_checkshot = MenuItem::with_id(
+        app,
+        FILE_IMPORT_CHECKSHOT_MENU_ID,
+        "Well &Checkshot/VSP...",
+        true,
+        None::<&str>,
+    )?;
+    let import_manual_picks = MenuItem::with_id(
+        app,
+        FILE_IMPORT_MANUAL_PICKS_MENU_ID,
+        "Well Manual &Picks...",
+        true,
+        None::<&str>,
+    )?;
+    let import_authored_well_model = MenuItem::with_id(
+        app,
+        FILE_IMPORT_AUTHORED_WELL_MODEL_MENU_ID,
+        "Well &Authored Model...",
+        true,
+        None::<&str>,
+    )?;
+    let import_compiled_well_model = MenuItem::with_id(
+        app,
+        FILE_IMPORT_COMPILED_WELL_MODEL_MENU_ID,
+        "Well C&ompiled Model...",
         true,
         None::<&str>,
     )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let close_window = PredefinedMenuItem::close_window(app, None)?;
+    let import_separator = PredefinedMenuItem::separator(app)?;
+    let import_submenu = Submenu::with_items(
+        app,
+        "&Import",
+        true,
+        &[
+            &import_seismic,
+            &import_horizons,
+            &import_velocity_functions,
+            &import_separator,
+            &import_checkshot,
+            &import_manual_picks,
+            &import_authored_well_model,
+            &import_compiled_well_model,
+        ],
+    )?;
 
     Menu::with_items(
         app,
         &[
             &Submenu::with_items(
                 app,
+                "&TraceBoost",
+                true,
+                &[&settings, &velocity_model, &depth_conversion, &well_tie],
+            )?,
+            &Submenu::with_items(
+                app,
                 "&File",
                 true,
-                &[&open_volume, &separator, &close_window],
+                &[&open_volume, &import_submenu, &separator, &close_window],
             )?,
-            &Submenu::with_items(app, "&Velocity", true, &[&velocity_model])?,
         ],
     )
 }
@@ -1672,7 +3132,7 @@ fn preflight_import_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
     input_path: String,
-    geometry_override: Option<seis_contracts_interop::SegyGeometryOverride>,
+    geometry_override: Option<seis_contracts_operations::SegyGeometryOverride>,
 ) -> Result<SurveyPreflightResponse, String> {
     let operation = diagnostics.start_operation(
         &app,
@@ -1697,7 +3157,7 @@ fn preflight_import_command(
         Some(build_fields([("stage", json_value("inspect_segy"))])),
     );
 
-    let result = preflight_dataset(SurveyPreflightRequest {
+    let result = workflow_service().preflight_dataset(SurveyPreflightRequest {
         schema_version: IPC_SCHEMA_VERSION,
         input_path,
         geometry_override,
@@ -1744,7 +3204,7 @@ fn import_dataset_command(
     diagnostics: State<DiagnosticsState>,
     input_path: String,
     output_store_path: String,
-    geometry_override: Option<seis_contracts_interop::SegyGeometryOverride>,
+    geometry_override: Option<seis_contracts_operations::SegyGeometryOverride>,
     overwrite_existing: bool,
 ) -> Result<ImportDatasetResponse, String> {
     let operation = diagnostics.start_operation(
@@ -1775,7 +3235,7 @@ fn import_dataset_command(
         Some(build_fields([("stage", json_value("read_input"))])),
     );
 
-    let result = import_dataset(ImportDatasetRequest {
+    let result = workflow_service().import_dataset(ImportDatasetRequest {
         schema_version: IPC_SCHEMA_VERSION,
         input_path,
         output_store_path,
@@ -1864,7 +3324,7 @@ fn import_prestack_offset_dataset_command(
         Some(build_fields([("stage", json_value("read_segy"))])),
     );
 
-    let result = import_prestack_offset_dataset(request);
+    let result = workflow_service().import_prestack_offset_dataset(request);
     match result {
         Ok(response) => {
             diagnostics.complete(
@@ -1921,7 +3381,7 @@ fn open_dataset_command(
         Some(build_fields([("stage", json_value("open_store"))])),
     );
 
-    let result = open_dataset_summary(OpenDatasetRequest {
+    let result = workflow_service().open_dataset_summary(OpenDatasetRequest {
         schema_version: IPC_SCHEMA_VERSION,
         store_path,
     });
@@ -1987,7 +3447,7 @@ fn export_dataset_segy_command(
         Some(build_fields([("stage", json_value("write_segy"))])),
     );
 
-    let result = export_dataset_segy(ExportSegyRequest {
+    let result = workflow_service().export_dataset_segy(ExportSegyRequest {
         schema_version: IPC_SCHEMA_VERSION,
         store_path,
         output_path,
@@ -2046,7 +3506,7 @@ fn ensure_demo_survey_time_depth_transform_command(
         Some(build_fields([("stage", json_value("build_transform"))])),
     );
 
-    match ensure_demo_survey_time_depth_transform(store_path.clone()) {
+    match workflow_service().ensure_demo_survey_time_depth_transform(store_path.clone()) {
         Ok(asset_id) => {
             diagnostics.complete(
                 &app,
@@ -2093,7 +3553,7 @@ fn load_velocity_models_command(
         ])),
     );
 
-    match load_velocity_models(store_path.clone()) {
+    match workflow_service().load_velocity_models(store_path.clone()) {
         Ok(response) => {
             diagnostics.complete(
                 &app,
@@ -2125,6 +3585,53 @@ fn load_velocity_models_command(
 }
 
 #[tauri::command]
+fn load_horizon_assets_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+) -> Result<Vec<seis_runtime::ImportedHorizonDescriptor>, String> {
+    let operation = diagnostics.start_operation(
+        &app,
+        "load_horizon_assets",
+        "Loading survey horizon assets",
+        Some(build_fields([
+            ("storePath", json_value(&store_path)),
+            ("stage", json_value("load_horizon_assets")),
+        ])),
+    );
+
+    match load_horizon_assets(store_path.clone()) {
+        Ok(horizons) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Horizon assets loaded",
+                Some(build_fields([
+                    ("storePath", json_value(&store_path)),
+                    ("horizonCount", json_value(horizons.len())),
+                    ("stage", json_value("complete")),
+                ])),
+            );
+            Ok(horizons)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Loading horizon assets failed",
+                Some(build_fields([
+                    ("storePath", json_value(&store_path)),
+                    ("stage", json_value("load_horizon_assets")),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn import_velocity_functions_model_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
@@ -2147,7 +3654,11 @@ fn import_velocity_functions_model_command(
         ])),
     );
 
-    match import_velocity_functions_model(store_path.clone(), input_path.clone(), velocity_kind) {
+    match workflow_service().import_velocity_functions_model(
+        store_path.clone(),
+        input_path.clone(),
+        velocity_kind,
+    ) {
         Ok(response) => {
             diagnostics.complete(
                 &app,
@@ -2187,7 +3698,7 @@ fn build_velocity_model_transform_command(
     app: AppHandle,
     diagnostics: State<DiagnosticsState>,
     request: BuildSurveyTimeDepthTransformRequest,
-) -> Result<seis_contracts_interop::SurveyTimeDepthTransform3D, String> {
+) -> Result<seis_contracts_operations::SurveyTimeDepthTransform3D, String> {
     let operation = diagnostics.start_operation(
         &app,
         "build_velocity_model_transform",
@@ -2288,6 +3799,78 @@ fn export_dataset_zarr_command(
 }
 
 #[tauri::command]
+fn convert_horizon_domain_command(
+    app: AppHandle,
+    diagnostics: State<DiagnosticsState>,
+    store_path: String,
+    source_horizon_id: String,
+    transform_id: String,
+    target_domain: seis_runtime::TimeDepthDomain,
+    output_id: Option<String>,
+    output_name: Option<String>,
+) -> Result<seis_runtime::ImportedHorizonDescriptor, String> {
+    let target_domain_label = match &target_domain {
+        seis_runtime::TimeDepthDomain::Time => "time",
+        seis_runtime::TimeDepthDomain::Depth => "depth",
+    };
+    let operation = diagnostics.start_operation(
+        &app,
+        "convert_horizon_domain",
+        "Converting survey horizon between time and depth",
+        Some(build_fields([
+            ("storePath", json_value(&store_path)),
+            ("sourceHorizonId", json_value(&source_horizon_id)),
+            ("transformId", json_value(&transform_id)),
+            ("targetDomain", json_value(target_domain_label)),
+            ("stage", json_value("convert_horizon")),
+        ])),
+    );
+
+    match convert_horizon_domain(
+        store_path.clone(),
+        source_horizon_id.clone(),
+        transform_id.clone(),
+        target_domain,
+        output_id,
+        output_name,
+    ) {
+        Ok(descriptor) => {
+            diagnostics.complete(
+                &app,
+                &operation,
+                "Survey horizon converted",
+                Some(build_fields([
+                    ("storePath", json_value(&store_path)),
+                    ("sourceHorizonId", json_value(&source_horizon_id)),
+                    ("transformId", json_value(&transform_id)),
+                    ("outputHorizonId", json_value(&descriptor.id)),
+                    ("targetDomain", json_value(target_domain_label)),
+                    ("stage", json_value("complete")),
+                ])),
+            );
+            Ok(descriptor)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            diagnostics.fail(
+                &app,
+                &operation,
+                "Survey horizon conversion failed",
+                Some(build_fields([
+                    ("storePath", json_value(&store_path)),
+                    ("sourceHorizonId", json_value(&source_horizon_id)),
+                    ("transformId", json_value(&transform_id)),
+                    ("targetDomain", json_value(target_domain_label)),
+                    ("stage", json_value("convert_horizon")),
+                    ("error", json_value(&message)),
+                ])),
+            );
+            Err(message)
+        }
+    }
+}
+
+#[tauri::command]
 fn get_dataset_export_capabilities_command(
     store_path: String,
 ) -> Result<DatasetExportCapabilitiesResponse, String> {
@@ -2364,6 +3947,8 @@ fn import_horizon_xyz_command(
         schema_version: IPC_SCHEMA_VERSION,
         store_path,
         input_paths,
+        vertical_domain: None,
+        vertical_unit: None,
         source_coordinate_reference_id,
         source_coordinate_reference_name,
         assume_same_as_survey,
@@ -2419,12 +4004,14 @@ fn load_section_horizons_command(
         ])),
     );
 
-    let result = load_section_horizons(seis_contracts_interop::LoadSectionHorizonsRequest {
-        schema_version: IPC_SCHEMA_VERSION,
-        store_path,
-        axis,
-        index,
-    });
+    let result = workflow_service().load_section_horizons(
+        seis_contracts_operations::LoadSectionHorizonsRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            store_path,
+            axis,
+            index,
+        },
+    );
 
     match result {
         Ok(response) => {
@@ -3808,6 +5395,25 @@ fn save_workspace_session_command(
 }
 
 #[tauri::command]
+fn load_project_geospatial_settings_command(
+    request: ProjectRootRequest,
+) -> Result<LoadProjectGeospatialSettingsResponse, String> {
+    let settings = load_project_geospatial_settings(Path::new(&request.project_root))?;
+    Ok(LoadProjectGeospatialSettingsResponse { settings })
+}
+
+#[tauri::command]
+fn save_project_geospatial_settings_command(
+    request: SaveProjectGeospatialSettingsRequest,
+) -> Result<ProjectGeospatialSettings, String> {
+    save_project_geospatial_settings(
+        Path::new(&request.project_root),
+        request.display_coordinate_reference,
+        request.source.as_deref().unwrap_or("user_selected"),
+    )
+}
+
+#[tauri::command]
 fn set_dataset_native_coordinate_reference_command(
     request: SetDatasetNativeCoordinateReferenceRequest,
 ) -> Result<SetDatasetNativeCoordinateReferenceResponse, String> {
@@ -3855,6 +5461,23 @@ fn resolve_survey_map_command(
 }
 
 #[tauri::command]
+fn resolve_project_survey_map_command(
+    request: ResolveProjectSurveyMapRequest,
+) -> Result<ResolveProjectSurveyMapResponse, String> {
+    let project = OphioliteProject::open(Path::new(&request.project_root))
+        .map_err(|error| error.to_string())?;
+    let survey_map = project
+        .resolve_survey_map_source(&ProjectSurveyMapRequestDto {
+            schema_version: 1,
+            survey_asset_ids: vec![request.survey_asset_id],
+            wellbore_ids: request.wellbore_id.into_iter().collect(),
+            display_coordinate_reference_id: request.display_coordinate_reference_id,
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(ResolveProjectSurveyMapResponse { survey_map })
+}
+
+#[tauri::command]
 fn list_project_well_time_depth_models_command(
     request: ProjectWellboreRequest,
 ) -> Result<Vec<ProjectWellTimeDepthModelDescriptor>, String> {
@@ -3896,18 +5519,24 @@ fn list_project_well_time_depth_inventory_command(
 
 #[tauri::command]
 fn list_project_well_overlay_inventory_command(
-    request: ProjectRootRequest,
+    request: ProjectWellOverlayInventoryRequest,
 ) -> Result<ProjectWellOverlayInventoryResponse, String> {
     let project = OphioliteProject::open(Path::new(&request.project_root))
         .map_err(|error| error.to_string())?;
+    let display_coordinate_reference_id =
+        normalized_optional_string(request.display_coordinate_reference_id.as_deref());
     let inventory = project
         .project_well_overlay_inventory()
         .map_err(|error| error.to_string())?;
-    Ok(ProjectWellOverlayInventoryResponse {
-        surveys: inventory
-            .surveys
-            .into_iter()
-            .map(|survey| ProjectSurveyAssetDescriptor {
+    let surveys = inventory
+        .surveys
+        .into_iter()
+        .map(|survey| {
+            let display_compatibility = project_survey_display_compatibility(
+                survey.effective_coordinate_reference_id.as_deref(),
+                display_coordinate_reference_id.as_deref(),
+            );
+            ProjectSurveyAssetDescriptor {
                 asset_id: survey.asset_id.0,
                 name: survey.name,
                 status: asset_status_label(&survey.status).to_string(),
@@ -3915,12 +5544,22 @@ fn list_project_well_overlay_inventory_command(
                 well_name: survey.well_name,
                 wellbore_id: survey.wellbore_id.0,
                 wellbore_name: survey.wellbore_name,
-            })
-            .collect(),
-        wellbores: inventory
-            .wellbores
-            .into_iter()
-            .map(|wellbore| ProjectWellboreInventoryItem {
+                effective_coordinate_reference_id: survey.effective_coordinate_reference_id,
+                effective_coordinate_reference_name: survey.effective_coordinate_reference_name,
+                display_compatibility,
+            }
+        })
+        .collect::<Vec<_>>();
+    let wellbores = inventory
+        .wellbores
+        .into_iter()
+        .map(|wellbore| {
+            let display_compatibility = project_wellbore_display_compatibility(
+                &project,
+                &wellbore.wellbore_id.0,
+                display_coordinate_reference_id.as_deref(),
+            );
+            ProjectWellboreInventoryItem {
                 well_id: wellbore.well_id.0,
                 well_name: wellbore.well_name,
                 wellbore_id: wellbore.wellbore_id.0,
@@ -3930,8 +5569,69 @@ fn list_project_well_overlay_inventory_command(
                 active_well_time_depth_model_asset_id: wellbore
                     .active_well_time_depth_model_asset_id
                     .map(|asset_id| asset_id.0),
-            })
-            .collect(),
+                display_compatibility,
+            }
+        })
+        .collect::<Vec<_>>();
+    let compatible_survey_count = surveys
+        .iter()
+        .filter(|survey| survey.display_compatibility.can_resolve_project_map)
+        .count();
+    let incompatible_survey_count = surveys.len().saturating_sub(compatible_survey_count);
+    let compatible_wellbore_count = wellbores
+        .iter()
+        .filter(|wellbore| wellbore.display_compatibility.can_resolve_project_map)
+        .count();
+    let incompatible_wellbore_count = wellbores.len().saturating_sub(compatible_wellbore_count);
+    let blocking_reason_codes = surveys
+        .iter()
+        .filter(|survey| !survey.display_compatibility.can_resolve_project_map)
+        .filter_map(|survey| survey.display_compatibility.reason_code)
+        .filter_map(project_survey_blocking_reason_code)
+        .chain(
+            wellbores
+                .iter()
+                .filter(|wellbore| !wellbore.display_compatibility.can_resolve_project_map)
+                .filter_map(|wellbore| wellbore.display_compatibility.reason_code)
+                .filter_map(project_wellbore_blocking_reason_code),
+        )
+        .fold(
+            Vec::<ProjectDisplayCompatibilityBlockingReasonCode>::new(),
+            |mut codes, code| {
+                if !codes.contains(&code) {
+                    codes.push(code);
+                }
+                codes
+            },
+        );
+    let blocking_reasons = surveys
+        .iter()
+        .filter(|survey| !survey.display_compatibility.can_resolve_project_map)
+        .filter_map(|survey| survey.display_compatibility.reason.clone())
+        .chain(
+            wellbores
+                .iter()
+                .filter(|wellbore| !wellbore.display_compatibility.can_resolve_project_map)
+                .filter_map(|wellbore| wellbore.display_compatibility.reason.clone()),
+        )
+        .fold(Vec::<String>::new(), |mut reasons, reason| {
+            if !reasons.contains(&reason) {
+                reasons.push(reason);
+            }
+            reasons
+        });
+    Ok(ProjectWellOverlayInventoryResponse {
+        surveys,
+        wellbores,
+        display_compatibility: ProjectMapDisplayCompatibilitySummary {
+            display_coordinate_reference_id,
+            compatible_survey_count,
+            incompatible_survey_count,
+            compatible_wellbore_count,
+            incompatible_wellbore_count,
+            blocking_reason_codes,
+            blocking_reasons,
+        },
     })
 }
 
@@ -3988,6 +5688,23 @@ fn import_project_well_time_depth_asset_command(
             request.binding,
             request.collection_name.as_deref(),
         ),
+        "well_tie_observation_set" => {
+            let observation_set: WellTieObservationSet1D = serde_json::from_slice(
+                &fs::read(Path::new(&request.json_path)).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| {
+                format!(
+                    "failed to parse well tie observation json '{}': {error}",
+                    request.json_path
+                )
+            })?;
+            project.create_well_tie_observation_set(
+                Path::new(&request.json_path),
+                request.binding,
+                request.collection_name.as_deref(),
+                &observation_set,
+            )
+        }
         "well_time_depth_authored_model" => project.import_well_time_depth_authored_model_json(
             Path::new(&request.json_path),
             request.binding,
@@ -4003,6 +5720,102 @@ fn import_project_well_time_depth_asset_command(
     .map_err(|error| error.to_string())?;
 
     Ok(well_time_depth_import_response(result))
+}
+
+#[tauri::command]
+fn analyze_project_well_tie_command(
+    request: AnalyzeProjectWellTieRequest,
+) -> Result<ProjectWellTieAnalysisResponse, String> {
+    let project = OphioliteProject::open(Path::new(&request.project_root))
+        .map_err(|error| error.to_string())?;
+    let source_model_asset_id = ophiolite::AssetId(request.source_model_asset_id.clone());
+    let source_model = project
+        .read_well_time_depth_model(&source_model_asset_id)
+        .map_err(|error| error.to_string())?;
+    let analysis = project
+        .analyze_well_tie_from_model(
+            &source_model_asset_id,
+            &request.tie_name,
+            request.tie_start_ms,
+            request.tie_end_ms,
+            request.search_radius_m,
+        )
+        .map_err(|error| error.to_string())?;
+    let analysis = match enrich_well_tie_analysis_with_store(
+        &project,
+        &source_model_asset_id,
+        &analysis,
+        &request.store_path,
+        &request.survey_asset_id,
+        &request.display_coordinate_reference_id,
+        request.search_radius_m,
+    ) {
+        Ok(enriched) => enriched,
+        Err(error) => {
+            let mut fallback = analysis;
+            fallback.notes.push(format!(
+                "Survey-backed seismic extraction fell back to the provisional preview: {error}"
+            ));
+            fallback
+        }
+    };
+    Ok(ProjectWellTieAnalysisResponse {
+        draft_observation_set: analysis.draft_observation_set.clone(),
+        analysis,
+        source_model_asset_id: request.source_model_asset_id,
+        source_model_name: source_model.name,
+    })
+}
+
+#[tauri::command]
+fn accept_project_well_tie_command(
+    request: AcceptProjectWellTieRequest,
+) -> Result<AcceptProjectWellTieResponse, String> {
+    let mut project = OphioliteProject::open(Path::new(&request.project_root))
+        .map_err(|error| error.to_string())?;
+    let source_model_asset_id = ophiolite::AssetId(request.source_model_asset_id.clone());
+    let analysis = project
+        .analyze_well_tie_from_model(
+            &source_model_asset_id,
+            &request.tie_name,
+            request.tie_start_ms,
+            request.tie_end_ms,
+            request.search_radius_m,
+        )
+        .map_err(|error| error.to_string())?;
+    let analysis = match enrich_well_tie_analysis_with_store(
+        &project,
+        &source_model_asset_id,
+        &analysis,
+        &request.store_path,
+        &request.survey_asset_id,
+        &request.display_coordinate_reference_id,
+        request.search_radius_m,
+    ) {
+        Ok(enriched) => enriched,
+        Err(error) => {
+            let mut fallback = analysis;
+            fallback.notes.push(format!(
+                "Survey-backed seismic extraction fell back to the provisional preview: {error}"
+            ));
+            fallback
+        }
+    };
+    let result = project
+        .accept_well_tie_observation_set_from_model(
+            &source_model_asset_id,
+            request.binding,
+            &request.tie_name,
+            &analysis.draft_observation_set,
+            request.output_collection_name.as_deref(),
+            request.set_active,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(AcceptProjectWellTieResponse {
+        observation_asset_id: result.observation_result.asset.id.0,
+        authored_model_asset_id: result.authored_result.asset.id.0,
+        compiled_model_asset_id: result.compiled_result.asset.id.0,
+    })
 }
 
 #[tauri::command]
@@ -5421,14 +7234,70 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .menu(build_app_menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
+            APP_SETTINGS_MENU_ID => {
+                if let Err(error) = app.emit(APP_SETTINGS_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native settings menu event: {error}");
+                }
+            }
+            APP_VELOCITY_MODEL_MENU_ID => {
+                if let Err(error) = app.emit(APP_VELOCITY_MODEL_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native velocity-model menu event: {error}");
+                }
+            }
+            APP_DEPTH_CONVERSION_MENU_ID => {
+                if let Err(error) = app.emit(APP_DEPTH_CONVERSION_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native depth-conversion menu event: {error}");
+                }
+            }
+            APP_WELL_TIE_MENU_ID => {
+                if let Err(error) = app.emit(APP_WELL_TIE_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native well-tie menu event: {error}");
+                }
+            }
             FILE_OPEN_VOLUME_MENU_ID => {
                 if let Err(error) = app.emit(FILE_OPEN_VOLUME_MENU_EVENT, ()) {
                     log::warn!("failed to emit native open-volume menu event: {error}");
                 }
             }
-            VELOCITY_MODEL_MENU_ID => {
-                if let Err(error) = app.emit(VELOCITY_MODEL_MENU_EVENT, ()) {
-                    log::warn!("failed to emit native velocity-model menu event: {error}");
+            FILE_IMPORT_SEISMIC_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_SEISMIC_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native import-seismic menu event: {error}");
+                }
+            }
+            FILE_IMPORT_HORIZONS_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_HORIZONS_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native import-horizons menu event: {error}");
+                }
+            }
+            FILE_IMPORT_VELOCITY_FUNCTIONS_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_VELOCITY_FUNCTIONS_MENU_EVENT, ()) {
+                    log::warn!(
+                        "failed to emit native import-velocity-functions menu event: {error}"
+                    );
+                }
+            }
+            FILE_IMPORT_CHECKSHOT_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_CHECKSHOT_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native import-checkshot menu event: {error}");
+                }
+            }
+            FILE_IMPORT_MANUAL_PICKS_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_MANUAL_PICKS_MENU_EVENT, ()) {
+                    log::warn!("failed to emit native import-manual-picks menu event: {error}");
+                }
+            }
+            FILE_IMPORT_AUTHORED_WELL_MODEL_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_AUTHORED_WELL_MODEL_MENU_EVENT, ()) {
+                    log::warn!(
+                        "failed to emit native import-authored-well-model menu event: {error}"
+                    );
+                }
+            }
+            FILE_IMPORT_COMPILED_WELL_MODEL_MENU_ID => {
+                if let Err(error) = app.emit(FILE_IMPORT_COMPILED_WELL_MODEL_MENU_EVENT, ()) {
+                    log::warn!(
+                        "failed to emit native import-compiled-well-model menu event: {error}"
+                    );
                 }
             }
             _ => {}
@@ -5479,8 +7348,10 @@ pub fn run() {
             open_dataset_command,
             ensure_demo_survey_time_depth_transform_command,
             load_velocity_models_command,
+            load_horizon_assets_command,
             import_velocity_functions_model_command,
             build_velocity_model_transform_command,
+            convert_horizon_domain_command,
             get_dataset_export_capabilities_command,
             export_dataset_segy_command,
             export_dataset_zarr_command,
@@ -5511,14 +7382,19 @@ pub fn run() {
             remove_dataset_entry_command,
             set_active_dataset_entry_command,
             save_workspace_session_command,
+            load_project_geospatial_settings_command,
+            save_project_geospatial_settings_command,
             set_dataset_native_coordinate_reference_command,
             resolve_survey_map_command,
+            resolve_project_survey_map_command,
             list_project_well_overlay_inventory_command,
             list_project_well_time_depth_models_command,
             list_project_well_time_depth_inventory_command,
             set_project_active_well_time_depth_model_command,
             import_project_well_time_depth_model_command,
             import_project_well_time_depth_asset_command,
+            analyze_project_well_tie_command,
+            accept_project_well_tie_command,
             compile_project_well_time_depth_authored_model_command,
             read_project_well_time_depth_model_command,
             resolve_project_section_well_overlays_command,
@@ -5546,4 +7422,298 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running traceboost desktop shell");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ProjectDisplayCompatibilityBlockingReasonCode,
+        PROJECT_SURVEY_DISPLAY_CRS_UNRESOLVED_REASON, PROJECT_SURVEY_DISPLAY_EQUIVALENT_REASON,
+        PROJECT_WELLBORE_DISPLAY_CRS_UNRESOLVED_REASON, PROJECT_WELLBORE_DISPLAY_EQUIVALENT_REASON,
+        ProjectSurveyDisplayReasonCode, ProjectWellboreDisplayCompatibility,
+        ProjectWellboreDisplayReasonCode, best_shift_stretch_match, convolve_same_normalized,
+        correlation_with_synthetic_lag, estimate_extracted_wavelet, interpolate_trace_sample,
+        project_survey_blocking_reason_code, project_survey_display_compatibility,
+        project_wellbore_blocking_reason_code, project_wellbore_display_compatibility,
+        time_axis_midpoint_ms,
+    };
+    use ophiolite::{
+        AssetBindingInput, CoordinateReferenceDescriptor, OphioliteProject, ProjectedPoint2,
+        SurveyMapTransformStatusDto, WellAzimuthReferenceKind, WellboreAnchorKind,
+        WellboreAnchorReference, WellboreGeometry,
+    };
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn temp_project_root(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "traceboost-frontend-{label}-{}-{unique}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn project_wellbore_display_compatibility_requires_project_display_crs() {
+        let root = temp_project_root("project-wellbore-display-requires-crs");
+        fs::create_dir_all(&root).unwrap();
+        let project = OphioliteProject::create(&root).unwrap();
+
+        let compatibility = project_wellbore_display_compatibility(&project, "wellbore-1", None);
+
+        assert!(!compatibility.can_resolve_project_map);
+        assert_eq!(
+            compatibility.transform_status,
+            SurveyMapTransformStatusDto::NativeOnly
+        );
+        assert_eq!(
+            compatibility.reason.as_deref(),
+            Some(PROJECT_WELLBORE_DISPLAY_CRS_UNRESOLVED_REASON)
+        );
+        assert_eq!(
+            compatibility.reason_code,
+            Some(ProjectWellboreDisplayReasonCode::ProjectDisplayCrsUnresolved)
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn project_survey_display_compatibility_requires_project_display_crs() {
+        let compatibility = project_survey_display_compatibility(Some("EPSG:26917"), None);
+
+        assert!(!compatibility.can_resolve_project_map);
+        assert_eq!(
+            compatibility.transform_status,
+            SurveyMapTransformStatusDto::NativeOnly
+        );
+        assert_eq!(
+            compatibility.source_coordinate_reference_id.as_deref(),
+            Some("EPSG:26917")
+        );
+        assert_eq!(compatibility.display_coordinate_reference_id, None);
+        assert_eq!(
+            compatibility.reason.as_deref(),
+            Some(PROJECT_SURVEY_DISPLAY_CRS_UNRESOLVED_REASON)
+        );
+        assert!(matches!(
+            compatibility.reason_code,
+            Some(ProjectSurveyDisplayReasonCode::ProjectDisplayCrsUnresolved)
+        ));
+    }
+
+    #[test]
+    fn project_survey_display_compatibility_reports_equivalent_epsg_match() {
+        let compatibility =
+            project_survey_display_compatibility(Some("EPSG:26917"), Some("EPSG:26917"));
+
+        assert!(compatibility.can_resolve_project_map);
+        assert_eq!(
+            compatibility.transform_status,
+            SurveyMapTransformStatusDto::DisplayEquivalent
+        );
+        assert_eq!(
+            compatibility.reason.as_deref(),
+            Some(PROJECT_SURVEY_DISPLAY_EQUIVALENT_REASON)
+        );
+        assert!(matches!(
+            compatibility.reason_code,
+            Some(ProjectSurveyDisplayReasonCode::DisplayEquivalent)
+        ));
+    }
+
+    #[test]
+    fn project_survey_display_compatibility_reports_transformed_epsg_path() {
+        let compatibility =
+            project_survey_display_compatibility(Some("EPSG:26917"), Some("EPSG:4326"));
+
+        assert!(compatibility.can_resolve_project_map);
+        assert_eq!(
+            compatibility.transform_status,
+            SurveyMapTransformStatusDto::DisplayTransformed
+        );
+        assert_eq!(
+            compatibility.reason.as_deref(),
+            Some("Survey map geometry can be reprojected from EPSG:26917 to EPSG:4326.")
+        );
+        assert!(matches!(
+            compatibility.reason_code,
+            Some(ProjectSurveyDisplayReasonCode::DisplayTransformed)
+        ));
+    }
+
+    #[test]
+    fn project_wellbore_display_compatibility_uses_resolved_well_geometry() {
+        let root = temp_project_root("project-wellbore-display-uses-resolved-geometry");
+        let csv_path = root.join("trajectory.csv");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            &csv_path,
+            "md,tvd,northing,easting,inclination,azimuth\n0,0,0,0,0,0\n100,90,20,10,12,45\n",
+        )
+        .unwrap();
+
+        let mut project = OphioliteProject::create(&root).unwrap();
+        let binding = AssetBindingInput {
+            well_name: "Well A".to_string(),
+            wellbore_name: "Well A".to_string(),
+            uwi: None,
+            api: None,
+            operator_aliases: Vec::new(),
+        };
+        let import = project
+            .import_trajectory_csv(&csv_path, &binding, Some("trajectory"))
+            .unwrap();
+        let geometry = WellboreGeometry {
+            anchor: Some(WellboreAnchorReference {
+                kind: WellboreAnchorKind::Surface,
+                coordinate_reference: Some(CoordinateReferenceDescriptor {
+                    id: Some("EPSG:23031".to_string()),
+                    name: Some("ED50 / UTM zone 31N".to_string()),
+                    geodetic_datum: Some("ED50".to_string()),
+                    unit: Some("m".to_string()),
+                }),
+                location: ProjectedPoint2 {
+                    x: 500_000.0,
+                    y: 6_200_000.0,
+                },
+                parent_wellbore_id: None,
+                parent_measured_depth_m: None,
+                notes: Vec::new(),
+            }),
+            vertical_datum: Some("KB".to_string()),
+            depth_unit: Some("m".to_string()),
+            azimuth_reference: WellAzimuthReferenceKind::GridNorth,
+            notes: Vec::new(),
+        };
+        project
+            .set_wellbore_geometry(&import.resolution.wellbore_id, Some(geometry))
+            .unwrap();
+
+        let compatibility = project_wellbore_display_compatibility(
+            &project,
+            &import.resolution.wellbore_id.0,
+            Some("EPSG:23031"),
+        );
+
+        assert_eq!(
+            compatibility,
+            ProjectWellboreDisplayCompatibility {
+                can_resolve_project_map: true,
+                transform_status: SurveyMapTransformStatusDto::DisplayEquivalent,
+                source_coordinate_reference_id: Some("EPSG:23031".to_string()),
+                display_coordinate_reference_id: Some("EPSG:23031".to_string()),
+                reason_code: Some(ProjectWellboreDisplayReasonCode::DisplayEquivalent),
+                reason: Some(String::from(PROJECT_WELLBORE_DISPLAY_EQUIVALENT_REASON)),
+            }
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn project_display_compatibility_blocking_reason_codes_only_cover_blocking_states() {
+        assert_eq!(
+            project_survey_blocking_reason_code(
+                ProjectSurveyDisplayReasonCode::ProjectDisplayCrsUnresolved
+            ),
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::ProjectDisplayCrsUnresolved)
+        );
+        assert_eq!(
+            project_survey_blocking_reason_code(ProjectSurveyDisplayReasonCode::DisplayEquivalent),
+            None
+        );
+        assert_eq!(
+            project_wellbore_blocking_reason_code(
+                ProjectWellboreDisplayReasonCode::ResolvedGeometryMissing
+            ),
+            Some(ProjectDisplayCompatibilityBlockingReasonCode::ResolvedGeometryMissing)
+        );
+        assert_eq!(
+            project_wellbore_blocking_reason_code(ProjectWellboreDisplayReasonCode::DisplayDegraded),
+            None
+        );
+    }
+
+    #[test]
+    fn best_shift_stretch_match_prefers_material_affine_improvement() {
+        let times_ms = (0..160).map(|index| index as f32 * 4.0).collect::<Vec<_>>();
+        let midpoint_ms = time_axis_midpoint_ms(&times_ms).unwrap();
+        let synthetic = times_ms
+            .iter()
+            .map(|time_ms| {
+                ((time_ms / 18.0).sin()
+                    + 0.35 * (time_ms / 31.0).cos()
+                    + 0.2 * (time_ms / 11.0).sin()) as f32
+            })
+            .collect::<Vec<_>>();
+        let expected_shift_ms = 12.0_f32;
+        let expected_stretch = 1.02_f32;
+        let seismic = times_ms
+            .iter()
+            .map(|time_ms| {
+                let warped_time_ms =
+                    midpoint_ms + expected_stretch * (*time_ms - midpoint_ms) + expected_shift_ms;
+                interpolate_trace_sample(&times_ms, &synthetic, warped_time_ms)
+            })
+            .collect::<Vec<_>>();
+
+        let solved = best_shift_stretch_match(&times_ms, &synthetic, &seismic, 6, 4.0)
+            .expect("solver should recover a usable affine match");
+        let aligned_correlation =
+            correlation_with_synthetic_lag(&synthetic, &solved.aligned_trace_amplitudes, 0)
+                .expect("aligned correlation");
+
+        assert!(aligned_correlation > 0.995, "{aligned_correlation}");
+        assert_eq!(solved.bulk_shift_samples, 3);
+        assert!((solved.stretch_factor - expected_stretch).abs() <= 0.01);
+        assert!(solved.correlation > 0.99);
+    }
+
+    #[test]
+    fn estimate_extracted_wavelet_recovers_known_wavelet_shape() {
+        let reflectivity = (0..192)
+            .map(|index| {
+                let index = index as f32;
+                (index / 9.0).sin() * 0.7 + (index / 17.0).cos() * 0.3
+            })
+            .collect::<Vec<_>>();
+        let mut true_wavelet = vec![
+            -0.12_f32, -0.28, -0.05, 0.62, 1.0, 0.62, -0.05, -0.28, -0.12,
+        ];
+        super::normalize_trace_in_place(&mut true_wavelet);
+        let seismic = convolve_same_normalized(&reflectivity, &true_wavelet);
+
+        let extracted = estimate_extracted_wavelet(
+            &reflectivity,
+            &seismic,
+            4.0,
+            reflectivity.len() as f32 * 4.0,
+        )
+        .expect("wavelet estimate should succeed");
+
+        let recovered = extracted
+            .amplitudes
+            .iter()
+            .skip(
+                (extracted
+                    .amplitudes
+                    .len()
+                    .saturating_sub(true_wavelet.len()))
+                    / 2,
+            )
+            .take(true_wavelet.len())
+            .copied()
+            .collect::<Vec<_>>();
+        let correlation = correlation_with_synthetic_lag(&true_wavelet, &recovered, 0)
+            .expect("correlation should be defined");
+
+        assert!(correlation > 0.9, "{correlation}");
+    }
 }

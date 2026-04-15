@@ -46,9 +46,31 @@ jobs:
       - name: Test app package
         run: cargo test -p traceboost-app
 
+  automation-surfaces:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify app automation surface conformance
+        run: PYTHONPATH=python/src python3 -m traceboost_automation.cli verify-surface-contracts
+      - name: Compare CLI and Python operation catalogs
+        run: |
+          cargo run -q -p traceboost-app -- operation-catalog > /tmp/traceboost-cli-catalog.json
+          PYTHONPATH=python/src python3 -m traceboost_automation.cli operation-catalog > /tmp/traceboost-python-catalog.json
+          cmp /tmp/traceboost-cli-catalog.json /tmp/traceboost-python-catalog.json
+      - name: Compare backend-info across CLI and Python
+        run: |
+          cargo run -q -p traceboost-app -- backend-info > /tmp/traceboost-cli-backend-info.json
+          PYTHONPATH=python/src python3 -m traceboost_automation.cli backend-info > /tmp/traceboost-python-backend-info.json
+          cmp /tmp/traceboost-cli-backend-info.json /tmp/traceboost-python-backend-info.json
+
   integration:
     runs-on: ubuntu-latest
-    needs: [contracts, io, runtime, app]
+    needs: [contracts, io, runtime, app, automation-surfaces]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

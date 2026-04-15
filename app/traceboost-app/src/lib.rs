@@ -5,46 +5,62 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use seis_contracts_interop::{
-    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, DatasetSummary, ExportSegyRequest,
-    ExportSegyResponse, GatherProcessingPipeline, GatherRequest, GatherView, IPC_SCHEMA_VERSION,
-    ImportDatasetRequest, ImportDatasetResponse, ImportHorizonXyzRequest, ImportHorizonXyzResponse,
-    ImportPrestackOffsetDatasetRequest, ImportPrestackOffsetDatasetResponse,
-    LoadSectionHorizonsRequest, LoadSectionHorizonsResponse, LoadVelocityModelsResponse,
-    OpenDatasetRequest, OpenDatasetResponse, PrestackThirdAxisField,
-    PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
+use ophiolite::resolve_dataset_summary_survey_map_source;
+use seis_contracts_operations::datasets::{
+    DatasetSummary, OpenDatasetRequest, OpenDatasetResponse,
+};
+use seis_contracts_operations::import_ops::{
+    ExportSegyRequest, ExportSegyResponse, ImportDatasetRequest, ImportDatasetResponse,
+    ImportHorizonXyzRequest, ImportHorizonXyzResponse, ImportPrestackOffsetDatasetRequest,
+    ImportPrestackOffsetDatasetResponse, LoadSectionHorizonsRequest, LoadSectionHorizonsResponse,
+    PrestackThirdAxisField, SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField,
+    SegyHeaderValueType, SuggestedImportAction, SurveyPreflightRequest, SurveyPreflightResponse,
+};
+use seis_contracts_operations::processing_ops::{
+    AmplitudeSpectrumRequest, AmplitudeSpectrumResponse, GatherProcessingPipeline, GatherRequest,
+    GatherView, PreviewGatherProcessingRequest, PreviewGatherProcessingResponse,
     PreviewSubvolumeProcessingRequest, PreviewSubvolumeProcessingResponse,
     PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
     RunGatherProcessingRequest, RunSubvolumeProcessingRequest, RunTraceLocalProcessingRequest,
-    SegyGeometryCandidate, SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType,
-    SubvolumeProcessingPipeline, SuggestedImportAction, SurveyPreflightRequest,
-    SurveyPreflightResponse, VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse,
+    SubvolumeProcessingPipeline, VelocityFunctionSource, VelocityScanRequest, VelocityScanResponse,
 };
+use seis_contracts_operations::resolve::IPC_SCHEMA_VERSION;
+use seis_contracts_operations::resolve::{
+    ResolveSurveyMapRequest, ResolveSurveyMapResponse, SetDatasetNativeCoordinateReferenceRequest,
+    SetDatasetNativeCoordinateReferenceResponse,
+};
+use seis_contracts_operations::workspace::LoadVelocityModelsResponse;
 use seis_io::HeaderField;
 use seis_runtime::{
     BuildSurveyTimeDepthTransformRequest, DepthReferenceKind, GatherInterpolationMode,
-    IngestOptions, LateralInterpolationMethod, LayeredVelocityInterval, LayeredVelocityModel,
-    MaterializeOptions, PreviewView, ProjectedPoint2, ResolvedSectionDisplayView,
-    SeisGeometryOptions, SparseSurveyPolicy, SpatialCoverageRelationship, SpatialCoverageSummary,
-    StratigraphicBoundaryReference, SurveyTimeDepthTransform3D, TimeDepthDomain,
-    TimeDepthTransformSourceKind, TraceLocalProcessingPipeline, TravelTimeReference,
-    VelocityControlProfile, VelocityControlProfileSample, VelocityControlProfileSet,
-    VelocityIntervalTrend, VelocityQuantityKind, VerticalAxisDescriptor,
-    VerticalInterpolationMethod, amplitude_spectrum_from_store, build_survey_time_depth_transform,
-    depth_converted_section_view, describe_prestack_store, describe_store, export_store_to_segy,
-    export_store_to_zarr, import_horizon_xyzs, ingest_prestack_offset_segy, ingest_volume,
-    load_survey_time_depth_transforms, materialize_gather_processing_store,
+    ImportedHorizonDescriptor, IngestOptions, LateralInterpolationMethod, LayeredVelocityInterval,
+    LayeredVelocityModel, MaterializeOptions, PreviewView, ProjectedPoint2,
+    ResolvedSectionDisplayView, SeisGeometryOptions, SparseSurveyPolicy,
+    SpatialCoverageRelationship, SpatialCoverageSummary, StratigraphicBoundaryReference,
+    SurveyTimeDepthTransform3D, TimeDepthDomain, TimeDepthTransformSourceKind,
+    TraceLocalProcessingPipeline, TravelTimeReference, VelocityControlProfile,
+    VelocityControlProfileSample, VelocityControlProfileSet, VelocityIntervalTrend,
+    VelocityQuantityKind, VerticalAxisDescriptor, VerticalInterpolationMethod,
+    amplitude_spectrum_from_store, build_survey_time_depth_transform,
+    build_survey_time_depth_transform_from_horizon_pairs,
+    convert_horizon_vertical_domain_with_transform, depth_converted_section_view,
+    describe_prestack_store, describe_store, export_store_to_segy, export_store_to_zarr,
+    import_horizon_xyzs_with_vertical_domain, ingest_prestack_offset_segy, ingest_volume,
+    load_horizon_grids, load_survey_time_depth_transforms, materialize_gather_processing_store,
     materialize_processing_volume, materialize_subvolume_processing_volume, open_prestack_store,
     open_store, preflight_segy, prestack_gather_view, preview_gather_processing_view,
     preview_processing_section_view, preview_subvolume_processing_section_view,
-    resolved_section_display_view, section_horizon_overlays, store_survey_time_depth_transform,
-    velocity_scan,
+    resolved_section_display_view, section_horizon_overlays,
+    set_any_store_native_coordinate_reference, store_survey_time_depth_transform, velocity_scan,
 };
 use serde::Serialize;
 
 const DEFAULT_SPARSE_FILL_VALUE: f32 = 0.0;
 const DEMO_SURVEY_TIME_DEPTH_TRANSFORM_ID: &str = "demo-survey-3d-transform";
 const DEMO_SURVEY_TIME_DEPTH_TRANSFORM_NAME: &str = "Synthetic Survey 3D Time-Depth Transform";
+
+#[derive(Debug, Clone, Default)]
+pub struct TraceBoostWorkflowService;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ExportZarrResponse {
@@ -60,6 +76,20 @@ pub struct ImportVelocityFunctionsModelResponse {
     pub profile_count: usize,
     pub sample_count: usize,
     pub model: SurveyTimeDepthTransform3D,
+}
+
+#[derive(Debug, Clone)]
+pub struct PrepareSurveyDemoRequest {
+    pub store_path: String,
+    pub display_coordinate_reference_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrepareSurveyDemoResponse {
+    pub store_path: String,
+    pub ensured_time_depth_transform_id: String,
+    pub velocity_models: LoadVelocityModelsResponse,
+    pub survey_map: ResolveSurveyMapResponse,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +149,170 @@ const GEOMETRY_CANDIDATE_SPECS: [GeometryCandidateSpec; 7] = [
         crossline: (9, SegyHeaderValueType::I32),
     },
 ];
+
+impl TraceBoostWorkflowService {
+    pub fn backend_info(&self) -> serde_json::Value {
+        serde_json::json!({
+            "backend_repo_hint": "monorepo: runtime/",
+            "backend_local_path_hint": "../../runtime",
+            "current_default_method_policy": "keep linear as default unless a stronger method wins on every validation dataset",
+            "current_geometry_policy": "dense surveys ingest directly; sparse regular post-stack surveys require explicit regularization; duplicate-heavy surveys still stop for review",
+            "current_scope": "monorepo app shell with preflight and ingest routing; Tauri app not started yet",
+        })
+    }
+
+    pub fn preflight_dataset(
+        &self,
+        request: SurveyPreflightRequest,
+    ) -> Result<SurveyPreflightResponse, Box<dyn std::error::Error>> {
+        preflight_dataset(request)
+    }
+
+    pub fn import_dataset(
+        &self,
+        request: ImportDatasetRequest,
+    ) -> Result<ImportDatasetResponse, Box<dyn std::error::Error>> {
+        import_dataset(request)
+    }
+
+    pub fn import_prestack_offset_dataset(
+        &self,
+        request: ImportPrestackOffsetDatasetRequest,
+    ) -> Result<ImportPrestackOffsetDatasetResponse, Box<dyn std::error::Error>> {
+        import_prestack_offset_dataset(request)
+    }
+
+    pub fn open_dataset_summary(
+        &self,
+        request: OpenDatasetRequest,
+    ) -> Result<OpenDatasetResponse, Box<dyn std::error::Error>> {
+        open_dataset_summary(request)
+    }
+
+    pub fn set_dataset_native_coordinate_reference(
+        &self,
+        request: SetDatasetNativeCoordinateReferenceRequest,
+    ) -> Result<SetDatasetNativeCoordinateReferenceResponse, Box<dyn std::error::Error>> {
+        set_dataset_native_coordinate_reference(request)
+    }
+
+    pub fn resolve_survey_map(
+        &self,
+        request: ResolveSurveyMapRequest,
+    ) -> Result<ResolveSurveyMapResponse, Box<dyn std::error::Error>> {
+        resolve_survey_map(request)
+    }
+
+    pub fn export_dataset_segy(
+        &self,
+        request: ExportSegyRequest,
+    ) -> Result<ExportSegyResponse, Box<dyn std::error::Error>> {
+        export_dataset_segy(request)
+    }
+
+    pub fn export_dataset_zarr(
+        &self,
+        store_path: String,
+        output_path: String,
+        overwrite_existing: bool,
+    ) -> Result<ExportZarrResponse, Box<dyn std::error::Error>> {
+        export_dataset_zarr(store_path, output_path, overwrite_existing)
+    }
+
+    pub fn import_horizon_xyz(
+        &self,
+        request: ImportHorizonXyzRequest,
+    ) -> Result<ImportHorizonXyzResponse, Box<dyn std::error::Error>> {
+        import_horizon_xyz(request)
+    }
+
+    pub fn load_section_horizons(
+        &self,
+        request: LoadSectionHorizonsRequest,
+    ) -> Result<LoadSectionHorizonsResponse, Box<dyn std::error::Error>> {
+        load_section_horizons(request)
+    }
+
+    pub fn load_velocity_models(
+        &self,
+        store_path: String,
+    ) -> Result<LoadVelocityModelsResponse, Box<dyn std::error::Error>> {
+        load_velocity_models(store_path)
+    }
+
+    pub fn ensure_demo_survey_time_depth_transform(
+        &self,
+        store_path: String,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        ensure_demo_survey_time_depth_transform(store_path)
+    }
+
+    pub fn build_paired_horizon_transform(
+        &self,
+        store_path: String,
+        time_horizon_ids: Vec<String>,
+        depth_horizon_ids: Vec<String>,
+        output_id: Option<String>,
+        output_name: Option<String>,
+    ) -> Result<SurveyTimeDepthTransform3D, Box<dyn std::error::Error>> {
+        build_paired_horizon_transform(
+            store_path,
+            time_horizon_ids,
+            depth_horizon_ids,
+            output_id,
+            output_name,
+        )
+    }
+
+    pub fn convert_horizon_domain(
+        &self,
+        store_path: String,
+        source_horizon_id: String,
+        transform_id: String,
+        target_domain: TimeDepthDomain,
+        output_id: Option<String>,
+        output_name: Option<String>,
+    ) -> Result<ImportedHorizonDescriptor, Box<dyn std::error::Error>> {
+        convert_horizon_domain(
+            store_path,
+            source_horizon_id,
+            transform_id,
+            target_domain,
+            output_id,
+            output_name,
+        )
+    }
+
+    pub fn import_velocity_functions_model(
+        &self,
+        store_path: String,
+        input_path: String,
+        velocity_kind: VelocityQuantityKind,
+    ) -> Result<ImportVelocityFunctionsModelResponse, Box<dyn std::error::Error>> {
+        import_velocity_functions_model(store_path, input_path, velocity_kind)
+    }
+
+    pub fn prepare_survey_demo(
+        &self,
+        request: PrepareSurveyDemoRequest,
+    ) -> Result<PrepareSurveyDemoResponse, Box<dyn std::error::Error>> {
+        let ensured_time_depth_transform_id =
+            self.ensure_demo_survey_time_depth_transform(request.store_path.clone())?;
+        let velocity_models = self.load_velocity_models(request.store_path.clone())?;
+        let survey_map = self.resolve_survey_map(ResolveSurveyMapRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            store_path: request.store_path.clone(),
+            display_coordinate_reference_id: request.display_coordinate_reference_id,
+        })?;
+
+        Ok(PrepareSurveyDemoResponse {
+            store_path: request.store_path,
+            ensured_time_depth_transform_id,
+            velocity_models,
+            survey_map,
+        })
+    }
+}
 
 fn materialize_options_for_store(
     input_store_path: &str,
@@ -243,6 +437,45 @@ pub fn open_dataset_summary(
     })
 }
 
+pub fn set_dataset_native_coordinate_reference(
+    request: SetDatasetNativeCoordinateReferenceRequest,
+) -> Result<SetDatasetNativeCoordinateReferenceResponse, Box<dyn std::error::Error>> {
+    set_any_store_native_coordinate_reference(
+        &request.store_path,
+        request.coordinate_reference_id.as_deref(),
+        request.coordinate_reference_name.as_deref(),
+    )?;
+    let dataset = open_dataset_summary(OpenDatasetRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: request.store_path,
+    })?
+    .dataset;
+    Ok(SetDatasetNativeCoordinateReferenceResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        dataset,
+    })
+}
+
+pub fn resolve_survey_map(
+    request: ResolveSurveyMapRequest,
+) -> Result<ResolveSurveyMapResponse, Box<dyn std::error::Error>> {
+    let dataset = open_dataset_summary(OpenDatasetRequest {
+        schema_version: IPC_SCHEMA_VERSION,
+        store_path: request.store_path.clone(),
+    })?
+    .dataset;
+    let survey_map = resolve_dataset_summary_survey_map_source(
+        &dataset,
+        request.display_coordinate_reference_id.as_deref(),
+        None,
+        Some(Path::new(&request.store_path)),
+    )?;
+    Ok(ResolveSurveyMapResponse {
+        schema_version: IPC_SCHEMA_VERSION,
+        survey_map,
+    })
+}
+
 pub fn export_dataset_segy(
     request: ExportSegyRequest,
 ) -> Result<ExportSegyResponse, Box<dyn std::error::Error>> {
@@ -285,13 +518,15 @@ pub fn export_dataset_zarr(
 pub fn import_horizon_xyz(
     request: ImportHorizonXyzRequest,
 ) -> Result<ImportHorizonXyzResponse, Box<dyn std::error::Error>> {
-    let imported = import_horizon_xyzs(
+    let imported = import_horizon_xyzs_with_vertical_domain(
         &request.store_path,
         &request
             .input_paths
             .iter()
             .map(PathBuf::from)
             .collect::<Vec<_>>(),
+        request.vertical_domain.unwrap_or(TimeDepthDomain::Time),
+        request.vertical_unit.as_deref(),
         request.source_coordinate_reference_id.as_deref(),
         request.source_coordinate_reference_name.as_deref(),
         request.assume_same_as_survey,
@@ -310,6 +545,16 @@ pub fn load_section_horizons(
         schema_version: IPC_SCHEMA_VERSION,
         overlays,
     })
+}
+
+pub fn load_horizon_assets(
+    store_path: String,
+) -> Result<Vec<seis_runtime::ImportedHorizonDescriptor>, Box<dyn std::error::Error>> {
+    let horizons = load_horizon_grids(&store_path)?
+        .into_iter()
+        .map(|grid| grid.descriptor)
+        .collect::<Vec<_>>();
+    Ok(horizons)
 }
 
 pub fn load_depth_converted_section(
@@ -506,6 +751,46 @@ pub fn build_velocity_model_transform(
 ) -> Result<SurveyTimeDepthTransform3D, Box<dyn std::error::Error>> {
     let model = build_survey_time_depth_transform(&request)?;
     Ok(model)
+}
+
+pub fn build_paired_horizon_transform(
+    store_path: String,
+    time_horizon_ids: Vec<String>,
+    depth_horizon_ids: Vec<String>,
+    output_id: Option<String>,
+    output_name: Option<String>,
+) -> Result<SurveyTimeDepthTransform3D, Box<dyn std::error::Error>> {
+    let model = build_survey_time_depth_transform_from_horizon_pairs(
+        &store_path,
+        &time_horizon_ids,
+        &depth_horizon_ids,
+        output_id,
+        output_name,
+        &vec![
+            "Built directly from paired canonical TWT and depth horizons.".to_string(),
+            "Recommended when synthetic or interpreted horizon pairs define the target structural geometry more accurately than sparse Vint control profiles alone.".to_string(),
+        ],
+    )?;
+    Ok(model)
+}
+
+pub fn convert_horizon_domain(
+    store_path: String,
+    source_horizon_id: String,
+    transform_id: String,
+    target_domain: TimeDepthDomain,
+    output_id: Option<String>,
+    output_name: Option<String>,
+) -> Result<seis_runtime::ImportedHorizonDescriptor, Box<dyn std::error::Error>> {
+    let descriptor = convert_horizon_vertical_domain_with_transform(
+        &store_path,
+        &source_horizon_id,
+        &transform_id,
+        target_domain,
+        output_id,
+        output_name,
+    )?;
+    Ok(descriptor)
 }
 
 pub fn import_velocity_functions_model(
@@ -1665,7 +1950,22 @@ fn prepare_processing_output_store(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::Array3;
+    use seis_runtime::{
+        CoordinateReferenceBinding, CoordinateReferenceDescriptor, CoordinateReferenceSource,
+        DatasetKind, GeometryProvenance, HeaderFieldSpec, SourceIdentity, SurveyGridTransform,
+        SurveySpatialAvailability, SurveySpatialDescriptor, TbvolManifest, VolumeAxes,
+        VolumeMetadata, create_tbvol_store,
+    };
+    use serde_json::Value;
     use tempfile::tempdir;
+
+    fn decode_f32le(bytes: &[u8]) -> Vec<f32> {
+        bytes
+            .chunks_exact(std::mem::size_of::<f32>())
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect()
+    }
 
     fn legacy_tbvol_fixture_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-data/f3.tbvol")
@@ -1673,6 +1973,132 @@ mod tests {
 
     fn zarr_fixture_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-data/survey.zarr")
+    }
+
+    fn create_test_store(root: &Path) {
+        let manifest = TbvolManifest::new(
+            VolumeMetadata {
+                kind: DatasetKind::Source,
+                store_id: String::from("store-demo"),
+                source: SourceIdentity {
+                    source_path: PathBuf::from("demo.segy"),
+                    file_size: 0,
+                    trace_count: 4,
+                    samples_per_trace: 4,
+                    sample_interval_us: 10_000,
+                    sample_format_code: 1,
+                    sample_data_fidelity: seis_runtime::SampleDataFidelity {
+                        source_sample_type: "ibm32".to_string(),
+                        working_sample_type: "f32".to_string(),
+                        conversion: seis_runtime::SampleDataConversionKind::Cast,
+                        preservation: seis_runtime::SampleValuePreservation::PotentiallyLossy,
+                        notes: Vec::new(),
+                    },
+                    endianness: String::from("big"),
+                    revision_raw: 0,
+                    fixed_length_trace_flag_raw: 1,
+                    extended_textual_headers: 0,
+                    geometry: GeometryProvenance {
+                        inline_field: HeaderFieldSpec {
+                            name: String::from("INLINE_3D"),
+                            start_byte: 189,
+                            value_type: String::from("I32"),
+                        },
+                        crossline_field: HeaderFieldSpec {
+                            name: String::from("CROSSLINE_3D"),
+                            start_byte: 193,
+                            value_type: String::from("I32"),
+                        },
+                        third_axis_field: None,
+                    },
+                    regularization: None,
+                },
+                shape: [2, 2, 4],
+                axes: VolumeAxes {
+                    ilines: vec![100.0, 101.0],
+                    xlines: vec![200.0, 201.0],
+                    sample_axis_ms: vec![0.0, 10.0, 20.0, 30.0],
+                },
+                coordinate_reference_binding: Some(CoordinateReferenceBinding {
+                    detected: Some(CoordinateReferenceDescriptor {
+                        id: Some(String::from("EPSG:32631")),
+                        name: Some(String::from("WGS 84 / UTM zone 31N")),
+                        geodetic_datum: None,
+                        unit: Some(String::from("metre")),
+                    }),
+                    effective: Some(CoordinateReferenceDescriptor {
+                        id: Some(String::from("EPSG:32631")),
+                        name: Some(String::from("WGS 84 / UTM zone 31N")),
+                        geodetic_datum: None,
+                        unit: Some(String::from("metre")),
+                    }),
+                    source: CoordinateReferenceSource::Header,
+                    notes: Vec::new(),
+                }),
+                spatial: Some(SurveySpatialDescriptor {
+                    coordinate_reference: Some(CoordinateReferenceDescriptor {
+                        id: Some(String::from("EPSG:32631")),
+                        name: Some(String::from("WGS 84 / UTM zone 31N")),
+                        geodetic_datum: None,
+                        unit: Some(String::from("metre")),
+                    }),
+                    grid_transform: Some(SurveyGridTransform {
+                        origin: ProjectedPoint2 {
+                            x: 1_000.0,
+                            y: 2_000.0,
+                        },
+                        inline_basis: seis_runtime::ProjectedVector2 { x: 10.0, y: 0.0 },
+                        xline_basis: seis_runtime::ProjectedVector2 { x: 0.0, y: 20.0 },
+                    }),
+                    footprint: None,
+                    availability: SurveySpatialAvailability::Available,
+                    notes: Vec::new(),
+                }),
+                created_by: String::from("test"),
+                processing_lineage: None,
+                segy_export: None,
+            },
+            [2, 2, 4],
+            false,
+        );
+        create_tbvol_store(root, manifest, &Array3::<f32>::zeros((2, 2, 4)), None)
+            .expect("create store");
+    }
+
+    fn write_constant_horizon_xyz(path: &Path, value: f32) {
+        let payload = [
+            format!("1000 2000 {value}"),
+            format!("1000 2020 {value}"),
+            format!("1010 2000 {value}"),
+            format!("1010 2020 {value}"),
+        ]
+        .join("\n");
+        fs::write(path, payload).expect("write horizon xyz");
+    }
+
+    fn load_stored_horizon_grid(root: &Path, horizon_id: &str) -> (Vec<f32>, Vec<u8>) {
+        let manifest_path = root.join("horizons").join("manifest.json");
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("read horizons manifest"))
+                .expect("parse horizons manifest");
+        let entry = manifest["horizons"]
+            .as_array()
+            .expect("horizon entries")
+            .iter()
+            .find(|entry| entry["id"].as_str() == Some(horizon_id))
+            .expect("horizon manifest entry");
+        let values_file = entry["values_file"]
+            .as_str()
+            .expect("horizon values file name");
+        let validity_file = entry["validity_file"]
+            .as_str()
+            .expect("horizon validity file name");
+        let values = decode_f32le(
+            &fs::read(root.join("horizons").join(values_file)).expect("read horizon values"),
+        );
+        let validity =
+            fs::read(root.join("horizons").join(validity_file)).expect("read horizon validity");
+        (values, validity)
     }
 
     #[test]
@@ -1767,5 +2193,184 @@ mod tests {
         assert_eq!(parsed.profiles[1].samples.len(), 2);
         assert_eq!(parsed.profiles[0].samples[0].vint_m_per_s, Some(1500.0));
         assert_eq!(parsed.profiles[0].samples[1].depth_m, Some(830.19));
+    }
+
+    #[test]
+    fn import_velocity_functions_model_builds_depth_transform_end_to_end() {
+        let temp = tempdir().expect("temp dir");
+        let store = temp.path().join("survey.tbvol");
+        create_test_store(&store);
+
+        let input = temp.path().join("Velocity_functions.txt");
+        std::fs::write(
+            &input,
+            [
+                "CDP-X       CDP-Y   Time(ms)  Vrms    Vint    Vavg   Depth(m)",
+                "1000 2000 0 2000 2000 2000 0",
+                "1000 2000 10 2000 2000 2000 10",
+                "1000 2000 20 2000 2000 2000 20",
+                "1000 2000 30 2000 2000 2000 30",
+                "1000 2020 0 2000 2000 2000 0",
+                "1000 2020 10 2000 2000 2000 10",
+                "1000 2020 20 2000 2000 2000 20",
+                "1000 2020 30 2000 2000 2000 30",
+                "1010 2000 0 2000 2000 2000 0",
+                "1010 2000 10 2000 2000 2000 10",
+                "1010 2000 20 2000 2000 2000 20",
+                "1010 2000 30 2000 2000 2000 30",
+                "1010 2020 0 2000 2000 2000 0",
+                "1010 2020 10 2000 2000 2000 10",
+                "1010 2020 20 2000 2000 2000 20",
+                "1010 2020 30 2000 2000 2000 30",
+            ]
+            .join("\n"),
+        )
+        .expect("write velocity functions");
+
+        let response = import_velocity_functions_model(
+            store.display().to_string(),
+            input.display().to_string(),
+            VelocityQuantityKind::Interval,
+        )
+        .expect("import velocity model");
+
+        assert_eq!(response.profile_count, 4);
+        assert_eq!(response.sample_count, 16);
+        assert_eq!(response.model.inline_count, 2);
+        assert_eq!(response.model.xline_count, 2);
+        assert_eq!(response.model.depth_unit, "m");
+
+        let display = resolved_section_display_view(
+            &store,
+            seis_runtime::SectionAxis::Inline,
+            0,
+            TimeDepthDomain::Depth,
+            Some(&VelocityFunctionSource::VelocityAssetReference {
+                asset_id: response.model.id.clone(),
+            }),
+            Some(VelocityQuantityKind::Interval),
+            false,
+        )
+        .expect("resolve depth display");
+        let depth_axis = decode_f32le(&display.section.sample_axis_f32le);
+        assert_eq!(depth_axis.len(), 4);
+        for (actual, expected) in depth_axis.iter().zip([0.0_f32, 10.0, 20.0, 30.0]) {
+            assert!(
+                (actual - expected).abs() <= 1e-4,
+                "expected {expected}, got {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn paired_horizon_cli_wrappers_materialize_matching_derived_horizons() {
+        let temp = tempdir().expect("temp dir");
+        let store = temp.path().join("survey.tbvol");
+        create_test_store(&store);
+
+        let anchor_time_top = temp.path().join("anchor_time_top.xyz");
+        let anchor_time_base = temp.path().join("anchor_time_base.xyz");
+        let anchor_depth_top = temp.path().join("anchor_depth_top.xyz");
+        let anchor_depth_base = temp.path().join("anchor_depth_base.xyz");
+        let mid_time = temp.path().join("mid_time.xyz");
+        let mid_depth = temp.path().join("mid_depth.xyz");
+
+        write_constant_horizon_xyz(&anchor_time_top, 10.0);
+        write_constant_horizon_xyz(&anchor_time_base, 20.0);
+        write_constant_horizon_xyz(&anchor_depth_top, 12.0);
+        write_constant_horizon_xyz(&anchor_depth_base, 32.0);
+        write_constant_horizon_xyz(&mid_time, 15.0);
+        write_constant_horizon_xyz(&mid_depth, 22.0);
+
+        let imported_time = import_horizon_xyz(ImportHorizonXyzRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            store_path: store.display().to_string(),
+            input_paths: vec![
+                anchor_time_top.display().to_string(),
+                anchor_time_base.display().to_string(),
+                mid_time.display().to_string(),
+            ],
+            vertical_domain: Some(TimeDepthDomain::Time),
+            vertical_unit: Some(String::from("ms")),
+            source_coordinate_reference_id: None,
+            source_coordinate_reference_name: None,
+            assume_same_as_survey: true,
+        })
+        .expect("import time horizons")
+        .imported;
+        let imported_depth = import_horizon_xyz(ImportHorizonXyzRequest {
+            schema_version: IPC_SCHEMA_VERSION,
+            store_path: store.display().to_string(),
+            input_paths: vec![
+                anchor_depth_top.display().to_string(),
+                anchor_depth_base.display().to_string(),
+                mid_depth.display().to_string(),
+            ],
+            vertical_domain: Some(TimeDepthDomain::Depth),
+            vertical_unit: Some(String::from("m")),
+            source_coordinate_reference_id: None,
+            source_coordinate_reference_name: None,
+            assume_same_as_survey: true,
+        })
+        .expect("import depth horizons")
+        .imported;
+
+        let transform = build_paired_horizon_transform(
+            store.display().to_string(),
+            vec![imported_time[0].id.clone(), imported_time[1].id.clone()],
+            vec![imported_depth[0].id.clone(), imported_depth[1].id.clone()],
+            Some(String::from("paired-wrapper-transform")),
+            Some(String::from("Paired Wrapper Transform")),
+        )
+        .expect("build paired transform");
+        assert_eq!(transform.id, "paired-wrapper-transform");
+        assert_eq!(
+            transform.source_kind,
+            TimeDepthTransformSourceKind::HorizonLayerModel
+        );
+
+        let converted_depth = convert_horizon_domain(
+            store.display().to_string(),
+            imported_time[2].id.clone(),
+            transform.id.clone(),
+            TimeDepthDomain::Depth,
+            Some(String::from("mid_time_to_depth")),
+            Some(String::from("Mid Time To Depth")),
+        )
+        .expect("convert time horizon to depth");
+        let converted_time = convert_horizon_domain(
+            store.display().to_string(),
+            imported_depth[2].id.clone(),
+            transform.id.clone(),
+            TimeDepthDomain::Time,
+            Some(String::from("mid_depth_to_time")),
+            Some(String::from("Mid Depth To Time")),
+        )
+        .expect("convert depth horizon to time");
+
+        assert_eq!(converted_depth.id, "mid_time_to_depth");
+        assert_eq!(converted_depth.vertical_domain, TimeDepthDomain::Depth);
+        assert_eq!(converted_depth.vertical_unit, "m");
+        assert_eq!(converted_time.id, "mid_depth_to_time");
+        assert_eq!(converted_time.vertical_domain, TimeDepthDomain::Time);
+        assert_eq!(converted_time.vertical_unit, "ms");
+
+        let (depth_values, depth_validity) = load_stored_horizon_grid(&store, "mid_time_to_depth");
+        let (time_values, time_validity) = load_stored_horizon_grid(&store, "mid_depth_to_time");
+
+        assert_eq!(depth_validity, vec![1, 1, 1, 1]);
+        assert_eq!(time_validity, vec![1, 1, 1, 1]);
+        for actual in &depth_values {
+            assert!(
+                (actual - 22.0).abs() <= 1e-4,
+                "expected 22.0 m, got {actual}"
+            );
+        }
+        for actual in &time_values {
+            assert!(
+                (actual - 15.0).abs() <= 1e-4,
+                "expected 15.0 ms, got {actual}"
+            );
+        }
     }
 }

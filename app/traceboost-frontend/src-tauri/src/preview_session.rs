@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use seis_contracts_interop::{
-    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse, IPC_SCHEMA_VERSION,
+use seis_contracts_operations::processing_ops::{
+    PreviewTraceLocalProcessingRequest, PreviewTraceLocalProcessingResponse,
 };
+use seis_contracts_operations::resolve::IPC_SCHEMA_VERSION;
 use seis_runtime::{PreviewSectionPrefixReuse, PreviewSectionSession, PreviewView};
 use traceboost_app::preview_processing_label;
 

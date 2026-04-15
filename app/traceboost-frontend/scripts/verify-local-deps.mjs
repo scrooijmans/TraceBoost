@@ -12,9 +12,29 @@ const requiredPaths = [
     fix: "Generate the contracts package if it is missing."
   },
   {
-    label: "@geoviz/svelte",
-    path: path.resolve(frontendRoot, "../../../geoviz/packages/svelte/package.json"),
-    fix: "Clone the sibling geoviz repository at ../geoviz if it is missing."
+    label: "@ophiolite/charts",
+    path: path.resolve(frontendRoot, "../../../ophiolite/charts/packages/svelte/package.json"),
+    fix: "Clone the sibling ophiolite repository at ../ophiolite if it is missing."
+  },
+  {
+    label: "@ophiolite/charts-data-models",
+    path: path.resolve(frontendRoot, "../../../ophiolite/charts/packages/data-models/package.json"),
+    fix: "Clone the sibling ophiolite repository at ../ophiolite if it is missing."
+  },
+  {
+    label: "@ophiolite/charts-core",
+    path: path.resolve(frontendRoot, "../../../ophiolite/charts/packages/chart-core/package.json"),
+    fix: "Clone the sibling ophiolite repository at ../ophiolite if it is missing."
+  },
+  {
+    label: "@ophiolite/charts-domain",
+    path: path.resolve(frontendRoot, "../../../ophiolite/charts/packages/domain-geoscience/package.json"),
+    fix: "Clone the sibling ophiolite repository at ../ophiolite if it is missing."
+  },
+  {
+    label: "@ophiolite/charts-renderer",
+    path: path.resolve(frontendRoot, "../../../ophiolite/charts/packages/renderer/package.json"),
+    fix: "Clone the sibling ophiolite repository at ../ophiolite if it is missing."
   },
   {
     label: "@ophiolite/contracts",

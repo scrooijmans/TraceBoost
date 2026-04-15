@@ -216,16 +216,17 @@
   .control-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
-    padding: 10px;
+    gap: var(--ui-panel-gap);
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
+    padding: var(--ui-panel-padding);
   }
 
   .control-header {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--ui-space-5);
     align-items: flex-start;
   }
 
@@ -233,19 +234,19 @@
     margin: 0;
     font-size: 12px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .control-header p {
     margin: 2px 0 0;
     font-size: 11px;
-    color: #777;
+    color: var(--text-muted);
   }
 
   .control-grid {
     display: grid;
     grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
-    gap: 10px;
+    gap: var(--ui-space-4);
     align-items: end;
   }
 
@@ -253,7 +254,7 @@
   .library-row,
   .mode-row {
     display: flex;
-    gap: 5px;
+    gap: var(--ui-space-1);
     flex-wrap: wrap;
     align-items: center;
   }
@@ -261,21 +262,22 @@
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--ui-field-gap);
   }
 
   .field span {
     font-size: 11px;
-    color: #777;
+    color: var(--text-dim);
   }
 
   .field input,
   .library-row select {
-    background: #252525;
-    border: 1px solid #333;
-    border-radius: 2px;
-    color: #d0d0d0;
-    padding: 6px 8px;
+    background: #fff;
+    border: 1px solid var(--app-border-strong);
+    border-radius: var(--ui-radius-md);
+    color: var(--text-primary);
+    min-height: var(--ui-input-height);
+    padding: 0 var(--ui-space-3);
     font: inherit;
     font-size: 12px;
   }
@@ -286,58 +288,61 @@
   }
 
   .chip {
-    border: 1px solid #333;
-    background: #252525;
-    color: #aaa;
-    border-radius: 2px;
-    padding: 4px 8px;
+    border: 1px solid var(--app-border-strong);
+    background: var(--surface-subtle);
+    color: var(--text-primary);
+    border-radius: var(--ui-radius-md);
+    min-height: var(--ui-button-height);
+    padding: 0 var(--ui-button-padding-x);
     font-size: 11px;
     cursor: pointer;
   }
 
   .chip:hover:not(:disabled) {
-    background: #2e2e2e;
-    color: #d0d0d0;
+    background: var(--surface-bg);
+    color: var(--text-primary);
   }
 
   .chip.primary {
-    border-color: rgba(74, 222, 128, 0.4);
-    color: #d8ffe5;
+    border-color: var(--accent-border);
+    background: var(--accent-bg);
+    color: var(--accent-text);
   }
 
   .chip.danger {
-    border-color: rgba(248, 113, 113, 0.3);
-    color: #f2a3a3;
+    border-color: #e0b7b7;
+    color: #a74646;
   }
 
   .chip.active {
-    background: rgba(74, 222, 128, 0.08);
-    border-color: rgba(74, 222, 128, 0.42);
-    color: #d8ffe5;
+    background: #e8f3fb;
+    border-color: #b0d4ee;
+    color: #1f5577;
   }
 
   .output-settings {
-    border: 1px solid #2f2f2f;
-    background: #171717;
-    padding: 8px;
+    border: 1px solid var(--app-border);
+    background: var(--surface-bg);
+    border-radius: var(--ui-radius-lg);
+    padding: var(--ui-space-3);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--ui-space-3);
   }
 
   .output-settings-header {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--ui-space-3);
     align-items: center;
-    color: #9aa;
+    color: var(--text-muted);
     font-size: 11px;
   }
 
   .path-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 6px;
+    gap: var(--ui-space-2);
   }
 
   .path-row input {
@@ -345,16 +350,16 @@
   }
 
   small {
-    color: #666;
+    color: var(--text-muted);
     font-size: 10px;
     line-height: 1.4;
   }
 
   .checkbox-row {
     display: flex;
-    gap: 8px;
+    gap: var(--ui-space-3);
     align-items: center;
-    color: #999;
+    color: var(--text-muted);
     font-size: 11px;
   }
 

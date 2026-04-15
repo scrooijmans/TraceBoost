@@ -4,7 +4,7 @@
 
 This note is for senior software engineers working on seismic runtimes, local-first interpretation applications, and subsurface data platforms that need to place seismic surveys and wells correctly on a map.
 
-It documents the geospatial architecture now implemented across `TraceBoost`, `Ophiolite`, and `geoviz`, why that architecture is a good fit for this stack, what background problems it is trying to solve, and how it compares to several widely used open-source geospatial systems and libraries.
+It documents the geospatial architecture now implemented across `TraceBoost`, `Ophiolite`, and `Ophiolite Charts`, why that architecture is a good fit for this stack, what background problems it is trying to solve, and how it compares to several widely used open-source geospatial systems and libraries.
 
 This is not a user guide. It is an engineering writeup about coordinate-reference-system ownership, survey-map resolution, reprojection policy, cache boundaries, and why those choices are more appropriate for this product than several tempting alternatives.
 
@@ -49,7 +49,7 @@ The implemented design is:
 
 - `Ophiolite` owns native CRS, effective CRS, reprojection, transform diagnostics, and derived display geometry.
 - `TraceBoost` owns only workspace display CRS and the user workflow around overrides and warnings.
-- `geoviz` stays CRS-agnostic and renders resolved geometry only.
+- `Ophiolite Charts` stays CRS-agnostic and renders resolved geometry only.
 
 More concretely:
 
@@ -129,7 +129,7 @@ It is tempting to let the map widget infer coordinates, remember overrides, or d
 
 That is the wrong boundary.
 
-`geoviz` should not need to know:
+`Ophiolite Charts` should not need to know:
 
 - whether a CRS was detected or overridden
 - whether a transform was degraded
@@ -223,7 +223,7 @@ That is the wrong trade.
 
 ## Why reprojection belongs in Ophiolite
 
-Another alternative was to let TraceBoost or `geoviz` do reprojection directly.
+Another alternative was to let TraceBoost or `Ophiolite Charts` do reprojection directly.
 
 That was also rejected.
 
@@ -492,7 +492,7 @@ Not because it is the most abstract design, and not because it copies any one ex
 
 - `Ophiolite` is the canonical owner of asset geospatial truth and coordinate operations
 - `TraceBoost` is the owner of workspace display intent and user correction workflow
-- `geoviz` is the owner of rendering, not geodesy
+- `Ophiolite Charts` is the owner of rendering, not geodesy
 
 The resulting model is strong where it needs to be strong:
 

@@ -28,7 +28,7 @@ The approved architecture is:
   - owns product orchestration and desktop UX
   - owns post-stack product gating
   - owns pipeline editing and spectrum-inspector UI
-- `geoviz`
+- `Ophiolite Charts`
   - remains outside milestone 1
   - may later receive a reusable chart component only if a second product needs the same visualization
 

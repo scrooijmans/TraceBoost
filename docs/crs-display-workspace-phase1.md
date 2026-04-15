@@ -21,7 +21,7 @@ TraceBoost does not become the owner of native CRS truth. It owns:
 
 Current `WorkspaceSession` and `SaveWorkspaceSessionRequest` are the correct persistence boundary for the display CRS.
 
-Phase-1 target in `contracts/seis-contracts-interop/src/lib.rs`:
+Phase-1 target in `contracts/seis-contracts-operations/src/workspace.rs`:
 
 ```rust
 pub struct WorkspaceSession {
@@ -77,7 +77,7 @@ pub struct SetDatasetNativeCoordinateReferenceResponse {
 }
 ```
 
-This should be added to the interop contract layer if TraceBoost owns the IPC boundary for it.
+This should be added to the operations contract layer if TraceBoost owns the IPC boundary for it.
 
 The UI should call this operation instead of patching registry/session files directly.
 
@@ -157,7 +157,7 @@ Native-space-only cache entries may remain valid across display-CRS changes.
 ## What Phase 1 Explicitly Does Not Do
 
 - no app-side reprojection logic
-- no geoviz-side CRS reasoning
+- no ophiolite-charts-side CRS reasoning
 - no automatic adoption of display CRS as native CRS
 - no registry-only CRS overrides
 

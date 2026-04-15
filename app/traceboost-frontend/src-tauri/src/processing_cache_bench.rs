@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use seis_runtime::{
-    materialize_processing_volume, upscale_store, InterpMethod, MaterializeOptions,
-    ProcessingOperation, TraceLocalProcessingStep, UpscaleOptions,
+    InterpMethod, MaterializeOptions, ProcessingOperation, TraceLocalProcessingStep,
+    UpscaleOptions, materialize_processing_volume, upscale_store,
 };
 
 const BENCH_ITERATIONS: usize = 3;

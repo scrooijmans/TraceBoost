@@ -1,22 +1,23 @@
+mod operation_catalog;
+
 use std::path::PathBuf;
 
-use traceboost_app::{
-    export_dataset_segy, export_dataset_zarr, import_dataset, import_horizon_xyz,
-    load_section_horizons, open_dataset_summary, preflight_dataset,
-};
+use traceboost_app::{PrepareSurveyDemoRequest, TraceBoostWorkflowService, import_horizon_xyz};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use seis_contracts_interop::{
-    ExportSegyRequest, IPC_SCHEMA_VERSION, ImportDatasetRequest, ImportHorizonXyzRequest,
-    LoadSectionHorizonsRequest, OpenDatasetRequest, SegyGeometryOverride, SegyHeaderField,
-    SegyHeaderValueType, SurveyPreflightRequest,
+use operation_catalog::operation_catalog;
+use seis_contracts_operations::datasets::OpenDatasetRequest;
+use seis_contracts_operations::import_ops::{
+    ExportSegyRequest, ImportDatasetRequest, ImportHorizonXyzRequest, LoadSectionHorizonsRequest,
+    SegyGeometryOverride, SegyHeaderField, SegyHeaderValueType, SurveyPreflightRequest,
+};
+use seis_contracts_operations::resolve::{
+    IPC_SCHEMA_VERSION, ResolveSurveyMapRequest, SetDatasetNativeCoordinateReferenceRequest,
 };
 use seis_runtime::{
-    IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, ValidationOptions, ingest_segy,
-    inspect_segy, open_store, preflight_segy, run_validation,
+    IngestOptions, SeisGeometryOptions, SparseSurveyPolicy, TimeDepthDomain, ValidationOptions,
+    VelocityQuantityKind, ingest_segy, inspect_segy, open_store, preflight_segy, run_validation,
 };
-use serde::Serialize;
-
 #[derive(Debug, Parser)]
 #[command(name = "traceboost-app")]
 #[command(about = "Thin app-side shell for TraceBoost, backed by the in-repo runtime layer")]
@@ -28,6 +29,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     BackendInfo,
+    OperationCatalog,
     Inspect {
         input: PathBuf,
     },
@@ -109,6 +111,18 @@ enum Command {
     OpenDataset {
         store: PathBuf,
     },
+    SetNativeCoordinateReference {
+        store: PathBuf,
+        #[arg(long)]
+        coordinate_reference_id: Option<String>,
+        #[arg(long)]
+        coordinate_reference_name: Option<String>,
+    },
+    ResolveSurveyMap {
+        store: PathBuf,
+        #[arg(long)]
+        display_coordinate_reference_id: Option<String>,
+    },
     ExportSegy {
         store: PathBuf,
         output: PathBuf,
@@ -123,6 +137,10 @@ enum Command {
     },
     ImportHorizons {
         store: PathBuf,
+        #[arg(long, value_enum)]
+        vertical_domain: Option<VerticalDomainArg>,
+        #[arg(long)]
+        vertical_unit: Option<String>,
         #[arg(long)]
         source_coordinate_reference_id: Option<String>,
         #[arg(long)]
@@ -143,6 +161,47 @@ enum Command {
         axis: SectionAxisArg,
         index: usize,
     },
+    LoadVelocityModels {
+        store: PathBuf,
+    },
+    EnsureDemoSurveyTimeDepthTransform {
+        store: PathBuf,
+    },
+    PrepareSurveyDemo {
+        store: PathBuf,
+        #[arg(long)]
+        display_coordinate_reference_id: Option<String>,
+    },
+    BuildPairedHorizonTransform {
+        store: PathBuf,
+        #[arg(long, value_delimiter = ',')]
+        time_horizon_ids: Vec<String>,
+        #[arg(long, value_delimiter = ',')]
+        depth_horizon_ids: Vec<String>,
+        #[arg(long)]
+        output_id: Option<String>,
+        #[arg(long)]
+        output_name: Option<String>,
+    },
+    ConvertHorizonDomain {
+        store: PathBuf,
+        #[arg(long)]
+        source_horizon_id: String,
+        #[arg(long)]
+        transform_id: String,
+        #[arg(long, value_enum)]
+        target_domain: VerticalDomainArg,
+        #[arg(long)]
+        output_id: Option<String>,
+        #[arg(long)]
+        output_name: Option<String>,
+    },
+    ImportVelocityFunctionsModel {
+        store: PathBuf,
+        input: PathBuf,
+        #[arg(long, value_enum, default_value_t = VelocityKindArg::Interval)]
+        velocity_kind: VelocityKindArg,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -157,27 +216,31 @@ enum SectionAxisArg {
     Xline,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct BackendInfo {
-    backend_repo_hint: &'static str,
-    backend_local_path_hint: &'static str,
-    current_default_method_policy: &'static str,
-    current_geometry_policy: &'static str,
-    current_scope: &'static str,
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum VelocityKindArg {
+    Interval,
+    Average,
+    Rms,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum VerticalDomainArg {
+    Time,
+    Depth,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let workflows = TraceBoostWorkflowService;
     match cli.command {
         Command::BackendInfo => {
-            let info = BackendInfo {
-                backend_repo_hint: "monorepo: runtime/",
-                backend_local_path_hint: "../../runtime",
-                current_default_method_policy: "keep linear as default unless a stronger method wins on every validation dataset",
-                current_geometry_policy: "dense surveys ingest directly; sparse regular post-stack surveys require explicit regularization; duplicate-heavy surveys still stop for review",
-                current_scope: "monorepo app shell with preflight and ingest routing; Tauri app not started yet",
-            };
-            println!("{}", serde_json::to_string_pretty(&info)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&workflows.backend_info())?
+            );
+        }
+        Command::OperationCatalog => {
+            println!("{}", serde_json::to_string_pretty(operation_catalog())?);
         }
         Command::Inspect { input } => {
             println!("{}", serde_json::to_string_pretty(&inspect_segy(input)?)?);
@@ -260,7 +323,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             third_axis_byte,
             third_axis_type,
         } => {
-            let response = preflight_dataset(SurveyPreflightRequest {
+            let response = workflows.preflight_dataset(SurveyPreflightRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 input_path: input.to_string_lossy().into_owned(),
                 geometry_override: build_geometry_override(
@@ -285,7 +348,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             third_axis_type,
             overwrite_existing,
         } => {
-            let response = import_dataset(ImportDatasetRequest {
+            let response = workflows.import_dataset(ImportDatasetRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 input_path: input.to_string_lossy().into_owned(),
                 output_store_path: output.to_string_lossy().into_owned(),
@@ -302,9 +365,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::OpenDataset { store } => {
-            let response = open_dataset_summary(OpenDatasetRequest {
+            let response = workflows.open_dataset_summary(OpenDatasetRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 store_path: store.to_string_lossy().into_owned(),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::SetNativeCoordinateReference {
+            store,
+            coordinate_reference_id,
+            coordinate_reference_name,
+        } => {
+            let response = workflows.set_dataset_native_coordinate_reference(
+                SetDatasetNativeCoordinateReferenceRequest {
+                    schema_version: IPC_SCHEMA_VERSION,
+                    store_path: store.to_string_lossy().into_owned(),
+                    coordinate_reference_id,
+                    coordinate_reference_name,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ResolveSurveyMap {
+            store,
+            display_coordinate_reference_id,
+        } => {
+            let response = workflows.resolve_survey_map(ResolveSurveyMapRequest {
+                schema_version: IPC_SCHEMA_VERSION,
+                store_path: store.to_string_lossy().into_owned(),
+                display_coordinate_reference_id,
             })?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
@@ -313,7 +402,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             overwrite_existing,
         } => {
-            let response = export_dataset_segy(ExportSegyRequest {
+            let response = workflows.export_dataset_segy(ExportSegyRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 store_path: store.to_string_lossy().into_owned(),
                 output_path: output.to_string_lossy().into_owned(),
@@ -326,7 +415,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             overwrite_existing,
         } => {
-            let response = export_dataset_zarr(
+            let response = workflows.export_dataset_zarr(
                 store.to_string_lossy().into_owned(),
                 output.to_string_lossy().into_owned(),
                 overwrite_existing,
@@ -335,6 +424,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::ImportHorizons {
             store,
+            vertical_domain,
+            vertical_unit,
             source_coordinate_reference_id,
             source_coordinate_reference_name,
             assume_same_as_survey,
@@ -347,6 +438,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .into_iter()
                     .map(|path| path.to_string_lossy().into_owned())
                     .collect(),
+                vertical_domain: vertical_domain.map(Into::into),
+                vertical_unit,
                 source_coordinate_reference_id,
                 source_coordinate_reference_name,
                 assume_same_as_survey,
@@ -358,13 +451,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&view)?);
         }
         Command::ViewSectionHorizons { store, axis, index } => {
-            let response = load_section_horizons(LoadSectionHorizonsRequest {
+            let response = workflows.load_section_horizons(LoadSectionHorizonsRequest {
                 schema_version: IPC_SCHEMA_VERSION,
                 store_path: store.to_string_lossy().into_owned(),
                 axis: axis.into(),
                 index,
             })?;
             println!("{}", serde_json::to_string(&response)?);
+        }
+        Command::LoadVelocityModels { store } => {
+            let response = workflows.load_velocity_models(store.to_string_lossy().into_owned())?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::EnsureDemoSurveyTimeDepthTransform { store } => {
+            let response = workflows
+                .ensure_demo_survey_time_depth_transform(store.to_string_lossy().into_owned())?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::PrepareSurveyDemo {
+            store,
+            display_coordinate_reference_id,
+        } => {
+            let response = workflows.prepare_survey_demo(PrepareSurveyDemoRequest {
+                store_path: store.to_string_lossy().into_owned(),
+                display_coordinate_reference_id,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::BuildPairedHorizonTransform {
+            store,
+            time_horizon_ids,
+            depth_horizon_ids,
+            output_id,
+            output_name,
+        } => {
+            let response = workflows.build_paired_horizon_transform(
+                store.to_string_lossy().into_owned(),
+                time_horizon_ids,
+                depth_horizon_ids,
+                output_id,
+                output_name,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ConvertHorizonDomain {
+            store,
+            source_horizon_id,
+            transform_id,
+            target_domain,
+            output_id,
+            output_name,
+        } => {
+            let response = workflows.convert_horizon_domain(
+                store.to_string_lossy().into_owned(),
+                source_horizon_id,
+                transform_id,
+                target_domain.into(),
+                output_id,
+                output_name,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ImportVelocityFunctionsModel {
+            store,
+            input,
+            velocity_kind,
+        } => {
+            let response = workflows.import_velocity_functions_model(
+                store.to_string_lossy().into_owned(),
+                input.to_string_lossy().into_owned(),
+                velocity_kind.into(),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
         }
     }
 
@@ -376,6 +534,25 @@ impl From<SectionAxisArg> for seis_runtime::SectionAxis {
         match value {
             SectionAxisArg::Inline => Self::Inline,
             SectionAxisArg::Xline => Self::Xline,
+        }
+    }
+}
+
+impl From<VelocityKindArg> for VelocityQuantityKind {
+    fn from(value: VelocityKindArg) -> Self {
+        match value {
+            VelocityKindArg::Interval => Self::Interval,
+            VelocityKindArg::Average => Self::Average,
+            VelocityKindArg::Rms => Self::Rms,
+        }
+    }
+}
+
+impl From<VerticalDomainArg> for TimeDepthDomain {
+    fn from(value: VerticalDomainArg) -> Self {
+        match value {
+            VerticalDomainArg::Time => Self::Time,
+            VerticalDomainArg::Depth => Self::Depth,
         }
     }
 }

@@ -63,6 +63,7 @@ export type { SectionHorizonOverlayView } from "./SectionHorizonOverlayView";
 export type { ResolvedSectionDisplayView } from "./ResolvedSectionDisplayView";
 export type { GatherView } from "./GatherView";
 export type { PreviewView } from "./PreviewView";
+export type { ProjectSurveyMapRequestDto } from "./ProjectSurveyMapRequestDto";
 export type { GatherPreviewView } from "./GatherPreviewView";
 export type { SectionViewport } from "./SectionViewport";
 export type { GatherViewport } from "./GatherViewport";

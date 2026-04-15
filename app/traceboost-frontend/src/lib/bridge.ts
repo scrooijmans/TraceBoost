@@ -9,6 +9,7 @@ import type {
   GetProcessingJobResponse,
   ImportDatasetResponse,
   ImportHorizonXyzResponse,
+  ImportedHorizonDescriptor,
   LoadVelocityModelsResponse,
   LoadWorkspaceStateResponse,
   ListPipelinePresetsResponse,
@@ -47,9 +48,13 @@ import type {
 import { IPC_SCHEMA_VERSION as SCHEMA_VERSION } from "@traceboost/seis-contracts";
 import type {
   CheckshotVspObservationSet1D,
+  ResolvedSurveyMapSourceDto,
   ManualTimeDepthPickSet1D,
   ResolveSectionWellOverlaysResponse,
+  SurveyMapTransformStatusDto,
   SectionWellOverlayRequestDto,
+  WellTieAnalysis1D,
+  WellTieObservationSet1D,
   WellTimeDepthAuthoredModel1D,
   WellTimeDepthModel1D
 } from "@ophiolite/contracts";
@@ -104,6 +109,23 @@ export interface HorizonImportCoordinateReferenceOptions {
   assumeSameAsSurvey?: boolean;
 }
 
+export type ProjectDisplayCoordinateReference =
+  | {
+      kind: "native_engineering";
+    }
+  | {
+      kind: "coordinate_reference_id";
+      coordinateReferenceId: string;
+    };
+
+export interface ProjectGeospatialSettings {
+  schemaVersion: number;
+  displayCoordinateReference: ProjectDisplayCoordinateReference;
+  source: string;
+  createdAtUnixS: number;
+  updatedAtUnixS: number;
+}
+
 export interface ExportZarrResponse {
   store_path: string;
   output_path: string;
@@ -153,16 +175,31 @@ export interface ProjectWellTimeDepthModelDescriptor {
 
 export interface ProjectWellTimeDepthObservationDescriptor {
   assetId: string;
-  assetKind: "checkshot_vsp_observation_set" | "manual_time_depth_pick_set";
+  assetKind:
+    | "checkshot_vsp_observation_set"
+    | "manual_time_depth_pick_set"
+    | "well_tie_observation_set";
   wellId: string;
   wellboreId: string;
   status: string;
   name: string;
-  depthReference: CheckshotVspObservationSet1D["depth_reference"] | ManualTimeDepthPickSet1D["depth_reference"];
+  depthReference:
+    | CheckshotVspObservationSet1D["depth_reference"]
+    | ManualTimeDepthPickSet1D["depth_reference"]
+    | WellTieObservationSet1D["depth_reference"];
   travelTimeReference:
     | CheckshotVspObservationSet1D["travel_time_reference"]
-    | ManualTimeDepthPickSet1D["travel_time_reference"];
+    | ManualTimeDepthPickSet1D["travel_time_reference"]
+    | WellTieObservationSet1D["travel_time_reference"];
   sampleCount: number;
+  sourceWellTimeDepthModelAssetId?: string | null;
+  tieWindowStartMs?: number | null;
+  tieWindowEndMs?: number | null;
+  traceSearchRadiusM?: number | null;
+  bulkShiftMs?: number | null;
+  stretchFactor?: number | null;
+  traceSearchOffsetM?: number | null;
+  correlation?: number | null;
 }
 
 export interface ProjectWellTimeDepthAuthoredModelDescriptor {
@@ -191,6 +228,9 @@ export interface ProjectSurveyAssetDescriptor {
   wellName: string;
   wellboreId: string;
   wellboreName: string;
+  effectiveCoordinateReferenceId?: string | null;
+  effectiveCoordinateReferenceName?: string | null;
+  displayCompatibility: ProjectSurveyDisplayCompatibility;
 }
 
 export interface ProjectWellboreInventoryItem {
@@ -201,11 +241,78 @@ export interface ProjectWellboreInventoryItem {
   trajectoryAssetCount: number;
   wellTimeDepthModelCount: number;
   activeWellTimeDepthModelAssetId?: string | null;
+  displayCompatibility: ProjectWellboreDisplayCompatibility;
 }
+
+export interface ProjectSurveyDisplayCompatibility {
+  canResolveProjectMap: boolean;
+  transformStatus: SurveyMapTransformStatusDto;
+  sourceCoordinateReferenceId?: string | null;
+  displayCoordinateReferenceId?: string | null;
+  reasonCode?: ProjectSurveyDisplayReasonCode | null;
+  reason?: string | null;
+}
+
+export type ProjectSurveyDisplayReasonCode =
+  | "project_display_crs_unresolved"
+  | "display_crs_unsupported"
+  | "source_crs_unknown"
+  | "source_crs_unsupported"
+  | "display_equivalent"
+  | "display_transformed";
+
+export interface ProjectMapDisplayCompatibilitySummary {
+  displayCoordinateReferenceId?: string | null;
+  compatibleSurveyCount: number;
+  incompatibleSurveyCount: number;
+  compatibleWellboreCount: number;
+  incompatibleWellboreCount: number;
+  blockingReasonCodes?: ProjectDisplayCompatibilityBlockingReasonCode[] | null;
+  blockingReasons?: string[] | null;
+}
+
+export interface ProjectWellboreDisplayCompatibility {
+  canResolveProjectMap: boolean;
+  transformStatus: SurveyMapTransformStatusDto;
+  sourceCoordinateReferenceId?: string | null;
+  displayCoordinateReferenceId?: string | null;
+  reasonCode?: ProjectWellboreDisplayReasonCode | null;
+  reason?: string | null;
+}
+
+export type ProjectWellboreDisplayReasonCode =
+  | "project_display_crs_unresolved"
+  | "resolved_geometry_missing"
+  | "display_equivalent"
+  | "display_transformed"
+  | "display_degraded"
+  | "display_unavailable"
+  | "resolution_error";
+
+export type ProjectDisplayCompatibilityBlockingReasonCode =
+  | "project_display_crs_unresolved"
+  | "display_crs_unsupported"
+  | "source_crs_unknown"
+  | "source_crs_unsupported"
+  | "resolved_geometry_missing"
+  | "display_unavailable"
+  | "resolution_error";
 
 export interface ProjectWellOverlayInventoryResponse {
   surveys: ProjectSurveyAssetDescriptor[];
   wellbores: ProjectWellboreInventoryItem[];
+  displayCompatibility: ProjectMapDisplayCompatibilitySummary;
+}
+
+export interface ResolveProjectSurveyMapRequest {
+  projectRoot: string;
+  surveyAssetId: string;
+  wellboreId?: string | null;
+  displayCoordinateReferenceId: string;
+}
+
+export interface ResolveProjectSurveyMapResponse {
+  surveyMap: ResolvedSurveyMapSourceDto;
 }
 
 export interface ImportProjectWellTimeDepthModelRequest {
@@ -231,6 +338,7 @@ export interface ImportProjectWellTimeDepthAssetRequest {
   assetKind:
     | "checkshot_vsp_observation_set"
     | "manual_time_depth_pick_set"
+    | "well_tie_observation_set"
     | "well_time_depth_authored_model"
     | "well_time_depth_model";
 }
@@ -242,12 +350,44 @@ export interface CompileProjectWellTimeDepthAuthoredModelRequest {
   setActive: boolean;
 }
 
+export interface AnalyzeProjectWellTieRequest {
+  projectRoot: string;
+  sourceModelAssetId: string;
+  tieName: string;
+  tieStartMs: number;
+  tieEndMs: number;
+  searchRadiusM: number;
+  storePath: string;
+  surveyAssetId: string;
+  displayCoordinateReferenceId: string;
+}
+
+export interface ProjectWellTieAnalysisResponse {
+  draftObservationSet: WellTieObservationSet1D;
+  analysis: WellTieAnalysis1D;
+  sourceModelAssetId: string;
+  sourceModelName: string;
+}
+
+export interface AcceptProjectWellTieRequest extends AnalyzeProjectWellTieRequest {
+  binding: ProjectAssetBindingInput;
+  outputCollectionName?: string | null;
+  setActive: boolean;
+}
+
+export interface AcceptProjectWellTieResponse {
+  observationAssetId: string;
+  authoredModelAssetId: string;
+  compiledModelAssetId: string;
+}
+
 export function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 const DATASET_REGISTRY_STORAGE_KEY = "traceboost.dataset-registry";
 const WORKSPACE_SESSION_STORAGE_KEY = "traceboost.workspace-session";
+const PROJECT_GEOSPATIAL_SETTINGS_STORAGE_KEY_PREFIX = "traceboost.project-geospatial-settings:";
 
 async function invokeTauri<T>(command: string, args: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -428,6 +568,34 @@ function saveLocalSession(session: WorkspaceSession): void {
     return;
   }
   window.localStorage.setItem(WORKSPACE_SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+function projectGeospatialSettingsStorageKey(projectRoot: string): string {
+  return `${PROJECT_GEOSPATIAL_SETTINGS_STORAGE_KEY_PREFIX}${projectRoot.trim()}`;
+}
+
+function loadLocalProjectGeospatialSettings(projectRoot: string): ProjectGeospatialSettings | null {
+  if (!storageAvailable()) {
+    return null;
+  }
+  const key = projectGeospatialSettingsStorageKey(projectRoot);
+  const stored = window.localStorage.getItem(key);
+  if (!stored) {
+    return null;
+  }
+  try {
+    return JSON.parse(stored) as ProjectGeospatialSettings;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalProjectGeospatialSettings(projectRoot: string, settings: ProjectGeospatialSettings): void {
+  if (!storageAvailable()) {
+    return;
+  }
+  const key = projectGeospatialSettingsStorageKey(projectRoot);
+  window.localStorage.setItem(key, JSON.stringify(settings));
 }
 
 function fileStem(filePath: string | null | undefined): string {
@@ -720,6 +888,16 @@ export async function loadVelocityModels(storePath: string): Promise<SurveyTimeD
   return [];
 }
 
+export async function loadHorizonAssets(storePath: string): Promise<ImportedHorizonDescriptor[]> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportedHorizonDescriptor[]>("load_horizon_assets_command", {
+      storePath
+    });
+  }
+
+  return [];
+}
+
 export async function importVelocityFunctionsModel(
   storePath: string,
   inputPath: string,
@@ -746,6 +924,28 @@ export async function buildVelocityModelTransform(
   }
 
   throw new Error("Authored velocity-model building is only available in the desktop runtime right now.");
+}
+
+export async function convertHorizonDomain(
+  storePath: string,
+  sourceHorizonId: string,
+  transformId: string,
+  targetDomain: "time" | "depth",
+  outputId?: string | null,
+  outputName?: string | null
+): Promise<ImportedHorizonDescriptor> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ImportedHorizonDescriptor>("convert_horizon_domain_command", {
+      storePath,
+      sourceHorizonId,
+      transformId,
+      targetDomain,
+      outputId: outputId ?? null,
+      outputName: outputName ?? null
+    });
+  }
+
+  throw new Error("Survey horizon-domain conversion is only available in the desktop runtime right now.");
 }
 
 export async function previewProcessing(
@@ -1117,6 +1317,60 @@ export async function saveWorkspaceSession(
   };
 }
 
+export async function loadProjectGeospatialSettings(projectRoot: string): Promise<ProjectGeospatialSettings | null> {
+  const normalizedProjectRoot = projectRoot.trim();
+  if (!normalizedProjectRoot) {
+    return null;
+  }
+
+  if (isTauriEnvironment()) {
+    const response = await invokeTauri<{ settings: ProjectGeospatialSettings | null }>(
+      "load_project_geospatial_settings_command",
+      {
+        request: {
+          projectRoot: normalizedProjectRoot
+        }
+      }
+    );
+    return response.settings ?? null;
+  }
+
+  return loadLocalProjectGeospatialSettings(normalizedProjectRoot);
+}
+
+export async function saveProjectGeospatialSettings(
+  projectRoot: string,
+  displayCoordinateReference: ProjectDisplayCoordinateReference,
+  source = "user_selected"
+): Promise<ProjectGeospatialSettings> {
+  const normalizedProjectRoot = projectRoot.trim();
+  if (!normalizedProjectRoot) {
+    throw new Error("Project root is required.");
+  }
+
+  if (isTauriEnvironment()) {
+    return invokeTauri<ProjectGeospatialSettings>("save_project_geospatial_settings_command", {
+      request: {
+        projectRoot: normalizedProjectRoot,
+        displayCoordinateReference,
+        source
+      }
+    });
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const existing = loadLocalProjectGeospatialSettings(normalizedProjectRoot);
+  const settings: ProjectGeospatialSettings = {
+    schemaVersion: 1,
+    displayCoordinateReference,
+    source,
+    createdAtUnixS: existing?.createdAtUnixS ?? now,
+    updatedAtUnixS: now
+  };
+  saveLocalProjectGeospatialSettings(normalizedProjectRoot, settings);
+  return settings;
+}
+
 export async function setDatasetNativeCoordinateReference(
   request: SetDatasetNativeCoordinateReferenceRequest
 ): Promise<SetDatasetNativeCoordinateReferenceResponse> {
@@ -1209,6 +1463,18 @@ export async function resolveSurveyMap(
   throw new Error("Survey map resolution is only available in the desktop runtime.");
 }
 
+export async function resolveProjectSurveyMap(
+  request: ResolveProjectSurveyMapRequest
+): Promise<ResolveProjectSurveyMapResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ResolveProjectSurveyMapResponse>("resolve_project_survey_map_command", {
+      request
+    });
+  }
+
+  throw new Error("Project survey-map resolution is only available in the desktop runtime.");
+}
+
 export async function listProjectWellTimeDepthModels(
   projectRoot: string,
   wellboreId: string
@@ -1267,14 +1533,16 @@ export async function setProjectActiveWellTimeDepthModel(
 }
 
 export async function listProjectWellOverlayInventory(
-  projectRoot: string
+  projectRoot: string,
+  displayCoordinateReferenceId: string | null = null
 ): Promise<ProjectWellOverlayInventoryResponse> {
   if (isTauriEnvironment()) {
     return invokeTauri<ProjectWellOverlayInventoryResponse>(
       "list_project_well_overlay_inventory_command",
       {
         request: {
-          projectRoot
+          projectRoot,
+          displayCoordinateReferenceId
         }
       }
     );
@@ -1336,6 +1604,30 @@ export async function compileProjectWellTimeDepthAuthoredModel(
   }
 
   throw new Error("Project well-model compilation is only available in the desktop runtime.");
+}
+
+export async function analyzeProjectWellTie(
+  request: AnalyzeProjectWellTieRequest
+): Promise<ProjectWellTieAnalysisResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<ProjectWellTieAnalysisResponse>("analyze_project_well_tie_command", {
+      request
+    });
+  }
+
+  throw new Error("Project well-tie analysis is only available in the desktop runtime.");
+}
+
+export async function acceptProjectWellTie(
+  request: AcceptProjectWellTieRequest
+): Promise<AcceptProjectWellTieResponse> {
+  if (isTauriEnvironment()) {
+    return invokeTauri<AcceptProjectWellTieResponse>("accept_project_well_tie_command", {
+      request
+    });
+  }
+
+  throw new Error("Project well-tie acceptance is only available in the desktop runtime.");
 }
 
 export async function resolveProjectSectionWellOverlays(

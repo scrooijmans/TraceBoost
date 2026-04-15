@@ -2,7 +2,7 @@
 
 ## Audience and intent
 
-This note is for engineers working across `Ophiolite`, `TraceBoost`, and `geoviz` who need a contract system that can grow beyond seismic-only section workflows.
+This note is for engineers working across `Ophiolite`, `TraceBoost`, and `Ophiolite Charts` who need a contract system that can grow beyond seismic-only section workflows.
 
 It documents:
 
@@ -47,7 +47,7 @@ The long-term product direction is broader still:
 
 - additional non-seismic data families
 - new computation families that are not section-centric
-- new geoviz charts that are not "seismic section with overlays"
+- new Ophiolite Charts charts that are not "seismic section with overlays"
 
 If the contract system remains organized around the original seismic entrypoint, teams will keep doing the easy thing:
 
@@ -300,9 +300,9 @@ That keeps the action boundary explicit.
 
 Do not wait until the fifth well-marker or trajectory type before creating a domain boundary for them.
 
-## How this applies to geoviz
+## How this applies to Ophiolite Charts
 
-`geoviz` should consume resolved view payloads or chart-facing data models, not storage models and not operation requests.
+`Ophiolite Charts` should consume resolved view payloads or chart-facing data models, not storage models and not operation requests.
 
 The intended pipeline is:
 
@@ -319,7 +319,7 @@ transport adaptation if needed
   ->
 frontend adapter
   ->
-geoviz chart model
+Ophiolite Charts chart model
 ```
 
 That means:
@@ -327,7 +327,7 @@ That means:
 - `tbvol` is not a chart contract
 - `SectionView` is a chart-facing resolved view contract
 - `TransportSectionView` is a wire-format variant
-- geoviz's internal chart model still remains separate from both
+- Ophiolite Charts' internal chart model still remains separate from both
 
 This separation is especially important once new chart types arrive that do not look like section/gather charts.
 

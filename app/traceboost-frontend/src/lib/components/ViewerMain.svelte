@@ -1,27 +1,32 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { ChartToolbarActionItem, ChartToolbarToolItem } from "@geoviz/svelte-toolbar";
-  import { ChartInteractionToolbar } from "@geoviz/svelte-toolbar";
-  import { SeismicSectionChart } from "@geoviz/svelte";
+  import type { ChartToolbarActionItem, ChartToolbarToolItem } from "@ophiolite/charts-toolbar";
+  import { ChartInteractionToolbar } from "@ophiolite/charts-toolbar";
+  import { SeismicSectionChart } from "@ophiolite/charts";
   import type { SegyGeometryCandidate, SegyHeaderField } from "@traceboost/seis-contracts";
   import PipelineControlBar from "./PipelineControlBar.svelte";
+  import DepthConversionWorkbench from "./DepthConversionWorkbench.svelte";
   import PipelineOperatorEditor from "./PipelineOperatorEditor.svelte";
   import PipelineSequenceList from "./PipelineSequenceList.svelte";
   import PipelineSessionList from "./PipelineSessionList.svelte";
   import SpectrumInspector from "./SpectrumInspector.svelte";
   import VelocityModelWorkbench from "./VelocityModelWorkbench.svelte";
-  import { pickHorizonFiles } from "../file-dialog";
+  import WellTieWorkbench from "./WellTieWorkbench.svelte";
   import { getProcessingModelContext } from "../processing-model.svelte";
   import { getViewerModelContext } from "../viewer-model.svelte";
 
   let {
     showSidebar,
     showSidebarPanel,
+    openSettings,
+    requestHorizonImport,
     chartRef = $bindable<{ fitToData?: () => void } | null>(null)
   }: {
     showSidebar: boolean;
     showSidebarPanel: () => void;
+    openSettings: () => void;
+    requestHorizonImport: () => Promise<void>;
     chartRef?: { fitToData?: () => void } | null;
   } = $props();
 
@@ -36,11 +41,6 @@
   let draftPolarity = $state<"normal" | "reversed">("normal");
   let sectionIndexDraft = $state<number | undefined>(undefined);
   let depthVelocityDraft = $state(String(viewerModel.depthVelocityMPerS));
-  let horizonImportDialogOpen = $state(false);
-  let pendingHorizonImportPaths = $state<string[]>([]);
-  let horizonImportSourceMode = $state<"survey" | "custom">("survey");
-  let horizonSourceCoordinateReferenceIdDraft = $state("");
-  let horizonSourceCoordinateReferenceNameDraft = $state("");
 
   const compareViewport = $derived(viewerModel.lastViewport?.viewport ?? null);
   const geometryRecovery = $derived(viewerModel.importGeometryRecovery);
@@ -50,6 +50,12 @@
       !!processingModel.displaySection &&
       !!viewerModel.backgroundSection &&
       viewerModel.displayTransform.renderMode === "heatmap"
+  );
+  const shellCoordinateReferenceWarnings = $derived(
+    viewerModel.workspaceCoordinateReferenceWarnings.slice(0, 3)
+  );
+  const shellCoordinateReferenceWarningOverflow = $derived(
+    Math.max(0, viewerModel.workspaceCoordinateReferenceWarnings.length - shellCoordinateReferenceWarnings.length)
   );
   const sectionAxisLimit = $derived(
     viewerModel.dataset
@@ -184,73 +190,6 @@
     void viewerModel.setSectionDomain(domain);
   }
 
-  async function handleImportHorizons(): Promise<void> {
-    const inputPaths = await pickHorizonFiles();
-    if (inputPaths.length === 0) {
-      viewerModel.note("Horizon import selection did not produce usable files.", "ui", "warn");
-      return;
-    }
-    if (!viewerModel.activeEffectiveNativeCoordinateReferenceId) {
-      viewerModel.note(
-        "Horizon import requires the active survey to have an effective native CRS before imported horizons can be aligned.",
-        "ui",
-        "warn"
-      );
-      return;
-    }
-    pendingHorizonImportPaths = inputPaths;
-    horizonImportSourceMode = "survey";
-    horizonSourceCoordinateReferenceIdDraft = "";
-    horizonSourceCoordinateReferenceNameDraft = "";
-    horizonImportDialogOpen = true;
-  }
-
-  function closeHorizonImportDialog(): void {
-    if (viewerModel.horizonImporting) {
-      return;
-    }
-    horizonImportDialogOpen = false;
-    pendingHorizonImportPaths = [];
-    horizonImportSourceMode = "survey";
-    horizonSourceCoordinateReferenceIdDraft = "";
-    horizonSourceCoordinateReferenceNameDraft = "";
-  }
-
-  async function confirmHorizonImport(): Promise<void> {
-    if (pendingHorizonImportPaths.length === 0) {
-      closeHorizonImportDialog();
-      return;
-    }
-
-    if (
-      horizonImportSourceMode === "custom" &&
-      horizonSourceCoordinateReferenceIdDraft.trim().length === 0
-    ) {
-      viewerModel.note(
-        "Enter a source CRS identifier before importing horizons with a custom CRS.",
-        "ui",
-        "warn"
-      );
-      return;
-    }
-
-    await viewerModel.importHorizonFiles(pendingHorizonImportPaths, {
-      assumeSameAsSurvey: horizonImportSourceMode === "survey",
-      sourceCoordinateReferenceId:
-        horizonImportSourceMode === "custom"
-          ? horizonSourceCoordinateReferenceIdDraft.trim()
-          : null,
-      sourceCoordinateReferenceName:
-        horizonImportSourceMode === "custom"
-          ? horizonSourceCoordinateReferenceNameDraft.trim() || null
-          : null
-    });
-
-    if (!viewerModel.error) {
-      closeHorizonImportDialog();
-    }
-  }
-
   function openDisplaySettings(): void {
     draftGain = viewerModel.displayTransform.gain;
     draftClipMode =
@@ -299,11 +238,6 @@
   }
 
   function handleWindowKeyDown(event: KeyboardEvent): void {
-    if (horizonImportDialogOpen && event.key === "Escape") {
-      closeHorizonImportDialog();
-      return;
-    }
-
     if (datasetExportDialog && event.key === "Escape") {
       viewerModel.closeDatasetExportDialog();
       return;
@@ -384,7 +318,7 @@
       <button
         class:active={viewerModel.sectionHorizons.length > 0}
         class="display-chip action"
-        onclick={() => void handleImportHorizons()}
+        onclick={() => void requestHorizonImport()}
         disabled={!viewerModel.activeStorePath || viewerModel.horizonImporting}
       >
         {viewerModel.horizonImporting ? "Importing…" : `Horizons ${viewerModel.sectionHorizons.length}`}
@@ -597,6 +531,25 @@
 {/if}
 
 <main class="viewer-shell">
+  {#if shellCoordinateReferenceWarnings.length}
+    <div class="crs-advisory-strip">
+      <div class="crs-advisory-copy">
+        <span>Coordinate Reference Alerts</span>
+        {#each shellCoordinateReferenceWarnings as warning (warning)}
+          <p>{warning}</p>
+        {/each}
+        {#if shellCoordinateReferenceWarningOverflow > 0}
+          <p>
+            {shellCoordinateReferenceWarningOverflow} more CRS alert{shellCoordinateReferenceWarningOverflow === 1 ? "" : "s"} in Project Settings.
+          </p>
+        {/if}
+      </div>
+      <button type="button" class="crs-advisory-action" onclick={openSettings}>
+        Project Settings
+      </button>
+    </div>
+  {/if}
+
   <div class="workspace-columns">
     <aside class="session-column">
       <div class="session-column-header">
@@ -708,6 +661,19 @@
         <div class="chart-frame">
           <SeismicSectionChart
             bind:this={chartRef}
+            --ophiolite-chart-shell-bg="var(--panel-bg)"
+            --ophiolite-chart-overlay-bg="rgba(244, 247, 249, 0.88)"
+            --ophiolite-chart-overlay-text="#284052"
+            --ophiolite-chart-probe-bg="rgba(255, 255, 255, 0.96)"
+            --ophiolite-chart-probe-border="rgba(176, 212, 238, 0.78)"
+            --ophiolite-chart-probe-text="#213746"
+            --ophiolite-toolbar-bg="rgba(255, 255, 255, 0.94)"
+            --ophiolite-toolbar-border="rgba(176, 212, 238, 0.72)"
+            --ophiolite-toolbar-text="#35505f"
+            --ophiolite-toolbar-hover-bg="#eef6fb"
+            --ophiolite-toolbar-hover-text="#274b61"
+            --ophiolite-toolbar-active-bg="#e8f3fb"
+            --ophiolite-toolbar-active-text="#274b61"
             chartId="traceboost-main"
             viewId={`${viewerModel.axis}:${viewerModel.index}:${viewerModel.sectionDomain}:${processingModel.displaySectionMode}`}
             section={processingModel.displaySection}
@@ -774,8 +740,8 @@
           </svg>
           <h2>Open a Volume</h2>
           <p>
-            Use <strong>File &gt; Open Volume…</strong> to open a `.tbvol` directly or import a
-            `.segy`/`.sgy` into the runtime store automatically, then start viewing and processing.
+            Use <strong>File &gt; Open Volume…</strong> for runtime stores or <strong>File &gt; Import</strong>
+            for seismic volumes, then start viewing and processing.
           </p>
           <span class="welcome-version">TraceBoost v0.1.0</span>
         </div>
@@ -848,112 +814,6 @@
       <div class="display-settings-actions">
         <button class="settings-btn secondary" onclick={closeDisplaySettings}>Cancel</button>
         <button class="settings-btn primary" onclick={applyDisplaySettings}>Apply</button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if horizonImportDialogOpen}
-  <div class="display-settings-backdrop" role="presentation" onclick={closeHorizonImportDialog}>
-    <div
-      class="display-settings-dialog horizon-import-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Import horizons with coordinate reference settings"
-      tabindex="0"
-      onclick={(event) => event.stopPropagation()}
-      onkeydown={(event) => event.stopPropagation()}
-    >
-      <div class="display-settings-header">
-        <h3>Import Horizons</h3>
-        <p class="horizon-import-copy">
-          Align the selected horizon XYZ files into the active survey CRS before section slicing.
-        </p>
-      </div>
-
-      <div class="horizon-import-summary">
-        <div class="import-geometry-summary-row">
-          <span>Files</span>
-          <strong>{pendingHorizonImportPaths.length}</strong>
-        </div>
-        <div class="import-geometry-summary-row">
-          <span>Survey CRS</span>
-          <strong>
-            {viewerModel.activeEffectiveNativeCoordinateReferenceId ?? "Unknown"}
-            {#if viewerModel.activeEffectiveNativeCoordinateReferenceName}
-              • {viewerModel.activeEffectiveNativeCoordinateReferenceName}
-            {/if}
-          </strong>
-        </div>
-      </div>
-
-      <div class="import-geometry-mode">
-        <label class="import-geometry-mode-option">
-          <input
-            type="radio"
-            name="horizon-source-mode"
-            checked={horizonImportSourceMode === "survey"}
-            disabled={viewerModel.horizonImporting}
-            onchange={() => {
-              horizonImportSourceMode = "survey";
-            }}
-          />
-          <span>Assume horizon XY already uses the survey CRS</span>
-        </label>
-        <label class="import-geometry-mode-option">
-          <input
-            type="radio"
-            name="horizon-source-mode"
-            checked={horizonImportSourceMode === "custom"}
-            disabled={viewerModel.horizonImporting}
-            onchange={() => {
-              horizonImportSourceMode = "custom";
-            }}
-          />
-          <span>Transform from another source CRS first</span>
-        </label>
-      </div>
-
-      <div class="import-geometry-manual">
-        <div class="import-geometry-manual-header">
-          <span>Source CRS</span>
-          <small>Enter the raw horizon file CRS when it differs from the survey CRS.</small>
-        </div>
-
-        <div class="display-settings-grid horizon-import-grid">
-          <label class="settings-field">
-            <span>CRS Identifier</span>
-            <input
-              type="text"
-              placeholder="EPSG:4326"
-              bind:value={horizonSourceCoordinateReferenceIdDraft}
-              disabled={horizonImportSourceMode !== "custom" || viewerModel.horizonImporting}
-            />
-          </label>
-
-          <label class="settings-field">
-            <span>CRS Name</span>
-            <input
-              type="text"
-              placeholder="WGS 84"
-              bind:value={horizonSourceCoordinateReferenceNameDraft}
-              disabled={horizonImportSourceMode !== "custom" || viewerModel.horizonImporting}
-            />
-          </label>
-        </div>
-      </div>
-
-      <div class="display-settings-actions">
-        <button
-          class="settings-btn secondary"
-          onclick={closeHorizonImportDialog}
-          disabled={viewerModel.horizonImporting}
-        >
-          Cancel
-        </button>
-        <button class="settings-btn primary" onclick={() => void confirmHorizonImport()}>
-          {viewerModel.horizonImporting ? "Importing..." : "Import Horizons"}
-        </button>
       </div>
     </div>
   </div>
@@ -1320,6 +1180,8 @@
 {/if}
 
 <VelocityModelWorkbench open={viewerModel.velocityModelWorkbenchOpen} />
+<DepthConversionWorkbench open={viewerModel.depthConversionWorkbenchOpen} />
+<WellTieWorkbench open={viewerModel.wellTieWorkbenchOpen} />
 
 <style>
   .sidebar-toggle {
@@ -1328,23 +1190,64 @@
     top: 50%;
     transform: translateY(-50%);
     z-index: 10;
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border-strong);
     border-left: none;
-    border-radius: 0 2px 2px 0;
-    padding: 10px 5px;
-    color: #777;
+    border-radius: 0 var(--ui-radius-md) var(--ui-radius-md) 0;
+    padding: var(--ui-space-4) 5px;
+    color: var(--text-muted);
     cursor: pointer;
   }
 
   .sidebar-toggle:hover {
-    color: #d0d0d0;
-    background: #252525;
+    color: var(--text-primary);
+    background: var(--surface-subtle);
   }
 
   .viewer-shell {
     min-height: 100vh;
-    background: #141414;
+    background: var(--app-bg);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .crs-advisory-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--ui-space-4);
+    align-items: start;
+    padding: var(--ui-space-4) var(--ui-space-5);
+    border-bottom: 1px solid var(--app-border);
+    background: rgba(252, 244, 236, 0.92);
+  }
+
+  .crs-advisory-copy {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+    color: #7a5634;
+  }
+
+  .crs-advisory-copy span {
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .crs-advisory-copy p {
+    margin: 0;
+    line-height: 1.35;
+  }
+
+  .crs-advisory-action {
+    padding: 9px 12px;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 8px;
+    background: var(--panel-bg);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
   }
 
   .workspace-columns {
@@ -1357,10 +1260,10 @@
     min-height: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 8px;
-    padding: 10px 10px 12px;
-    border-right: 1px solid #242424;
-    background: #141414;
+    gap: var(--ui-panel-gap);
+    padding: var(--ui-panel-padding) var(--ui-panel-padding) var(--ui-space-5);
+    border-right: 1px solid var(--app-border);
+    background: var(--panel-bg);
   }
 
   .session-column-header {
@@ -1373,35 +1276,35 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #555;
+    color: var(--text-dim);
   }
 
   .session-column-header h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .session-column-header p {
     margin: 0;
     font-size: 11px;
-    color: #777;
+    color: var(--text-muted);
     line-height: 1.45;
   }
 
   .main-column {
     min-height: 0;
-    padding: 10px 14px 14px;
+    padding: var(--ui-panel-padding) var(--ui-space-6) var(--ui-space-6);
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--ui-panel-gap);
   }
 
   .definition-pane {
     min-height: 0;
     display: grid;
-    gap: 8px;
+    gap: var(--ui-panel-gap);
     position: relative;
     z-index: 8;
   }
@@ -1410,7 +1313,7 @@
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.25fr);
-    gap: 8px;
+    gap: var(--ui-panel-gap);
     align-items: stretch;
   }
 
@@ -1418,7 +1321,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--ui-panel-gap);
     position: relative;
     z-index: 1;
   }
@@ -1427,29 +1330,36 @@
     position: relative;
     flex: 1;
     min-height: 0;
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
+    overflow: hidden;
   }
 
   .chart-display-overlay {
     display: grid;
-    gap: 6px;
+    gap: var(--ui-space-2);
     justify-items: start;
   }
 
   .display-chip-row {
     display: flex;
-    gap: 6px;
+    gap: var(--ui-space-2);
     flex-wrap: wrap;
   }
 
   .display-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    min-height: 28px;
-    padding: 0 4px;
-    border: none;
-    background: transparent;
-    color: #d7dde1;
+    gap: var(--ui-space-2);
+    min-height: var(--ui-button-height);
+    padding: 0 var(--ui-space-3);
+    border: 1px solid rgba(176, 212, 238, 0.72);
+    border-radius: var(--ui-radius-md);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text-primary);
+    box-shadow: var(--ui-shadow-soft);
+    backdrop-filter: blur(6px);
   }
 
   .display-chip.field {
@@ -1460,7 +1370,7 @@
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #7d7d7d;
+    color: var(--text-dim);
   }
 
   .display-chip.field select,
@@ -1469,7 +1379,7 @@
     border: none;
     outline: none;
     background: transparent;
-    color: #f3f5f6;
+    color: var(--text-primary);
     font: inherit;
   }
 
@@ -1489,25 +1399,25 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.03em;
-    color: #e8f3ff;
+    color: #274b61;
   }
 
   .sample-fidelity-chip strong {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.03em;
-    color: #e8f3ff;
+    color: #274b61;
   }
 
   .sample-fidelity-chip.warn strong {
-    color: #ffd086;
+    color: #705c1c;
   }
 
   .velocity-field small {
     font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #7d7d7d;
+    color: var(--text-dim);
   }
 
   .display-chip.action,
@@ -1517,15 +1427,20 @@
 
   .display-chip.action:hover:not(:disabled),
   .display-chip.icon:hover:not(:disabled) {
-    color: #ffffff;
+    background: #eef6fb;
+    color: #274b61;
   }
 
   .display-chip.action.active {
-    color: #effff5;
+    background: #e8f3fb;
+    border-color: #9bc7e3;
+    color: #274b61;
   }
 
   .display-chip.icon.active {
-    color: #d9ffe9;
+    background: #e8f3fb;
+    border-color: #9bc7e3;
+    color: #274b61;
   }
 
   .display-chip:disabled {
@@ -1547,40 +1462,50 @@
   }
 
   .chart-toolbar-overlay :global(.toolbar-group) {
-    padding: 0;
-    background: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(176, 212, 238, 0.72);
+    box-shadow: var(--ui-shadow-soft);
+    backdrop-filter: blur(10px);
   }
 
   .chart-toolbar-overlay :global(.toolbar-button) {
-    background: transparent;
-    color: #d7dde1;
+    color: var(--text-primary);
   }
 
   .chart-toolbar-overlay :global(.toolbar-button:hover:not(:disabled)) {
-    background: transparent;
-    color: #ffffff;
+    background: #eef6fb;
+    color: #274b61;
   }
 
   .chart-toolbar-overlay :global(.toolbar-button.active) {
-    background: transparent;
-    box-shadow: none;
-    color: #effff5;
+    background: #e8f3fb;
+    box-shadow: inset 0 0 0 1px rgba(155, 199, 227, 0.72);
+    color: #274b61;
   }
 
-  .viewer-shell :global(.geoviz-svelte-chart-shell) {
+  .viewer-shell :global(.ophiolite-charts-svelte-chart-shell) {
     height: 100%;
     width: 100%;
     border-radius: 0;
     overflow: hidden;
-    border: 1px solid #2a2a2a;
+    border: 1px solid var(--app-border-strong);
+    background: var(--panel-bg) !important;
+  }
+
+  .viewer-shell :global(.ophiolite-charts-svelte-chart-lane),
+  .viewer-shell :global(.ophiolite-charts-svelte-chart-stage),
+  .viewer-shell :global(.ophiolite-charts-svelte-chart-host) {
+    background: var(--panel-bg) !important;
+  }
+
+  .viewer-shell :global(.ophiolite-charts-svelte-chart-host canvas) {
+    background: transparent !important;
   }
 
   .compare-cycle-overlay {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 6px;
+    gap: var(--ui-space-2);
     align-items: center;
     padding: 0;
   }
@@ -1589,17 +1514,18 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 2px;
-    border: none;
-    background: transparent;
-    color: #cfd6db;
+    width: var(--ui-icon-button-size);
+    height: var(--ui-icon-button-size);
+    border-radius: var(--ui-radius-md);
+    border: 1px solid rgba(176, 212, 238, 0.72);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text-primary);
     cursor: pointer;
   }
 
   .compare-arrow:hover:not(:disabled) {
-    color: #ffffff;
+    background: #eef6fb;
+    color: #274b61;
   }
 
   .compare-arrow:disabled {
@@ -1622,38 +1548,47 @@
 
   .compare-cycle-copy small {
     font-size: 11px;
-    color: #cfd6db;
+    color: var(--text-muted);
   }
 
   .compare-label-overlay {
     display: flex;
-    gap: 6px;
+    gap: var(--ui-space-2);
     flex-wrap: wrap;
     pointer-events: none;
+  }
+
+  .compare-label-line {
+    padding: var(--ui-space-1) var(--ui-space-3);
+    border: 1px solid rgba(176, 212, 238, 0.72);
+    border-radius: var(--ui-radius-md);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: var(--ui-shadow-soft);
+    backdrop-filter: blur(6px);
   }
 
   .compare-label-line strong {
     font-size: 12px;
     font-weight: 600;
-    color: #eef3f6;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    color: var(--text-primary);
   }
 
   .compare-label-line.secondary strong {
-    color: #bed8ff;
+    color: #325472;
   }
 
   .welcome-card {
     text-align: center;
     max-width: 380px;
-    padding: 36px 32px;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
+    padding: 32px 28px;
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
     margin: auto;
   }
 
   .welcome-icon {
-    color: #333;
+    color: #7ea9c8;
     margin-bottom: 16px;
   }
 
@@ -1661,19 +1596,19 @@
     margin: 0 0 10px;
     font-size: 16px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .welcome-card p {
     margin: 0 0 18px;
     font-size: 12px;
     line-height: 1.55;
-    color: #777;
+    color: var(--text-muted);
   }
 
   .welcome-version {
     font-size: 11px;
-    color: #444;
+    color: var(--text-dim);
   }
 
   .display-settings-backdrop {
@@ -1683,65 +1618,46 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(3, 8, 12, 0.56);
+    background: rgba(38, 55, 71, 0.2);
     backdrop-filter: blur(6px);
   }
 
   .display-settings-dialog {
     width: min(520px, calc(100vw - 32px));
-    padding: 18px;
-    background: #0d1f2b;
-    border: 1px solid rgba(173, 196, 208, 0.2);
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.32);
+    padding: 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
+    box-shadow: var(--ui-shadow-dialog);
   }
 
   .display-settings-header h3 {
     margin: 0 0 14px;
     font-size: 16px;
-    color: rgba(240, 246, 250, 0.96);
-  }
-
-  .horizon-import-dialog {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .horizon-import-copy {
-    margin: -6px 0 0;
-    color: rgba(194, 209, 218, 0.82);
-    line-height: 1.45;
-    font-size: 13px;
-  }
-
-  .horizon-import-summary {
-    display: grid;
-    gap: 10px;
-    padding: 12px 14px;
-    border: 1px solid rgba(158, 183, 196, 0.14);
-    background: rgba(6, 17, 24, 0.52);
+    color: var(--text-primary);
   }
 
   .display-settings-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--ui-space-5);
   }
 
   .settings-field {
     display: grid;
-    gap: 6px;
+    gap: var(--ui-space-2);
     font-size: 12px;
-    color: rgba(194, 209, 218, 0.82);
+    color: var(--text-muted);
   }
 
   .settings-field input,
   .settings-field select {
-    min-height: 34px;
-    padding: 7px 9px;
-    border: 1px solid rgba(158, 183, 196, 0.18);
-    background: rgba(6, 17, 24, 0.86);
-    color: rgba(240, 246, 250, 0.96);
+    min-height: var(--ui-input-height);
+    padding: 0 var(--ui-space-3);
+    border: 1px solid var(--app-border-strong);
+    background: #fff;
+    color: var(--text-primary);
+    border-radius: var(--ui-radius-md);
   }
 
   .settings-field input:disabled {
@@ -1751,33 +1667,34 @@
   .display-settings-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
+    gap: var(--ui-space-4);
     margin-top: 18px;
   }
 
   .settings-btn {
     min-width: 92px;
-    min-height: 34px;
-    padding: 7px 14px;
-    border: 1px solid rgba(158, 183, 196, 0.18);
+    min-height: var(--ui-input-height);
+    padding: 0 14px;
+    border: 1px solid var(--app-border-strong);
+    border-radius: var(--ui-radius-md);
     cursor: pointer;
   }
 
   .settings-btn.secondary {
-    background: rgba(10, 24, 33, 0.92);
-    color: rgba(224, 235, 241, 0.92);
+    background: var(--surface-subtle);
+    color: var(--text-primary);
   }
 
   .settings-btn.primary {
-    background: rgba(25, 79, 117, 0.94);
-    color: white;
-    border-color: rgba(107, 166, 206, 0.36);
+    background: var(--accent-bg);
+    color: var(--accent-text);
+    border-color: var(--accent-border);
   }
 
   .import-geometry-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(7, 10, 12, 0.7);
+    background: rgba(38, 55, 71, 0.2);
     backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
@@ -1790,35 +1707,35 @@
     width: min(720px, 100%);
     max-height: min(84vh, 820px);
     overflow: auto;
-    background: linear-gradient(180deg, rgba(22, 27, 31, 0.98), rgba(14, 18, 21, 0.98));
-    border: 1px solid rgba(122, 167, 142, 0.35);
-    border-radius: 18px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--ui-radius-lg);
+    box-shadow: var(--ui-shadow-dialog);
     padding: 22px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--ui-space-7);
   }
 
   .import-geometry-header h3 {
     margin: 0 0 8px;
     font-size: 18px;
-    color: #eef4ef;
+    color: var(--text-primary);
   }
 
   .import-geometry-header p {
     margin: 0;
-    color: #b8c3bc;
+    color: var(--text-muted);
     line-height: 1.45;
   }
 
   .import-geometry-summary {
     display: grid;
-    gap: 10px;
+    gap: var(--ui-space-4);
     padding: 12px 14px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--ui-radius-lg);
+    background: var(--surface-bg);
+    border: 1px solid var(--app-border);
   }
 
   .import-geometry-summary-row {
@@ -1829,11 +1746,11 @@
   }
 
   .import-geometry-summary-row span {
-    color: #90a29a;
+    color: var(--text-muted);
   }
 
   .import-geometry-summary-row strong {
-    color: #edf5f0;
+    color: var(--text-primary);
     text-align: right;
   }
 
@@ -1851,29 +1768,29 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: #d6ded8;
+    color: var(--text-primary);
   }
 
   .import-geometry-candidates {
     display: grid;
-    gap: 10px;
+    gap: var(--ui-space-4);
   }
 
   .import-geometry-candidate {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 12px;
+    gap: var(--ui-space-5);
     align-items: start;
     padding: 12px 14px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--ui-radius-lg);
+    border: 1px solid var(--app-border);
+    background: #fff;
     cursor: pointer;
   }
 
   .import-geometry-candidate.selected {
-    border-color: rgba(115, 190, 146, 0.65);
-    background: rgba(79, 145, 104, 0.12);
+    border-color: #b0d4ee;
+    background: #e8f3fb;
   }
 
   .import-geometry-candidate-copy {
@@ -1882,25 +1799,25 @@
   }
 
   .import-geometry-candidate-copy strong {
-    color: #edf5f0;
+    color: var(--text-primary);
   }
 
   .import-geometry-candidate-copy span {
-    color: #9fb0a9;
+    color: var(--text-muted);
   }
 
   .import-geometry-candidate-copy code {
-    color: #d7e8dc;
+    color: #325472;
     font-size: 11px;
   }
 
   .import-geometry-manual {
     display: grid;
-    gap: 12px;
+    gap: var(--ui-space-5);
     padding: 14px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: var(--ui-radius-lg);
+    background: var(--surface-bg);
+    border: 1px solid var(--app-border);
   }
 
   .import-geometry-manual-header {
@@ -1911,37 +1828,38 @@
   }
 
   .import-geometry-manual-header span {
-    color: #edf5f0;
+    color: var(--text-primary);
     font-weight: 600;
   }
 
   .import-geometry-manual-header small {
-    color: #90a29a;
+    color: var(--text-muted);
   }
 
   .import-geometry-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--ui-space-5);
   }
 
   .import-geometry-field {
     display: grid;
-    gap: 6px;
+    gap: var(--ui-space-2);
   }
 
   .import-geometry-field span {
-    color: #aebbb4;
+    color: var(--text-dim);
   }
 
   .import-geometry-field input,
   .import-geometry-field select {
     width: 100%;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(10, 13, 15, 0.7);
-    color: #eef4ef;
-    padding: 8px 10px;
+    min-height: var(--ui-input-height);
+    border-radius: var(--ui-radius-md);
+    border: 1px solid var(--app-border-strong);
+    background: #fff;
+    color: var(--text-primary);
+    padding: 0 var(--ui-space-3);
   }
 
   .import-geometry-error {
@@ -1952,7 +1870,7 @@
   .import-geometry-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
+    gap: var(--ui-space-4);
   }
 
   .export-dialog {
@@ -1976,20 +1894,25 @@
   .export-path-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
+    gap: var(--ui-space-4);
     align-items: center;
   }
 
   .export-path-row input {
     width: 100%;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(10, 13, 15, 0.7);
-    color: #eef4ef;
-    padding: 8px 10px;
+    min-height: var(--ui-input-height);
+    border-radius: var(--ui-radius-md);
+    border: 1px solid var(--app-border-strong);
+    background: #fff;
+    color: var(--text-primary);
+    padding: 0 var(--ui-space-3);
   }
 
   @media (max-width: 900px) {
+    .crs-advisory-strip {
+      grid-template-columns: 1fr;
+    }
+
     .workspace-columns {
       grid-template-columns: 1fr;
     }
@@ -1997,7 +1920,7 @@
     .session-column {
       grid-template-rows: auto minmax(220px, auto);
       border-right: none;
-      border-bottom: 1px solid #242424;
+      border-bottom: 1px solid var(--app-border);
       padding-bottom: 10px;
     }
 

@@ -1,0 +1,66 @@
+Metadata-Version: 2.4
+Name: traceboost-automation
+Version: 0.1.0
+Summary: Thin Python automation wrapper around the local TraceBoost CLI workflows
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# traceboost-automation
+
+`traceboost-automation` is a thin Python wrapper around the local `traceboost-app` CLI.
+
+It does not introduce a second backend API. It shells out to the existing JSON-producing app
+commands so notebooks, scripts, and local batch jobs can reuse the same workflow surface as the
+desktop shell.
+
+## Scope
+
+Current wrapped workflows:
+
+- `preflight-import`
+- `import-dataset`
+- `open-dataset`
+- `set-native-coordinate-reference`
+- `resolve-survey-map`
+- `export-segy`
+- `export-zarr`
+- `import-horizons`
+- `view-section`
+- `view-section-horizons`
+- `load-velocity-models`
+- `ensure-demo-survey-time-depth-transform`
+- `import-velocity-functions-model`
+- `prepare-survey-demo`
+
+## Usage
+
+From this directory:
+
+```bash
+python -m pip install -e .
+traceboost-automation backend-info
+```
+
+Or from Python:
+
+```python
+from traceboost_automation import TraceBoostApp
+
+app = TraceBoostApp()
+preflight = app.preflight_import("/data/input.segy")
+print(preflight["recommended_action"])
+```
+
+For a product-shaped local workflow:
+
+```bash
+traceboost-automation prepare-survey-demo /data/example.tbvol
+```
+
+That command keeps the automation surface thin. It wraps existing app workflows to:
+
+- ensure a demo survey time-depth transform exists
+- load the available velocity models
+- resolve the survey map payload for chart embedding
+
+If you already have a built binary, set `TRACEBOOST_APP_BIN` to avoid `cargo run` on each call.

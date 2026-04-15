@@ -440,8 +440,9 @@
     flex-direction: column;
     gap: 8px;
     min-height: 0;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
+    background: var(--panel-bg);
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
     padding: 10px;
     overflow: auto;
   }
@@ -456,12 +457,12 @@
     margin: 0;
     font-size: 12px;
     font-weight: 600;
-    color: #c0c0c0;
+    color: var(--text-primary);
   }
 
   .editor-header p {
     margin: 0;
-    color: #777;
+    color: var(--text-muted);
     font-size: 11px;
   }
 
@@ -482,7 +483,7 @@
     align-items: center;
     gap: 8px;
     margin: 10px 0 2px;
-    color: #b7b7b7;
+    color: var(--text-primary);
     font-size: 11px;
   }
 
@@ -493,7 +494,7 @@
   .checkpoint-note {
     display: block;
     margin: 0 0 10px;
-    color: #666;
+    color: var(--text-muted);
     font-size: 11px;
   }
 
@@ -505,52 +506,52 @@
 
   .field span {
     font-size: 11px;
-    color: #777;
+    color: var(--text-muted);
   }
 
   .field input {
-    background: #252525;
-    border: 1px solid #333;
-    border-radius: 2px;
-    color: #d0d0d0;
+    background: #fff;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 6px;
+    color: var(--text-primary);
     padding: 6px 8px;
     font: inherit;
     font-size: 12px;
   }
 
   .field select {
-    background: #252525;
-    border: 1px solid #333;
-    border-radius: 2px;
-    color: #d0d0d0;
+    background: #fff;
+    border: 1px solid var(--app-border-strong);
+    border-radius: 6px;
+    color: var(--text-primary);
     padding: 6px 8px;
     font: inherit;
     font-size: 12px;
   }
 
   .field small {
-    color: #555;
+    color: var(--text-dim);
     font-size: 11px;
   }
 
   .chip {
-    border: 1px solid #333;
-    background: #252525;
-    color: #aaa;
-    border-radius: 2px;
+    border: 1px solid var(--app-border);
+    background: var(--surface-subtle);
+    color: var(--text-primary);
+    border-radius: 6px;
     padding: 4px 8px;
     font-size: 11px;
     cursor: pointer;
   }
 
   .chip:hover:not(:disabled) {
-    background: #2e2e2e;
-    color: #d0d0d0;
+    background: var(--surface-bg);
+    color: var(--text-primary);
   }
 
   .chip.danger {
-    border-color: rgba(200, 60, 60, 0.3);
-    color: #c07070;
+    border-color: #e0b7b7;
+    color: #a74646;
   }
 
   .chip:disabled {
@@ -561,23 +562,24 @@
   .selected-card,
   .job-card,
   .info-block {
-    border: 1px solid #2a2a2a;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
     padding: 10px;
-    background: #1e1e1e;
+    background: var(--surface-bg);
   }
 
   .info-block strong,
   .job-header strong {
     display: block;
     margin-bottom: 4px;
-    color: #c0c0c0;
+    color: var(--text-primary);
     font-size: 12px;
   }
 
   .info-block p,
   .job-progress {
     margin: 0;
-    color: #777;
+    color: var(--text-muted);
     font-size: 11px;
     line-height: 1.5;
   }
@@ -594,7 +596,7 @@
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #6e6e6e;
+    color: var(--text-dim);
   }
 
   .job-card {
@@ -605,7 +607,7 @@
 
   .job-stage {
     font-size: 11px;
-    color: #b9c6d1;
+    color: #315b75;
   }
 
   .artifact-list {
@@ -614,7 +616,7 @@
     gap: 6px;
     margin-top: 2px;
     padding-top: 6px;
-    border-top: 1px solid #2b2b2b;
+    border-top: 1px solid var(--app-border);
   }
 
   .artifact-row {
@@ -633,7 +635,7 @@
 
   .artifact-copy strong {
     font-size: 11px;
-    color: #d3d8db;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -641,15 +643,16 @@
 
   .artifact-copy span {
     font-size: 10px;
-    color: #72777a;
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
 
   .error-bar {
-    border: 1px solid rgba(200, 60, 60, 0.25);
-    background: rgba(80, 24, 24, 0.45);
-    color: #d99999;
+    border: 1px solid #e0b7b7;
+    border-radius: 8px;
+    background: #f9ecec;
+    color: #8f3c3c;
     font-size: 11px;
     padding: 8px 10px;
   }

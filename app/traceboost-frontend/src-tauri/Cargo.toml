@@ -21,7 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.0.0", features = [] }
 traceboost-app = { path = "../../traceboost-app" }
-seis-contracts-interop = { package = "seis-contracts-interop", path = "../../../contracts/seis-contracts-interop" }
+seis-contracts-operations = { package = "seis-contracts-operations", path = "../../../contracts/seis-contracts-operations" }
 seis-runtime = { package = "seis-runtime", path = "../../../runtime" }
 tauri-plugin-devtools = "2.0.1"
 tauri-plugin-dialog = "2.6.0"
